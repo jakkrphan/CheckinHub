@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ลงทะเบียน ขั้นที่ 1 เลือกวัน — ลงทะเบียน 1 · รูปปก + เลือกวัน</title>
+<link rel="stylesheet" href="assets/tokens.css">
+</head>
+<body>
+<div class="screen-mobile" style=" box-sizing: border-box; position: relative; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font-family: var(--font-body); ">
+
+  <div role="img" aria-label="รูปปกโครงการ" style="width: 100%; height: 176px; border-radius: 0px; background: var(--placeholder); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--placeholder-ink); flex-shrink: 0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--placeholder-ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="9.5" r="1.8"></circle><path d="M21 16l-5-5-6 6-3-3-4 4"></path></svg><span style="font-size: 13px; font-weight: 600;">รูปปกโครงการ</span></div>
+  <div style="flex-shrink: 0; padding: 20px 20px 16px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted);"><span>โรงพยาบาลราชพิพัฒน์</span><span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 6px; background: var(--neutral-soft); color: var(--ink); font-size: 12px; font-weight: 600; white-space: nowrap;">ภายใน</span></div>
+    <div style="font-family: var(--font-display); font-size: 18px; font-weight: 700; line-height: 1.35;">อบรมการใช้งานระบบ ePHIS สำหรับพยาบาลใหม่ รุ่นที่ 3</div>
+    <div style="display: flex; gap: 6px;"><span style="flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--accent);"></span><span style="flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--line);"></span><span style="flex: 1 1 0; height: 4px; border-radius: 999px; background: var(--line);"></span></div>
+    <div style="display: flex; justify-content: space-between; font-size: 13px;"><span style="font-weight: 600;">ขั้นที่ 1/3 · เลือกวันที่จะเข้าร่วม</span><span style="color: var(--muted);">ปิดรับ 10 ต.ค. 23:59</span></div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px;">
+    <div style="font-size: 13px; color: var(--muted); line-height: 1.5;">เลือกได้หลายวัน อย่างน้อย 1 วัน · ที่นั่งนับแยกแต่ละวัน</div>
+    <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px;">
+      <legend style="position: absolute; width: 1px; height: 1px;  clip: rect(0 0 0 0);">วันที่เข้าร่วม</legend>
+      <label style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 12px; background: var(--accent); border: 0; color: var(--surface); cursor: pointer;">
+      <input type="checkbox" checked style="position: absolute; width: 1px; height: 1px;  clip: rect(0 0 0 0);">
+      <span style="width: 56px; display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: 8px; background: rgba(255,255,255,0.14);"><span style="font-size: 11px; font-weight: 600;">พุธ</span><span style="font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.1;">15</span><span style="font-size: 11px;">ต.ค.</span></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px; font-weight: 700;">วันที่ 1</span><span style="font-size: 13px;">เหลือ 12 จาก 40 ที่</span></span>
+      <span style="width: 24px; height: 24px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span>
+    </label>
+      <label style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 12px; background: var(--neutral-soft); border: 1px solid var(--line); color: var(--muted); cursor: not-allowed;">
+      <input type="checkbox" disabled style="position: absolute; width: 1px; height: 1px;  clip: rect(0 0 0 0);">
+      <span style="width: 56px; display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: 8px; background: var(--bg);"><span style="font-size: 11px; font-weight: 600;">อาทิตย์</span><span style="font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.1;">19</span><span style="font-size: 11px;">ต.ค.</span></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px; font-weight: 700;">วันที่ 2</span><span style="font-size: 13px; color: var(--muted);">เต็ม · เลือกได้ แต่จะเข้าคิวรอ</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); font-size: 12px; font-weight: 600; white-space: nowrap;">เต็ม</span>
+    </label>
+      <label style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); cursor: pointer;">
+      <input type="checkbox" style="position: absolute; width: 1px; height: 1px;  clip: rect(0 0 0 0);">
+      <span style="width: 56px; display: flex; flex-direction: column; align-items: center; padding: 6px 0; border-radius: 8px; background: var(--bg);"><span style="font-size: 11px; font-weight: 600;">จันทร์</span><span style="font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.1;">20</span><span style="font-size: 11px;">ต.ค.</span></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-size: 15px; font-weight: 700;">วันที่ 3</span><span style="font-size: 13px; color: var(--muted);">ไม่จำกัดที่นั่ง</span></span>
+      <span style="width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--switch-off); box-sizing: border-box;"></span>
+    </label>
+    </fieldset>
+  </div>
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 20px 22px; background: var(--surface); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;">
+    <a href="public-2-form.html" style="height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--accent); color: var(--surface); font-size: 16px; font-weight: 700; text-decoration: none;">ถัดไป · เลือกแล้ว 1 วัน</a>
+    
+  </div>
+</div>
+</body>
+</html>

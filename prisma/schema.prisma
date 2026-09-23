@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ORGANIZER
+  STAFF
+  ADMIN
+}
+
+enum EventType {
+  INTERNAL
+  EXTERNAL
+  MIXED
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum EventOrganizerRole {
+  FULL
+  CHECKIN_ONLY
+}
+
+enum RegistrantStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WAITLISTED
+  CANCELLED
+}
+
+enum NotificationChannel {
+  EMAIL
+  LINE
+  BOTH
+}
+
+model User {
+  id                  String           @id @default(cuid())
+  name                String
+  email               String           @unique
+  passwordHash        String
+  role                UserRole         @default(ORGANIZER)
+  isActive            Boolean          @default(true)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  ownedEvents         Event[]          @relation("EventOwner")
+  organizerOf         EventOrganizer[]
+  approvedRegistrants Registrant[]     @relation("RegistrantApprover")
+  performedCheckIns   CheckIn[]        @relation("CheckInOperator")
+  auditLogs           AuditLog[]       @relation("AuditActor")
+}
+
+model Event {
+  id                   String           @id @default(cuid())
+  slug                 String           @unique
+  title                String
+  description          String?          @db.Text
+  location             String?
+  eventType            EventType        @default(INTERNAL)
+  status               EventStatus      @default(DRAFT)
+  coverImageUrl        String?
+  coverImageKey        String?
+  fields               Json
+  registrationDeadline DateTime?
+  autoApprove          Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  ownerId              String
+  owner                User             @relation("EventOwner", fields: [ownerId], references: [id])
+  organizers           EventOrganizer[]
+  days                 EventDay[]
+  sessions             Session[]
+  registrants          Registrant[]
+  auditLogs            AuditLog[]
+
+  @@index([ownerId])
+  @@index([status, registrationDeadline])
+}
+
+model EventDay {
+  id             String               @id @default(cuid())
+  eventId        String
+  event          Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  date           DateTime             @db.Date
+  maxSeats       Int?
+  registrantDays RegistrantEventDay[]
+  sessions       Session[]
+
+  @@unique([eventId, date])
+  @@index([date])
+}
+
+model EventOrganizer {
+  id      String             @id @default(cuid())
+  eventId String
+  event   Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    EventOrganizerRole @default(FULL)
+  addedAt DateTime           @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  eventId    String
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventDayId String?
+  eventDay   EventDay? @relation(fields: [eventDayId], references: [id], onDelete: Cascade)
+  label      String
+  startTime  DateTime?
+  endTime    DateTime?
+  checkIns   CheckIn[]
+
+  @@index([eventId])
+  @@index([eventDayId])
+}
+
+model Registrant {
+  id              String              @id @default(cuid())
+  eventId         String
+  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  answers         Json
+  registeredAt    DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  email           String?
+  lineUserId      String?
+  notifyVia       NotificationChannel @default(EMAIL)
+  status          RegistrantStatus    @default(PENDING)
+  approvedAt      DateTime?
+  approvedById    String?
+  approvedBy      User?               @relation("RegistrantApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  cancelledAt     DateTime?
+  qrCode          String?             @unique
+  statusTokenHash String               @unique
+  checkIns        CheckIn[]
+  days            RegistrantEventDay[]
+
+  @@unique([eventId, email])
+  @@index([eventId, status, registeredAt])
+  @@index([approvedById])
+}
+
+model RegistrantEventDay {
+  id           String     @id @default(cuid())
+  registrantId String
+  registrant   Registrant @relation(fields: [registrantId], references: [id], onDelete: Cascade)
+  eventDayId   String
+  eventDay     EventDay   @relation(fields: [eventDayId], references: [id], onDelete: Cascade)
+
+  @@unique([registrantId, eventDayId])
+  @@index([eventDayId])
+}
+
+model CheckIn {
+  id            String     @id @default(cuid())
+  registrantId  String
+  registrant    Registrant @relation(fields: [registrantId], references: [id], onDelete: Cascade)
+  sessionId     String
+  session       Session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  checkedInAt   DateTime   @default(now())
+  checkedInById String?
+  checkedInBy   User?      @relation("CheckInOperator", fields: [checkedInById], references: [id], onDelete: SetNull)
+
+  @@unique([registrantId, sessionId])
+  @@index([sessionId, checkedInAt])
+  @@index([checkedInById])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  actorId   String
+  actor     User     @relation("AuditActor", fields: [actorId], references: [id])
+  action    String
+  target    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([eventId, createdAt])
+  @@index([actorId, createdAt])
+}
