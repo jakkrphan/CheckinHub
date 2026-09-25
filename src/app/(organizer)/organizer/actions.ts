@@ -11,7 +11,7 @@ import { requiresAdminAudit } from "@/server/authorization/policy";
 import { requireEventAccess } from "@/server/authorization/event";
 import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
-import { deleteLocalCover, storeLocalCover } from "@/server/registrations/local-covers";
+import { copyLocalCover, deleteLocalCover, storeLocalCover } from "@/server/registrations/local-covers";
 import { promoteWaitlist } from "@/server/registrations/lifecycle";
 
 const eventInput = z.object({
@@ -184,29 +184,35 @@ export async function updateEvent(eventId: string, formData: FormData) {
   redirect(`/organizer/${eventId}?saved=1`);
 }
 
+/**
+ * Clones a project into a new draft (spec 1.2): copies settings, form fields, cover (as a new file) and sessions.
+ * Days, seats, deadline, registrants, check-ins and collaborators are not copied; sessions come across unbound
+ * because the new days do not exist yet, keeping the first session of each label.
+ */
 export async function cloneEvent(eventId: string) {
   const { user, event, membership } = await requireEventAccess(eventId, "manage");
-  const [days, globalSessions] = await Promise.all([
-    db.eventDay.findMany({ where: { eventId }, include: { sessions: true } }),
-    db.session.findMany({ where: { eventId, eventDayId: null } }),
-  ]);
+  const sessions = await db.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }] });
+  const uniqueSessions = sessions.filter((session, index) => sessions.findIndex((other) => other.label === session.label) === index);
+  const coverKey = await copyLocalCover(event.coverImageKey);
+  const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" });
+  const unboundTime = (value: Date | null) => value ? new Date(`1970-01-01T${clock.format(value)}:00+07:00`) : null;
+  const slug = `event-${randomUUID()}`;
   const cloned = await db.$transaction(async (tx) => {
     const copy = await tx.event.create({ data: {
-      title: `${event.title} (สำเนา)`, slug: `event-${randomUUID()}`, ownerId: user.id,
+      title: `${event.title} (สำเนา)`, slug, ownerId: user.id, clonedFromId: event.id,
       description: event.description, location: event.location, eventType: event.eventType,
-      autoApprove: event.autoApprove, fields: event.fields as Prisma.InputJsonValue,
+      autoApprove: event.autoApprove, fields: event.fields as Prisma.InputJsonValue, fieldsVersion: 1,
       seatMode: event.seatMode, maxSeats: event.maxSeats, attendanceThreshold: event.attendanceThreshold,
       pendingHoldHours: event.pendingHoldHours, waitlistPromotion: event.waitlistPromotion, retentionDays: event.retentionDays,
+      coverImageKey: coverKey, coverImageUrl: coverKey ? `/events/${slug}/cover` : null,
       status: "DRAFT", registrationDeadline: null,
     } });
-    for (const day of days) {
-      const newDay = await tx.eventDay.create({ data: { eventId: copy.id, date: day.date, maxSeats: day.maxSeats } });
-      for (const session of day.sessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: newDay.id, label: session.label, startTime: session.startTime, endTime: session.endTime, sortOrder: session.sortOrder } });
+    for (const [index, session] of uniqueSessions.entries()) {
+      await tx.session.create({ data: { eventId: copy.id, eventDayId: null, label: session.label, startTime: unboundTime(session.startTime), endTime: unboundTime(session.endTime), sortOrder: index + 1 } });
     }
-    for (const session of globalSessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: null, label: session.label, startTime: session.startTime, endTime: session.endTime, sortOrder: session.sortOrder } });
     if (requiresAdminAudit(membership)) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "EVENT_CLONED_BY_ADMIN", target: copy.id, metadata: { sourceEventId: eventId } } });
     return copy;
-  });
+  }).catch(async (error) => { await deleteLocalCover(coverKey); throw error; });
   revalidatePath("/organizer");
-  redirect(`/organizer/${cloned.id}?step=1`);
+  redirect(`/organizer/${cloned.id}?step=1&saved=cloned`);
 }

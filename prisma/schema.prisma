@@ -121,6 +121,9 @@ model Event {
   deletedAt            DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
+  clonedFromId         String?
+  clonedFrom           Event?           @relation("EventClones", fields: [clonedFromId], references: [id], onDelete: SetNull)
+  clones               Event[]          @relation("EventClones")
   ownerId              String
   owner                User             @relation("EventOwner", fields: [ownerId], references: [id])
   organizers           EventOrganizer[]
@@ -132,6 +135,7 @@ model Event {
   @@index([ownerId])
   @@index([status, registrationDeadline])
   @@index([deletedAt])
+  @@index([clonedFromId])
 }
 
 model EventDay {

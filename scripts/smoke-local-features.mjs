@@ -131,6 +131,36 @@ try {
   const ordered = await db.session.findMany({ where: { eventId: event.id }, orderBy: { sortOrder: "asc" }, select: { label: true } });
   ensure(ordered.map((item) => item.label).join(",") === "บ่าย,เช้า", `Session order not saved: ${ordered.map((item) => item.label)}`);
 
+  // Registration QR: printable poster and PNG for managers; check-in-only staff are refused.
+  html = await (await fetch(`${base}/organizer/${event.id}/poster`, { headers: { cookie } })).text();
+  ensure(html.includes("<svg") && html.includes(`/events/${event.slug}`) && html.includes("สแกนเพื่อลงทะเบียน"), "Registration QR poster missing QR or link");
+  response = await fetch(`${base}/organizer/${event.id}/qr`, { headers: { cookie } });
+  const png = new Uint8Array(await response.arrayBuffer());
+  ensure(response.status === 200 && response.headers.get("content-type") === "image/png" && png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47, "Registration QR PNG not served");
+  ensure((await fetch(`${base}/organizer/${event.id}/qr`, { headers: { cookie: staffCookie } })).status !== 200, "Check-in-only staff downloaded the registration QR");
+  ensure((await fetch(`${base}/organizer/${event.id}/poster`, { headers: { cookie: staffCookie } })).status !== 200, "Check-in-only staff opened the registration QR poster");
+
+  // Project list menu: clone follows the spec (no days/deadline, sessions unbound) and delete asks for confirmation.
+  const listHtml = await (await fetch(`${base}/organizer`, { headers: { cookie } })).text();
+  const menuOf = (id) => listHtml.slice(listHtml.indexOf(`id="event-menu-${id}"`), listHtml.indexOf("</form></details>", listHtml.indexOf(`id="event-menu-${id}"`)) + 20);
+  const cloneForm = formsFrom(menuOf(event.id)).find((part) => part.includes("ทำสำเนาโครงการ (clone)"));
+  ensure(cloneForm, "Clone form missing from the project menu");
+  response = await post(`${base}/organizer`, cloneForm, {}, { cookie });
+  const cloneId = location(response).match(/organizer\/([^?/]+)\?step=1&saved=cloned/)?.[1];
+  ensure(cloneId, `Clone did not open the new draft: ${location(response)}`);
+  eventIds.push(cloneId);
+  const clone = await db.event.findUniqueOrThrow({ where: { id: cloneId }, include: { days: true, sessions: true } });
+  ensure(clone.status === "DRAFT" && clone.clonedFromId === event.id && clone.days.length === 0 && clone.registrationDeadline === null && clone.sessions.length === 2 && clone.sessions.every((item) => !item.eventDayId) && clone.title.endsWith("(สำเนา)"), "Clone copied days/deadline or kept sessions bound");
+  // React separates adjacent text nodes with <!-- --> in server HTML.
+  const listAfter = (await (await fetch(`${base}/organizer?status=DRAFT`, { headers: { cookie } })).text()).replaceAll("<!-- -->", "");
+  ensure(listAfter.includes(`ทำสำเนาจาก ${event.title}`) && listAfter.includes("ตั้งวันจัด"), "Clone row lacks its source chip or next setup step");
+  const deleteHtml = listAfter.slice(listAfter.indexOf(`id="event-menu-${cloneId}"`));
+  const deleteForm = formsFrom(deleteHtml).find((part) => part.includes('name="confirm"'));
+  response = await post(`${base}/organizer`, deleteForm, {}, { cookie });
+  ensure(await db.event.count({ where: { id: cloneId } }) === 1, "Delete ran without confirmation");
+  response = await post(`${base}/organizer`, deleteForm, { confirm: "on" }, { cookie });
+  ensure(location(response).includes("/organizer?deleted=1") && await db.event.count({ where: { id: cloneId } }) === 0, "Confirmed delete of an empty draft did not remove it");
+
   // xlsx export with Thai headers, audited separately from CSV.
   response = await fetch(`${base}/organizer/${event.id}/registrants/export?format=xlsx`, { headers: { cookie } });
   const bytes = Buffer.from(await response.arrayBuffer());

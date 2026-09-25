@@ -292,7 +292,8 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
       {step !== 3 && step !== 4 && step !== 5 && typeof error === "string" && error !== "invalid" && errorMessage[error] && (
         <p role="alert" className="text-sm text-destructive">{errorMessage[error]}</p>
       )}
-      {saved && step !== 4 && step !== 5 && <p role="status" className="text-sm text-muted-foreground">บันทึกข้อมูลแล้ว</p>}
+      {saved === "cloned" ? <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">ทำสำเนาโครงการแล้ว — คัดลอกข้อมูล ฟอร์ม รูปปก และรอบเช็คชื่อ (แบบไม่ผูกวัน) มาให้ ต้องกำหนดวันที่จัด ที่นั่ง วันปิดรับ และผู้ร่วมจัดใหม่</p>
+        : saved && step !== 4 && step !== 5 && <p role="status" className="text-sm text-muted-foreground">บันทึกข้อมูลแล้ว</p>}
 
       {step === 5 && <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-1">

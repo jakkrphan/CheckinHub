@@ -19,7 +19,7 @@ export default async function OrganizerLayout({ children }: LayoutProps<"/organi
       <OrganizerSidebar isAdmin={user.role === "ADMIN"} name={user.name} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 sm:px-6 lg:px-8">
+        <header className="flex min-h-[60px] print:hidden flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 sm:px-6 lg:px-8">
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden min-h-11 items-center gap-2 rounded-full border bg-card px-2 pr-3 sm:flex">
               <span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground">{user.name.trim().slice(0, 2)}</span>

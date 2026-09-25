@@ -95,6 +95,16 @@
   - Publish card: status chip, readiness checklist with "ไปแก้" links, copyable public link, and publish / close / reopen buttons.
   - "Other actions" card: clone, shortcuts, and delete with confirmation.
   - The sidebar shows the project name, and a step is ticked only when its data is actually ready.
+- **Project list (mockup B):**
+  - "ทำสำเนาจากโครงการเดิม" picker next to "สร้างโครงการ".
+  - A ⋯ menu per row (native popover): overview, registrants, edit, clone, registration link (copy/open, or go to publish step), and owner-only delete with confirmation.
+  - "ต้องจัดการ" shows a draft's next missing setup step (ตั้งวันจัด / เพิ่มฟอร์ม / เพิ่มรอบเช็คชื่อ / ตั้งวันปิดรับ / พร้อมเผยแพร่) linking to that step; published projects link their pending/waitlist counts to the filtered registrant list.
+  - Stacked date chips, a "ทำสำเนาจาก …" chip, and dimmed closed rows. Draft titles open the next setup step.
+- **Clone follows spec 1.2:** days, seats, deadline, registrants and collaborators are no longer copied. Sessions come across unbound, keeping the first of each label and their clock times. The cover is copied to a new file, and the new `Event.clonedFromId` (migration `20260926020000_event_cloned_from`) records the source.
+- **Registration QR:** step 5 shows a QR of the public link, with **Print QR** and **PNG** buttons.
+  - `/organizer/[eventId]/poster` is an A4 poster: title, dates, location, a large QR, the link and the deadline. Print CSS hides the sidebar and header.
+  - `/organizer/[eventId]/qr` serves a 1024px PNG with error-correction level H.
+  - Both routes require `manage`, so check-in-only staff cannot open them.
 - **Permission fix:** publishing and closing are now owner/admin only (`changeEventStatus` uses `administer`, as the spec requires). Before, full collaborators could publish.
 - **Tests:** `registration`, `whole-course` and `admin` were updated for the new UI. `admin` now also covers the 403, `next=` and the off-site `next` block. All nine MySQL suites, lint and build pass.
 

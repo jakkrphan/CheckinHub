@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const uploadRoot = join(process.cwd(), ".local-uploads");
@@ -28,5 +28,18 @@ export async function deleteLocalCover(key: string | null | undefined) {
   if (!key || !/^[0-9a-f-]{36}\.(jpg|png|webp)$/i.test(key)) return;
   try { await unlink(join(uploadRoot, key)); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Copies a cover to a new key so a cloned event never shares (and loses) the original's image file. */
+export async function copyLocalCover(key: string | null | undefined) {
+  if (!key || !/^[0-9a-f-]{36}\.(jpg|png|webp)$/i.test(key)) return null;
+  const copy = `${randomUUID()}.${key.split(".").pop()}`;
+  try {
+    await copyFile(join(uploadRoot, key), join(uploadRoot, copy));
+    return copy;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 }

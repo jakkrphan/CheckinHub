@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { headers } from "next/headers";
-import { CheckIcon, CircleAlertIcon, EyeOffIcon, SearchIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, CircleAlertIcon, DownloadIcon, EyeOffIcon, PrinterIcon, SearchIcon, UserPlusIcon, XIcon } from "lucide-react";
 
 import { cloneEvent } from "@/app/(organizer)/organizer/actions";
 import { deleteOwnedEvent } from "@/app/(organizer)/organizer/[eventId]/delete-action";
@@ -12,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
+import { publicEventUrl, registrationQrSvg } from "@/server/events/public-url";
 
 export type PublishCheck = { label: string; detail?: string; ready: boolean; step?: number };
 type Member = { id: string; userId: string; role: "FULL" | "CHECKIN_ONLY"; user: { name: string; email: string } };
@@ -34,9 +34,8 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
   error?: string;
   saved?: string;
 }) {
-  const requestHeaders = await headers();
-  const origin = process.env.APP_BASE_URL ?? `${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`;
-  const publicUrl = `${origin}/events/${event.slug}`;
+  const publicUrl = await publicEventUrl(event.slug);
+  const qrSvg = await registrationQrSvg(publicUrl);
   const missing = checks.filter((check) => !check.ready);
   const [statusText, statusClass] = statusChip[event.status];
 
@@ -88,6 +87,17 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
         <div className="flex flex-col gap-2 rounded-lg bg-muted px-3 py-2.5">
           <span className="text-xs text-muted-foreground">ลิงก์ลงทะเบียน{event.status === "PUBLISHED" ? "" : " (ใช้ได้เมื่อเผยแพร่)"}</span>
           <div className="flex items-center gap-2"><code className="min-w-0 flex-1 truncate font-mono text-sm">{publicUrl.replace(/^https?:\/\//, "")}</code><CopyButton value={publicUrl} /></div>
+        </div>
+        <div className="flex items-center gap-4 rounded-lg border px-3 py-3">
+          <div role="img" aria-label="QR code ลิงก์ลงทะเบียน" className="size-24 shrink-0 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <div className="flex min-w-0 flex-col gap-2">
+            <span className="text-sm font-semibold">QR ลงทะเบียน</span>
+            <span className="text-xs text-muted-foreground">พิมพ์เป็นโปสเตอร์ A4 ติดหน้างาน หรือดาวน์โหลดไปใส่สไลด์/โพสต์</span>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm"><Link href={`/organizer/${event.id}/poster`}><PrinterIcon data-icon="inline-start" aria-hidden="true" />พิมพ์ QR</Link></Button>
+              <Button asChild variant="outline" size="sm"><a href={`/organizer/${event.id}/qr`} download><DownloadIcon data-icon="inline-start" aria-hidden="true" />PNG</a></Button>
+            </div>
+          </div>
         </div>
         {error === "not-ready" && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">ยังเผยแพร่ไม่ได้ กรุณาแก้รายการที่ยังไม่พร้อมก่อน</p>}
         {saved === "status" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-3 py-2 text-sm text-accent-foreground">เปลี่ยนสถานะโครงการแล้ว</p>}
