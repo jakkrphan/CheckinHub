@@ -53,7 +53,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
     include: { days: { orderBy: { eventDay: { date: "asc" } }, include: { eventDay: { select: { date: true } } } }, checkIns: { where: { voidedAt: null }, select: { sessionId: true } } },
   }), db.registrant.count({ where })]);
   const counts = await db.registrant.groupBy({ by: ["status"], where: { eventId }, _count: true });
-  const sessions = await db.session.findMany({ where: { eventId }, select: { id: true, label: true, eventDay: { select: { date: true } }, _count: { select: { checkIns: { where: { voidedAt: null } } } } } });
+  const sessions = await db.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }], select: { id: true, label: true, eventDay: { select: { date: true } }, _count: { select: { checkIns: { where: { voidedAt: null } } } } } });
   const date = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "UTC" });
   const makeHref = (changes: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -63,10 +63,11 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   };
 
   return <>
-    <OrganizerEventHeader event={event} activeTab="registrants" actions={<><Button asChild><Link href={`/organizer/${eventId}/registrants/new`}>เพิ่มผู้สมัคร</Link></Button><form method="get" action={`/organizer/${eventId}/registrants/export`} className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-1 text-xs"><input type="checkbox" name="includeSensitive" className="size-4 accent-primary" />รวมข้อมูลอ่อนไหว</label><Button type="submit" variant="outline">ส่งออก CSV</Button></form></>} />
+    <OrganizerEventHeader event={event} activeTab="registrants" actions={<><Button asChild><Link href={`/organizer/${eventId}/registrants/new`}>เพิ่มผู้สมัคร</Link></Button><form method="get" action={`/organizer/${eventId}/registrants/export`} className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-1 text-xs"><input type="checkbox" name="includeSensitive" className="size-4 accent-primary" />รวมข้อมูลอ่อนไหว</label><Button type="submit" variant="outline">ส่งออก CSV</Button><Button type="submit" name="format" value="xlsx" variant="outline">ส่งออก Excel (.xlsx)</Button></form></>} />
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-8 lg:px-10">
     <AutoRefresh />
-    <h2 className="font-heading text-xl font-semibold">????????????</h2>
+    <h2 className="font-heading text-xl font-semibold">ผู้ลงทะเบียน</h2>
+    {event.anonymizedAt && <p role="status" className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">ข้อมูลส่วนบุคคลของโครงการนี้ถูกปกปิดแล้วเมื่อครบระยะเก็บข้อมูล {new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(event.anonymizedAt)} เหลือเฉพาะสถานะและสถิติการเข้าร่วม</p>}
     <div className="flex flex-wrap gap-2"><Badge variant={!selectedStatus ? "default" : "outline"}><Link href={makeHref({ status: undefined, page: "1" })}>ทั้งหมด {counts.reduce((sum, item) => sum + item._count, 0)}</Link></Badge>{Object.entries(labels).map(([key, label]) => <Badge key={key} variant={selectedStatus === key ? "default" : "outline"}><Link href={makeHref({ status: key, page: "1" })}>{label} {counts.find((item) => item.status === key)?._count ?? 0}</Link></Badge>)}</div>
     <div className="rounded-xl border bg-card p-4"><p className="font-medium">เช็คชื่อแต่ละรอบ</p><div className="mt-2 flex flex-wrap gap-3 text-sm">{sessions.map((session) => <span key={session.id}>{session.label} · {session.eventDay ? date.format(session.eventDay.date) : "ทุกวัน"}: {session._count.checkIns}</span>)}</div></div>
     <form method="get" className="flex flex-col gap-4 rounded-xl border bg-card p-4">

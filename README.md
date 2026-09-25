@@ -12,6 +12,12 @@ npm.cmd run maintenance:pending-holds
 
 ให้ตัวตั้งเวลาของเครื่องเรียกคำสั่งนี้เป็นระยะ (เช่น ทุก 15 นาที) เมื่อใช้งานจริง งานนี้ยังไม่มีบริการ scheduler ภายนอกเชื่อมอยู่
 
+งานลบ/ปกปิดข้อมูลส่วนบุคคลตามระยะเก็บข้อมูล (PDPA) ใช้ `CRON_SECRET` เดียวกัน: โครงการที่เลยวันจัดสุดท้าย + `retentionDays` (ค่าเริ่มต้น 365 วัน ตั้งได้ในขั้นที่ 1) จะถูกลบคำตอบ อีเมล IP ความยินยอม QR และไฟล์แนบ เหลือเฉพาะสถานะและสถิติ ควรเรียกวันละครั้ง:
+
+```powershell
+npm.cmd run maintenance:retention
+```
+
 ## Local MySQL with Docker
 
 Docker Compose จะเปิด MySQL ที่ `localhost:3307` และเก็บข้อมูลไว้ใน volume `checkinhub_mysql_data` (ใช้ `3307` เพื่อไม่ชนกับ MySQL อื่นที่อาจใช้ port มาตรฐาน `3306`)
@@ -59,6 +65,7 @@ npm.cmd run test:integration:pending-holds
 npm.cmd run test:integration:admin
 npm.cmd run test:integration:whole-course
 npm.cmd run test:integration:rules
+npm.cmd run test:integration:local-features
 ```
 
 คำสั่งทดสอบสร้างข้อมูลชั่วคราวแล้วลบเมื่อจบ การรับสมัคร local ทำงานใน development โดยไม่ต้องมี Turnstile; production จะปฏิเสธการรับสมัครจนกว่าจะตั้ง `NEXT_PUBLIC_TURNSTILE_SITE_KEY` และ `TURNSTILE_SECRET_KEY` (พร้อมบริการส่งอีเมล/LINE ก่อนใช้งานจริง)

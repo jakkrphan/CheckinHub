@@ -6,8 +6,7 @@ import { CalendarDaysIcon, ClipboardListIcon, ListChecksIcon, QrCodeIcon, UsersI
 import { cloneEvent, updateEvent } from "@/app/(organizer)/organizer/actions";
 import { deleteOwnedEvent } from "@/app/(organizer)/organizer/[eventId]/delete-action";
 import { SeatModeFields } from "@/app/(organizer)/organizer/seat-mode-fields";
-import { addRegistrationField } from "@/app/(organizer)/organizer/field-actions";
-import { addEventDays, addSessionForScope, removeEventDay, removeSession, updateEventDay, updateSession } from "@/app/(organizer)/organizer/schedule-actions";
+import { addEventDays, addSessionForScope, moveSession, removeEventDay, removeSession, updateEventDay, updateSession } from "@/app/(organizer)/organizer/schedule-actions";
 import { changeEventStatus } from "@/app/(organizer)/organizer/[eventId]/status-actions";
 import { addEventMember, removeEventMember } from "@/app/(organizer)/organizer/[eventId]/member-actions";
 import { EventDayCalendar } from "@/app/(organizer)/organizer/[eventId]/event-day-calendar";
@@ -47,11 +46,20 @@ const errorMessage: Record<string, string> = {
   "invalid-session": "กรุณากรอกชื่อรอบเช็คชื่อให้ถูกต้อง",
   "session-in-use": "ลบรอบไม่ได้: รอบนี้มีประวัติเช็คชื่อ ต้องติ๊กยืนยันว่าจะลบประวัติเช็คชื่อของรอบนี้ด้วย",
   "duplicate-session": "ชื่อรอบซ้ำ: วันเดียวกันใช้ชื่อรอบซ้ำไม่ได้ และรอบที่ใช้ได้ทุกวันต้องไม่ซ้ำกับรอบอื่น",
-  "invalid-field": "กรุณาตรวจสอบข้อมูลฟิลด์อีกครั้ง",
+  "invalid-field": "บันทึกฟิลด์ไม่ได้: ตรวจชื่อฟิลด์ เงื่อนไข (ฟิลด์ลูกต้องอยู่หลังฟิลด์แม่ และใช้ค่าที่มีในตัวเลือกของฟิลด์แม่) และตัวเลือกที่ฟิลด์ลูกอ้างถึง",
+  "invalid-condition": "ตั้งเงื่อนไขไม่ครบ: เลือกค่าของฟิลด์แม่อย่างน้อย 1 ค่า หรือปิดสวิตช์ “แสดงแบบมีเงื่อนไข”",
   "invalid-options": "ตัวเลือกต้องมี 2–30 ค่า ห้ามซ้ำกัน และยาวไม่เกิน 191 ตัวอักษร",
   "fields-locked": "แก้ฟอร์มได้เฉพาะโครงการฉบับร่าง",
   "field-in-use": "ลบฟิลด์นี้ไม่ได้ เพราะมีผู้ลงทะเบียนหรือฟิลด์อื่นอ้างถึงอยู่",
 };
+
+function SessionOrderButtons({ eventId, sessionId, label, index, count }: { eventId: string; sessionId: string; label: string; index: number; count: number }) {
+  if (count < 2) return null;
+  return <div className="flex items-center gap-1">
+    <form action={moveSession.bind(null, eventId, sessionId, "up")}><Button type="submit" variant="ghost" size="sm" disabled={index === 0} aria-label={`เลื่อนรอบ ${label} ขึ้น`}>↑</Button></form>
+    <form action={moveSession.bind(null, eventId, sessionId, "down")}><Button type="submit" variant="ghost" size="sm" disabled={index === count - 1} aria-label={`เลื่อนรอบ ${label} ลง`}>↓</Button></form>
+  </div>;
+}
 
 function RemoveSessionForm({ action, checkIns }: { action: (formData: FormData) => Promise<void>; checkIns: number }) {
   if (checkIns === 0) return <form action={action}><Button type="submit" variant="ghost" size="sm">ลบรอบ</Button></form>;
@@ -75,18 +83,17 @@ const wizardSteps = [
 export default async function EventPage({ params, searchParams }: PageProps<"/organizer/[eventId]">) {
   const { eventId } = await params;
   const { event, user } = await requireEventAccess(eventId, "manage");
-  const { error, saved, step: requestedStep } = await searchParams;
+  const { error, saved, step: requestedStep, field: selectedField } = await searchParams;
   const registrantCount = await db.registrant.count({ where: { eventId } });
   const step = typeof requestedStep === "string" && /^[1-5]$/.test(requestedStep)
     ? Number(requestedStep)
-    : saved === "field" || ["invalid-field", "invalid-options", "fields-locked", "field-in-use"].includes(String(error)) ? 3
+    : saved === "field" || ["invalid-field", "invalid-condition", "invalid-options", "fields-locked", "field-in-use"].includes(String(error)) ? 3
     : saved === "session" || ["invalid-session", "session-in-use", "duplicate-session"].includes(String(error)) ? 4
     : saved === "member" || saved === "status" || ["invalid-member", "member-not-found", "not-ready", "invalid-status"].includes(String(error)) ? 5
     : saved === "day" || ["invalid-day", "duplicate-day", "day-in-use"].includes(String(error)) ? 2
     : 1;
   const save = updateEvent.bind(null, eventId);
   const addDay = addEventDays.bind(null, eventId);
-  const addField = addRegistrationField.bind(null, eventId);
   const registrationFields = readRegistrationFields(event.fields);
   const canAdminister = event.ownerId === user.id || user.role === "ADMIN";
   const members = canAdminister ? await db.eventOrganizer.findMany({ where: { eventId }, include: { user: { select: { name: true, email: true } } } }) : [];
@@ -96,7 +103,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     include: {
       _count: { select: { registrantDays: true } },
       sessions: {
-        orderBy: { label: "asc" },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
         include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } },
       },
     },
@@ -109,7 +116,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
   const approvedCountByDay = new Map(approvedByDay.map((day) => [day.eventDayId, day._count._all]));
   const hasRegistrationFields = registrationFields.length > 0;
   const hasValidRegistrationFields = hasRegistrationFields && validateRegistrationFields(registrationFields);
-  const globalSessions = step === 4 || step === 5 ? await db.session.findMany({ where: { eventId, eventDayId: null }, orderBy: { label: "asc" }, include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } }) : [];
+  const globalSessions = step === 4 || step === 5 ? await db.session.findMany({ where: { eventId, eventDayId: null }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } }) : [];
   const hasSessions = days.length > 0 && (globalSessions.length > 0 || days.every((day) => day.sessions.length > 0));
   const hasFutureDeadline = !!event.registrationDeadline && event.registrationDeadline > new Date();
   const hasFileFields = registrationFields.some((field) => field.type === "file");
@@ -159,7 +166,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     <div className="flex min-w-0 flex-1 flex-col">
     <main className="flex w-full max-w-[1320px] flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:gap-7 lg:px-12 lg:py-9">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
-        <div className="flex flex-col gap-1"><Link href="/organizer" className="text-xs text-muted-foreground hover:text-foreground">????????????? / {event.title}</Link><p className="text-xs text-muted-foreground">??????? {step} ??? 5</p></div>
+        <div className="flex flex-col gap-1"><Link href="/organizer" className="text-xs text-muted-foreground hover:text-foreground">โครงการของฉัน / {event.title}</Link><p className="text-xs text-muted-foreground">ขั้นที่ {step} จาก 5</p></div>
         <Badge variant={event.status === "PUBLISHED" ? "default" : "secondary"}>{statusLabel[event.status]}</Badge>
       </div>
       {step === 1 && <>
@@ -207,6 +214,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
             <FieldLabel htmlFor="autoApprove">อนุมัติผู้ลงทะเบียนอัตโนมัติ</FieldLabel>
           </Field>
           <Field><FieldLabel htmlFor="pendingHoldHours">เวลาจองที่นั่งระหว่างรออนุมัติ</FieldLabel><Input id="pendingHoldHours" name="pendingHoldHours" type="number" min={1} max={720} defaultValue={event.pendingHoldHours ?? ""} placeholder="ไม่หมดอายุ" /><FieldDescription>ระบุจำนวนชั่วโมง หรือเว้นว่างไว้</FieldDescription></Field>
+          <Field><FieldLabel htmlFor="retentionDays">ระยะเก็บข้อมูลส่วนบุคคล (วัน)</FieldLabel><Input id="retentionDays" name="retentionDays" type="number" min={30} max={3650} defaultValue={event.retentionDays} disabled={!!event.anonymizedAt} /><FieldDescription>{event.anonymizedAt ? "ข้อมูลส่วนบุคคลของโครงการนี้ถูกปกปิดแล้ว เหลือเฉพาะสถิติ" : "นับหลังวันจัดสุดท้าย เมื่อครบกำหนดระบบจะลบข้อมูลที่ระบุตัวตนและไฟล์แนบ เหลือเฉพาะสถิติ"}</FieldDescription></Field>
           <Field><FieldLabel htmlFor="waitlistPromotion">เลื่อนคิวเมื่อมีที่นั่งว่าง</FieldLabel><NativeSelect id="waitlistPromotion" name="waitlistPromotion" defaultValue={event.waitlistPromotion}><option value="MANUAL">ให้ผู้จัดเลือกเอง</option><option value="AUTO">อัตโนมัติ ตามลำดับคิว</option></NativeSelect></Field>
         </div>
         </div>
@@ -217,59 +225,12 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
       </form>
       </>}
 
-      {step === 3 && <section className="flex flex-col gap-5">
+      {step === 3 && <section className="flex flex-col gap-7">
         <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-2xl font-bold">ฟอร์มลงทะเบียน</h2>
-          <p className="text-sm text-muted-foreground">ลากเรียงลำดับได้ · ฟิลด์แบบมีเงื่อนไขต้องอยู่หลังฟิลด์แม่ · โครงการที่เผยแพร่แล้วจะล็อกการแก้ฟอร์ม</p>
+          <h2 className="font-heading text-[22px] font-bold">ฟอร์มลงทะเบียน</h2>
+          <p className="text-sm text-muted-foreground">ลากเรียงลำดับได้ · ฟิลด์ลูกจะโผล่เฉพาะเมื่อฟิลด์แม่ถูกเลือกตามเงื่อนไข</p>
         </div>
-        {registrationFields.length === 0 && <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">ยังไม่มีฟิลด์ลงทะเบียน</p>}
-        {registrationFields.length > 0 && <FieldBuilder eventId={eventId} fields={registrationFields} editable={event.status === "DRAFT"} />}
-        {event.status === "DRAFT" && (
-          <form action={addField} className="flex flex-col gap-5 rounded-xl border bg-card p-6">
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="fieldLabel">ชื่อฟิลด์</FieldLabel>
-                <Input id="fieldLabel" name="label" maxLength={191} placeholder="เช่น ชื่อ-นามสกุล" required />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="fieldType">ชนิดข้อมูล</FieldLabel>
-                <NativeSelect id="fieldType" name="type" defaultValue="text">
-                  <option value="text">ข้อความสั้น</option>
-                  <option value="textarea">ข้อความยาว</option>
-                  <option value="email">อีเมล</option>
-                  <option value="tel">เบอร์โทรศัพท์</option>
-                  <option value="date">วันที่</option>
-                  <option value="select">ตัวเลือก</option>
-                  <option value="checkbox">ช่องทำเครื่องหมาย</option>
-                  <option value="file">ไฟล์แนบ (local, สูงสุด 5 MB)</option>
-                </NativeSelect>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="optionsText">ตัวเลือก / ชนิดไฟล์ที่อนุญาต</FieldLabel>
-                <Textarea id="optionsText" name="optionsText" rows={3} maxLength={3000} placeholder="ตัวเลือกต่อบรรทัด หรือ pdf, jpg, png, webp สำหรับไฟล์" />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="maxFileSizeMb">ขนาดไฟล์สูงสุด (ใช้กับชนิดไฟล์เท่านั้น, 1–5 MB)</FieldLabel>
-                <Input id="maxFileSizeMb" name="maxFileSizeMb" type="number" min={1} max={5} defaultValue={5} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="conditionField">แสดงเมื่อฟิลด์ก่อนหน้ามีคำตอบ (ไม่บังคับ)</FieldLabel>
-                <NativeSelect id="conditionField" name="conditionField" defaultValue="">
-                  <option value="">แสดงเสมอ</option>
-                  {registrationFields.filter((item) => item.type === "select" || item.type === "checkbox").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
-                </NativeSelect>
-              </Field>
-              <Field><FieldLabel htmlFor="conditionValue">ค่าเงื่อนไขที่ต้องตรง</FieldLabel><Input id="conditionValue" name="conditionValue" maxLength={191} placeholder="ใส่ตัวเลือกหนึ่งค่าจากฟิลด์ด้านบน" /></Field>
-              <Field orientation="horizontal">
-                <input id="fieldRequired" name="required" type="checkbox" className="size-4 accent-primary" />
-                <FieldLabel htmlFor="fieldRequired">บังคับกรอก</FieldLabel>
-              </Field>
-              <Field orientation="horizontal"><input id="fieldCheckin" name="showOnCheckin" type="checkbox" className="size-4 accent-primary" /><FieldLabel htmlFor="fieldCheckin">แสดงคำตอบบนหน้าจอเช็คชื่อ (ไม่ใช้กับไฟล์หรือข้อมูลอ่อนไหว)</FieldLabel></Field>
-              <Field orientation="horizontal"><input id="fieldSensitive" name="sensitive" type="checkbox" className="size-4 accent-primary" /><FieldLabel htmlFor="fieldSensitive">ข้อมูลอ่อนไหว ต้องเปิดดูและส่งออกโดยยืนยัน</FieldLabel></Field>
-            </FieldGroup>
-            <div className="flex justify-end"><Button type="submit" variant="outline">เพิ่มฟิลด์</Button></div>
-          </form>
-        )}
+        <FieldBuilder key={registrationFields.map((field) => field.key).join(",")} eventId={eventId} fields={registrationFields} editable={event.status === "DRAFT" && registrantCount === 0} initialSelected={typeof selectedField === "string" ? selectedField : undefined} error={typeof error === "string" ? errorMessage[error] : undefined} />
       </section>}
 
       {(step === 2 || step === 4) && <section className="flex flex-col gap-5">
@@ -283,7 +244,8 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         {step === 2 && <div className="flex items-center justify-between rounded-xl border bg-card px-5 py-4"><h3 className="font-heading text-lg font-bold">เลือกแล้ว {days.length} วัน</h3><span className="text-sm text-muted-foreground">{event.seatMode === "whole_course" ? `ที่นั่งทั้งหลักสูตร ${event.maxSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"}` : `ที่นั่งรวม ${days.reduce((sum, day) => sum + (day.maxSeats ?? 0), 0).toLocaleString("th-TH")}${days.some((day) => day.maxSeats === null) ? " + ไม่จำกัด" : ""}`}</span></div>}
         {step === 4 && <section className="flex flex-col gap-4 rounded-xl border bg-card p-5">
           <div><h3 className="font-heading text-lg font-semibold">รอบเช็คชื่อที่ใช้ได้ทุกวัน</h3><p className="text-sm text-muted-foreground">รอบแบบไม่ผูกวันใช้เช็คชื่อได้กับผู้ลงทะเบียนทุกวันของโครงการ</p></div>
-          {globalSessions.map((session) => <div key={session.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+          {globalSessions.map((session, index) => <div key={session.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+            <SessionOrderButtons eventId={eventId} sessionId={session.id} label={session.label} index={index} count={globalSessions.length} />
             <form action={updateSession.bind(null, eventId, session.id)} className="flex flex-wrap items-center gap-2"><Input name="label" aria-label="ชื่อรอบเช็คชื่อที่ใช้ได้ทุกวัน" defaultValue={session.label} maxLength={191} className="max-w-56" /><span className="text-xs text-muted-foreground">เช็คชื่อแล้ว {session._count.checkIns} คน</span><Button type="submit" variant="ghost" size="sm">แก้ชื่อ</Button></form>
             <RemoveSessionForm action={removeSession.bind(null, eventId, session.id)} checkIns={session._count.checkIns} />
           </div>)}
@@ -320,8 +282,9 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
             {step === 4 && <div className="flex flex-col gap-3">
               <h4 className="text-sm font-semibold">รอบเช็คชื่อ</h4>
               {day.sessions.length === 0 && <p className="text-sm text-muted-foreground">ยังไม่มีรอบเช็คชื่อของวันนี้</p>}
-              {day.sessions.map((session) => (
-                <div key={session.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              {day.sessions.map((session, index) => (
+                <div key={session.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                  <SessionOrderButtons eventId={eventId} sessionId={session.id} label={session.label} index={index} count={day.sessions.length} />
                   <form action={updateSession.bind(null, eventId, session.id)} className="flex flex-wrap items-center gap-2"><Input name="label" aria-label="ชื่อรอบ" defaultValue={session.label} maxLength={191} className="max-w-44" /><span className="text-xs text-muted-foreground">เช็คชื่อแล้ว {session._count.checkIns} คน</span><Button type="submit" variant="ghost" size="sm">แก้ชื่อ</Button></form>
                   <RemoveSessionForm action={removeSession.bind(null, eventId, session.id)} checkIns={session._count.checkIns} />
                 </div>
@@ -333,7 +296,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         </div>
       </section>}
 
-      {typeof error === "string" && error !== "invalid" && errorMessage[error] && (
+      {step !== 3 && typeof error === "string" && error !== "invalid" && errorMessage[error] && (
         <p role="alert" className="text-sm text-destructive">{errorMessage[error]}</p>
       )}
       {saved && <p role="status" className="text-sm text-muted-foreground">บันทึกข้อมูลแล้ว</p>}

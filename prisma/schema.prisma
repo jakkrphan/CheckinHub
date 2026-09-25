@@ -116,6 +116,8 @@ model Event {
   attendanceThreshold  Int?
   pendingHoldHours     Int?
   waitlistPromotion    WaitlistPromotion @default(MANUAL)
+  retentionDays        Int              @default(365)
+  anonymizedAt         DateTime?
   deletedAt            DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
@@ -168,6 +170,7 @@ model Session {
   label      String
   startTime  DateTime?
   endTime    DateTime?
+  sortOrder  Int       @default(0)
   checkIns   CheckIn[]
 
   @@index([eventId])
@@ -196,6 +199,7 @@ model Registrant {
   approvedBy      User?               @relation("RegistrantApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   cancelledAt     DateTime?
   rejectReason    String?             @db.Text
+  anonymizedAt    DateTime?
   qrCode          String?             @unique
   statusTokenHash String               @unique
   checkIns        CheckIn[]
@@ -236,6 +240,8 @@ model CheckIn {
   voidedBy      User?      @relation("CheckInVoider", fields: [voidedById], references: [id], onDelete: SetNull)
   activeKey     String?    @unique
   clientEventId String?    @unique
+  method        String?    @db.VarChar(16)
+  syncedAt      DateTime   @default(now())
   isOverride    Boolean    @default(false)
   overrideNote  String?    @db.VarChar(500)
 
@@ -243,14 +249,15 @@ model CheckIn {
   @@index([registrantId])
   @@index([checkedInById])
   @@index([sessionId, voidedAt, checkedInAt])
+  @@index([sessionId, syncedAt])
 }
 
 model AuditLog {
   id        String   @id @default(cuid())
   eventId   String?
   event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  actorId   String
-  actor     User     @relation("AuditActor", fields: [actorId], references: [id])
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
   action    String
   target    String?
   metadata  Json?

@@ -112,44 +112,73 @@ try {
   ensure(response.status === 303 && response.headers.get("location")?.includes("error=invalid-cover"), "Invalid cover was not rejected");
   ensure((await db.event.findUniqueOrThrow({ where: { id: eventId } })).coverImageKey === coverKey, "Invalid cover replaced the previous image");
 
+  // Form builder: the side panel adds a field when nothing is selected and edits the selected field otherwise.
+  const loadField = async (key) => (await fetch(`${url}?step=3&field=${encodeURIComponent(key)}`, { headers: { cookie } })).text();
+  const fieldPanel = (page) => formsFrom(page).find((form) => form.includes('name="label"') && (form.includes("เพิ่มฟิลด์</button>") || form.includes("บันทึกฟิลด์</button>")));
+  // Buttons with their own formAction submit the form plus the clicked button's name, as a browser does.
+  const clickButton = (formHtml, ariaLabelPart) => {
+    const button = [...formHtml.matchAll(/<button[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes(`aria-label="${ariaLabelPart}`));
+    const name = button?.match(/name="([^"]+)"/)?.[1];
+    ensure(name, `Button ${ariaLabelPart} missing`);
+    return submit(formHtml, { [name]: "" });
+  };
   html = await loadPage(3);
-  const addFieldForm = formsFrom(html).find((form) => form.includes('name="optionsText"'));
-  ensure(addFieldForm, "Add field form missing");
+  const addFieldForm = fieldPanel(html);
+  ensure(addFieldForm?.includes('name="type"'), "Add field form missing");
   response = await submit(addFieldForm, { label: "หน่วยงาน", type: "select", optionsText: "แพทย์\nพยาบาล", required: "on" });
   ensure(response.status === 303, "Add field did not redirect");
   let fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
   ensure(Array.isArray(fields) && fields.length === 1 && fields[0].required && fields[0].options.length === 2, "Registration field was not saved");
+  ensure(response.headers.get("location")?.includes(`field=${fields[0].key}`), "New field was not selected after saving");
 
   response = await submit(addFieldForm, { label: "ตัวเลือกผิด", type: "select", optionsText: "ค่าเดียว" });
   ensure(response.headers.get("location")?.includes("invalid-options"), "Invalid select options were not rejected");
 
-  response = await submit(addFieldForm, { label: "เบอร์โทร", type: "tel", optionsText: "" });
-  ensure(response.status === 303, "Second field was not added");
-  html = await loadPage(3);
-  const editFieldForm = formsFrom(html).find((form) => form.includes("บันทึกฟิลด์"));
-  ensure(editFieldForm, "Edit field form missing");
+  // A browser only sends optionsText for select/checkbox; other types must still save.
+  response = await submit(addFieldForm, { label: "เบอร์โทร", type: "tel" });
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error="), `Second field was not added: ${response.headers.get("location")}`);
+  response = await submit(addFieldForm, { label: "หนังสือคำสั่ง", type: "file", acceptedFileTypes: ["pdf", "png"], maxFileSizeMb: "3" });
+  ensure(!response.headers.get("location")?.includes("error="), `File field was not added: ${response.headers.get("location")}`);
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  const fileField = fields.find((field) => field.type === "file");
+  ensure(fileField?.acceptedFileTypes?.join(",") === "pdf,png" && fileField.maxFileSizeMb === 3, "File field settings were not saved");
+  response = await submit(addFieldForm, { label: "ไม่มีค่าเงื่อนไข", type: "text", conditionField: fields[0].key });
+  ensure(response.headers.get("location")?.includes("field=__new__&error=invalid-condition"), "Condition without values did not return a specific error");
+  await db.event.update({ where: { id: eventId }, data: { fields: fields.filter((field) => field.type !== "file") } });
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  const [unitKey, phoneKey] = fields.map((field) => field.key);
+  html = await loadField(unitKey);
+  const editFieldForm = fieldPanel(html);
+  ensure(editFieldForm?.includes("บันทึกฟิลด์</button>"), "Edit field form missing");
   response = await submit(editFieldForm, { label: "หน่วยงานใหม่", optionsText: "แพทย์\nพยาบาล\nอื่น ๆ", required: "on" });
   ensure(response.status === 303, "Field edit failed");
   fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
   ensure(fields[0].label === "หน่วยงานใหม่" && fields[0].options.length === 3, "Edited field values were not saved");
 
-  html = await loadPage(3);
-  const moveForms = formsFrom(html).filter((form) => form.includes(">↑</button>"));
-  ensure(moveForms.length === 2, "Reorder controls missing");
-  response = await submit(moveForms[1]);
+  // Conditional edit: phone shows only for two of the parent's options; removing a referenced option is refused.
+  html = await loadField(phoneKey);
+  response = await submit(fieldPanel(html), { label: "เบอร์โทร", conditionField: unitKey, conditionValues: ["แพทย์", "พยาบาล"] });
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  ensure(fields[1].conditional?.field === unitKey && fields[1].conditional.operator === "in" && fields[1].conditional.value.length === 2, "Condition edit was not saved");
+  html = await loadField(unitKey);
+  response = await submit(fieldPanel(html), { label: "หน่วยงานใหม่", optionsText: "แพทย์\nอื่น ๆ" });
+  ensure(response.headers.get("location")?.includes("error=invalid-field"), "Removing an option used by a child condition was accepted");
+  html = await loadField(phoneKey);
+  response = await submit(fieldPanel(html), { label: "เบอร์โทร" });
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  ensure(!fields[1].conditional, "Turning the condition off did not clear it");
+
+  html = await loadField(phoneKey);
+  response = await clickButton(fieldPanel(html), "เลื่อน เบอร์โทร ขึ้น");
   ensure(response.status === 303, "Field reorder failed");
   fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
   ensure(fields[0].label === "เบอร์โทร", "Field reorder was not saved");
 
-  html = await loadPage(3);
-  let removeFieldForm = formsFrom(html).find((form) => form.includes("ลบฟิลด์"));
-  ensure(removeFieldForm, "Remove field form missing");
-  response = await submit(removeFieldForm);
-  ensure(response.status === 303, "Remove field did not redirect");
-  html = await loadPage(3);
-  removeFieldForm = formsFrom(html).find((form) => form.includes("ลบฟิลด์"));
-  response = await submit(removeFieldForm);
-  ensure(response.status === 303, "Second field removal failed");
+  for (const key of [phoneKey, unitKey]) {
+    html = await loadField(key);
+    response = await clickButton(fieldPanel(html), "ลบฟิลด์");
+    ensure(response.status === 303, "Remove field did not redirect");
+  }
   fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
   ensure(Array.isArray(fields) && fields.length === 0, "Registration field was not removed");
 
@@ -210,7 +239,7 @@ try {
   ensure(await db.eventDay.count({ where: { id: day.id } }) === 0, "Day was not removed");
 
   const auditCount = await db.auditLog.count({ where: { eventId, actorId: admin.id } });
-  ensure(auditCount === 14, `Expected 14 admin audit entries, got ${auditCount}`);
+  ensure(auditCount === 17, `Expected 17 admin audit entries, got ${auditCount}`);
 
   const publicPage = await (await fetch(`${base}/events/${event.slug}`)).text();
   ensure(publicPage.includes("ยังไม่เปิดรับลงทะเบียน") && publicPage.includes(event.title) && !publicPage.includes("Temporary event") && !publicPage.includes("Test room"), "Draft public gate exposed more than the event title");

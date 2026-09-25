@@ -179,7 +179,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
     {view === "audit" && <section className="overflow-x-auto rounded-xl border bg-card" aria-label="Audit log">
       <Table><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>โครงการ</TableHead><TableHead>การเปลี่ยนแปลง</TableHead><TableHead>เป้าหมาย</TableHead><TableHead>รายละเอียด</TableHead></TableRow></TableHeader>
         <TableBody>{logs.map((log) => <TableRow key={log.id}>
-          <TableCell className="px-5">{dateFormatter.format(log.createdAt)}</TableCell><TableCell>{log.actor.name}<div className="text-xs text-muted-foreground">{log.actor.email}</div></TableCell>
+          <TableCell className="px-5">{dateFormatter.format(log.createdAt)}</TableCell><TableCell>{log.actor?.name ?? "ผู้ลงทะเบียน"}<div className="text-xs text-muted-foreground">{log.actor?.email ?? "ผ่านลิงก์สถานะส่วนตัว"}</div></TableCell>
           <TableCell className="max-w-56 whitespace-normal">{log.event ? <Link href={`/admin/events/${log.event.id}`} prefetch={false} className="hover:underline">{log.event.title}</Link> : <span className="text-muted-foreground">ระบบ</span>}</TableCell>
           <TableCell><code className="text-xs">{log.action}</code></TableCell><TableCell><code className="text-xs">{log.target ?? "—"}</code></TableCell>
           <TableCell className="max-w-80 whitespace-normal text-xs">{log.metadata ? JSON.stringify(log.metadata) : "—"}</TableCell>

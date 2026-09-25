@@ -1,0 +1,178 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import nextEnv from "@next/env";
+import { hash } from "bcryptjs";
+import ExcelJS from "exceljs";
+import { PrismaClient } from "@prisma/client";
+
+nextEnv.loadEnvConfig(process.cwd());
+const db = new PrismaClient();
+const base = "http://localhost:3100";
+const eventIds = [];
+let staffId;
+
+function ensure(value, message) { if (!value) throw new Error(message); }
+function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
+function formDataFrom(html, values) {
+  const data = new FormData();
+  for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
+  for (const [key, value] of Object.entries(values)) {
+    if (Array.isArray(value)) { data.delete(key); for (const item of value) data.append(key, item); } else data.set(key, value);
+  }
+  return data;
+}
+const post = (url, form, values, headers = {}) => fetch(url, { method: "POST", redirect: "manual", headers: { origin: base, ...headers }, body: formDataFrom(form, values) });
+const location = (response) => response.headers.get("location") ?? "";
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function login(email, password) {
+  let response = await fetch(`${base}/api/auth/csrf`);
+  const csrfToken = (await response.json()).csrfToken;
+  const cookie = response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
+  response = await fetch(`${base}/api/auth/callback/credentials`, { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrfToken, email, password, callbackUrl: `${base}/organizer` }), redirect: "manual" });
+  ensure(response.status === 302 && !location(response).includes("error="), `Login failed for ${email}`);
+  return `${cookie}; ${response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ")}`;
+}
+
+async function callCheckInAction(pagePath, name, args, cookie) {
+  const manifest = JSON.parse(readFileSync(".next/dev/server/app/(check-in)/check-in/[eventId]/page/server-reference-manifest.json", "utf8"));
+  const id = Object.entries(manifest.node).find(([, value]) => value.exportedName === name)?.[0];
+  ensure(id, `Action ${name} not found in manifest`);
+  return (await fetch(`${base}${pagePath}`, { method: "POST", headers: { cookie, origin: base, "next-action": id, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify(args) })).text();
+}
+
+try {
+  const suffix = randomUUID();
+  const owner = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" }, select: { id: true } });
+  const cookie = await login("admin@checkinhub.local", "CheckInHub123!");
+  const fields = [
+    { key: "name", label: "ชื่อ-นามสกุล", type: "text", required: true, showOnCheckin: true },
+    { key: "kind", label: "ประเภท", type: "select", required: true, options: ["ข้าราชการ", "ทั่วไป"] },
+    { key: "org", label: "หน่วยงาน", type: "text", required: true, conditional: { field: "kind", operator: "equals", value: "ข้าราชการ" } },
+    { key: "secret", label: "เลขบัตร", type: "text", required: false, sensitive: true },
+  ];
+  const event = await db.event.create({ data: {
+    slug: `local-features-${suffix}`, title: "Local features smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true,
+    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields,
+    days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }] },
+  } });
+  eventIds.push(event.id);
+  const day = await db.eventDay.findFirstOrThrow({ where: { eventId: event.id } });
+  const [first, second] = [await db.session.create({ data: { eventId: event.id, eventDayId: day.id, label: "เช้า", sortOrder: 1 } }), await db.session.create({ data: { eventId: event.id, eventDayId: day.id, label: "บ่าย", sortOrder: 2 } })];
+
+  // Registrant self-service edit before the deadline, audited without a staff actor.
+  const publicUrl = `${base}/events/${event.slug}`;
+  let html = await (await fetch(publicUrl)).text();
+  const form = formsFrom(html).find((part) => part.includes('name="consent"'));
+  await wait(3100);
+  let response = await post(publicUrl, form, { email: `self-${suffix}@example.invalid`, dayId: day.id, "answer:name": "Somchai Typo", "answer:kind": "ข้าราชการ", "answer:org": "กรมเดิม", consent: "on" }, { "x-forwarded-for": `lf-${suffix}` });
+  ensure(location(response).includes("/status/"), `Registration failed: ${location(response)}`);
+  const statusUrl = new URL(location(response), base).toString();
+  const person = await db.registrant.findFirstOrThrow({ where: { eventId: event.id } });
+  ensure((await (await fetch(statusUrl)).text()).includes("แก้ไขข้อมูลของฉัน"), "Status page lacks the edit link");
+  const editUrl = `${statusUrl}/edit`;
+  html = await (await fetch(editUrl)).text();
+  const editForm = formsFrom(html).find((part) => part.includes("บันทึกการแก้ไข"));
+  ensure(editForm, "Self-edit form missing");
+  response = await post(editUrl, editForm, { "answer:name": "Somchai Fixed", "answer:kind": "ทั่วไป", "answer:org": "ควรถูกทิ้ง" });
+  ensure(location(response).includes("updated=1"), `Self-edit failed: ${location(response)}`);
+  let answers = (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers;
+  ensure(answers.name === "Somchai Fixed" && answers.kind === "ทั่วไป" && !("org" in answers), "Self-edit did not apply the condition rules");
+  const selfAudit = await db.auditLog.findFirst({ where: { eventId: event.id, action: "REGISTRANT_SELF_EDITED", target: person.id } });
+  ensure(selfAudit && selfAudit.actorId === null && selfAudit.metadata.changedFields.includes("name") && !JSON.stringify(selfAudit.metadata).includes("Somchai"), "Self-edit audit missing or leaked values");
+  response = await post(editUrl, editForm, { "answer:name": "", "answer:kind": "ทั่วไป" });
+  ensure(location(response).includes("error=invalid"), "Self-edit accepted a missing required answer");
+
+  // Check-in staff may correct only fields shown on the check-in screen.
+  const staffEmail = `lf-staff-${suffix}@example.invalid`;
+  staffId = (await db.user.create({ data: { name: "LF staff", email: staffEmail, passwordHash: await hash("Local-Features-Pass-1", 12), role: "STAFF" } })).id;
+  await db.eventOrganizer.create({ data: { eventId: event.id, userId: staffId, role: "CHECKIN_ONLY" } });
+  const staffCookie = await login(staffEmail, "Local-Features-Pass-1");
+  const checkInUrl = `${base}/check-in/${event.id}?session=${first.id}&q=Somchai`;
+  html = await (await fetch(checkInUrl, { headers: { cookie: staffCookie } })).text();
+  const correctForm = formsFrom(html).find((part) => part.includes("บันทึกการแก้ไข"));
+  ensure(correctForm && !correctForm.includes('name="answer:secret"'), "Correction form missing or exposes a non-check-in field");
+  response = await post(checkInUrl, correctForm, { "answer:name": "สมชาย ถูกต้อง", "answer:secret": "LEAK", "answer:kind": "ข้าราชการ" }, { cookie: staffCookie });
+  ensure(location(response).includes("corrected=1"), `Check-in correction failed: ${location(response)}`);
+  answers = (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers;
+  ensure(answers.name === "สมชาย ถูกต้อง" && answers.kind === "ทั่วไป" && answers.secret !== "LEAK", "Correction changed a field outside the check-in set");
+  ensure(await db.auditLog.count({ where: { eventId: event.id, action: "CHECKIN_ANSWERS_CORRECTED", target: person.id, actorId: staffId } }) === 1, "Correction not audited");
+
+  // ETag polling: unchanged state answers 304; a new check-in changes the tag and appears in the delta.
+  const stateUrl = `${base}/check-in/${event.id}/state?session=${first.id}`;
+  response = await fetch(stateUrl, { headers: { cookie: staffCookie } });
+  const etag = response.headers.get("etag");
+  const { serverTime } = await response.json();
+  ensure(response.status === 200 && etag, "State endpoint did not return an ETag");
+  ensure((await fetch(stateUrl, { headers: { cookie: staffCookie, "if-none-match": etag } })).status === 304, "Unchanged state did not return 304");
+  const qr = (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).qrCode;
+  await callCheckInAction(`/check-in/${event.id}?session=${first.id}`, "checkInCode", [event.id, first.id, qr, randomUUID(), undefined, "kiosk"], staffCookie);
+  response = await fetch(`${stateUrl}&since=${serverTime - 1}`, { headers: { cookie: staffCookie, "if-none-match": etag } });
+  const delta = await response.json();
+  ensure(response.status === 200 && response.headers.get("etag") !== etag && delta.activeCount === 1 && delta.changes.length === 1 && !JSON.stringify(delta).includes("@"), "State change was not reported as a PII-free delta");
+  ensure((await db.checkIn.findFirstOrThrow({ where: { sessionId: first.id } })).method === "kiosk", "Check-in method was not recorded");
+  await callCheckInAction(`/check-in/${event.id}?session=${second.id}`, "checkInCode", [event.id, second.id, qr, randomUUID(), undefined, "bogus"], staffCookie);
+  ensure((await db.checkIn.findFirstOrThrow({ where: { sessionId: second.id } })).method === null, "Unknown check-in method was stored");
+  response = await fetch(`${base}/check-in/${event.id}/state?session=${first.id}`, { redirect: "manual" });
+  ensure(response.status !== 200 && location(response).includes("/login"), `State endpoint answered without a session cookie: ${response.status}`);
+
+  // Kiosk page renders for a valid session and hides staff tools.
+  html = await (await fetch(`${base}/check-in/${event.id}/kiosk?session=${first.id}`, { headers: { cookie: staffCookie } })).text();
+  ensure(html.includes("เช้า") && !html.includes("ค้นหาผู้เข้าร่วม"), "Kiosk page missing or showing staff search");
+
+  // Session order: moving the afternoon session up reorders the check-in chips.
+  const stepUrl = `${base}/organizer/${event.id}?step=4`;
+  html = await (await fetch(stepUrl, { headers: { cookie } })).text();
+  const moveUp = formsFrom(html).find((part) => part.includes('aria-label="เลื่อนรอบ บ่าย ขึ้น"'));
+  ensure(moveUp, "Session reorder control missing");
+  await post(stepUrl, moveUp, {}, { cookie });
+  const ordered = await db.session.findMany({ where: { eventId: event.id }, orderBy: { sortOrder: "asc" }, select: { label: true } });
+  ensure(ordered.map((item) => item.label).join(",") === "บ่าย,เช้า", `Session order not saved: ${ordered.map((item) => item.label)}`);
+
+  // xlsx export with Thai headers, audited separately from CSV.
+  response = await fetch(`${base}/organizer/${event.id}/registrants/export?format=xlsx`, { headers: { cookie } });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  ensure(response.headers.get("content-type")?.includes("spreadsheetml") && bytes.subarray(0, 2).toString() === "PK", "xlsx export is not a workbook");
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(bytes);
+  const sheet = workbook.worksheets[0];
+  ensure(sheet.getRow(1).values.includes("ชื่อ-นามสกุล") && !sheet.getRow(1).values.includes("เลขบัตร") && sheet.getRow(2).values.includes("สมชาย ถูกต้อง"), "xlsx content incorrect");
+  ensure(await db.auditLog.count({ where: { eventId: event.id, action: "EXPORT_XLSX" } }) === 1, "xlsx export not audited");
+
+  // Retention: an event whose retention period has passed is anonymized and its uploads deleted.
+  const old = await db.event.create({ data: {
+    slug: `retention-${suffix}`, title: "Retention smoke", ownerId: owner.id, status: "CLOSED", retentionDays: 30, fields,
+    days: { create: [{ date: new Date("2020-01-01T00:00:00.000Z") }] },
+  } });
+  eventIds.push(old.id);
+  const uploadDir = join(process.cwd(), ".local-uploads");
+  if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+  const storageKey = `${randomUUID()}.pdf`;
+  writeFileSync(join(uploadDir, storageKey), "%PDF-1.7\nretention\n");
+  const retained = await db.registrant.create({ data: {
+    eventId: old.id, email: `old-${suffix}@example.invalid`, dedupeKey: `old-${suffix}@example.invalid`, status: "APPROVED", qrCode: randomUUID(), statusTokenHash: randomUUID(),
+    consentIp: "203.0.113.9", answers: { name: "Old Person", proof: { storageKey, originalName: "id.pdf", contentType: "application/pdf", size: 20 } },
+  } });
+  response = await fetch(`${base}/api/jobs/retention`);
+  ensure(response.status === 401, "Retention endpoint allowed an unauthenticated request");
+  response = await fetch(`${base}/api/jobs/retention`, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
+  ensure(response.ok && (await response.json()).anonymizedRegistrants >= 1, "Retention job did not run");
+  const scrubbed = await db.registrant.findUniqueOrThrow({ where: { id: retained.id } });
+  ensure(scrubbed.anonymizedAt && scrubbed.email === null && scrubbed.consentIp === null && scrubbed.qrCode === null && JSON.stringify(scrubbed.answers) === "{}" && scrubbed.status === "APPROVED", "Registrant was not anonymized");
+  ensure(!existsSync(join(uploadDir, storageKey)), "Retention left the uploaded file behind");
+  ensure((await db.event.findUniqueOrThrow({ where: { id: old.id } })).anonymizedAt && await db.auditLog.count({ where: { eventId: old.id, action: "RETENTION_ANONYMIZED" } }) === 1, "Event anonymization not recorded");
+  ensure(!(await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).anonymizedAt, "Retention touched an event still within its retention period");
+
+  // After the deadline the registrant can no longer edit.
+  await db.event.update({ where: { id: event.id }, data: { registrationDeadline: new Date(Date.now() - 60_000) } });
+  response = await post(editUrl, editForm, { "answer:name": "Too late", "answer:kind": "ทั่วไป" });
+  ensure(!location(response).includes("updated=1") && (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers.name !== "Too late", "Self-edit accepted after the deadline");
+
+  process.stdout.write("Local features: self-edit, check-in corrections, ETag delta polling, check-in method, kiosk page, session order, xlsx export and retention anonymization passed.\n");
+} finally {
+  for (const id of eventIds) await db.event.deleteMany({ where: { id } });
+  if (staffId) { await db.auditLog.deleteMany({ where: { actorId: staffId } }); await db.user.deleteMany({ where: { id: staffId } }); }
+  await db.$disconnect();
+}

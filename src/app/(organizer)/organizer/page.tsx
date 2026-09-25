@@ -169,7 +169,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                 <TableBody>
                   {filteredEvents.map((event) => (
                     <TableRow key={event.id}>
-                      <TableCell className="px-5 py-4"><div className="relative flex h-14 w-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground">{event.coverImageUrl ? <Image src={event.coverImageUrl} alt="" fill unoptimized sizes="96px" className="object-cover" /> : <div className="flex flex-col items-center gap-1"><ImageIcon className="size-5" aria-hidden="true" /><span className="text-[10px]">?????</span></div>}</div></TableCell>
+                      <TableCell className="px-5 py-4"><div className="relative flex h-14 w-24 items-center justify-center overflow-hidden rounded-lg bg-muted text-muted-foreground">{event.coverImageUrl ? <Image src={event.coverImageUrl} alt="" fill unoptimized sizes="96px" className="object-cover" /> : <div className="flex flex-col items-center gap-1"><ImageIcon className="size-5" aria-hidden="true" /><span className="text-[10px]">รูปปก</span></div>}</div></TableCell>
                       <TableCell className="py-4">
                         <div className="flex flex-col gap-2">
                           <Link href={`/organizer/${event.id}/dashboard`} className="font-heading font-semibold whitespace-normal hover:underline">{event.title}</Link>

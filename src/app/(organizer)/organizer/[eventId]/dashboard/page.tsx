@@ -15,7 +15,7 @@ export default async function DashboardPage({ params }: PageProps<"/organizer/[e
   const [counts, days, sessions, recent] = await Promise.all([
     db.registrant.groupBy({ by: ["status"], where: { eventId }, _count: true }),
     db.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true, date: true, maxSeats: true } }),
-    db.session.findMany({ where: { eventId }, orderBy: { label: "asc" }, include: { eventDay: { select: { date: true } }, _count: { select: { checkIns: { where: { voidedAt: null } } } } } }),
+    db.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }], include: { eventDay: { select: { date: true } }, _count: { select: { checkIns: { where: { voidedAt: null } } } } } }),
     db.checkIn.findMany({ where: { session: { eventId }, voidedAt: null }, orderBy: { checkedInAt: "desc" }, take: 10, select: { id: true, checkedInAt: true, session: { select: { label: true, eventDay: { select: { date: true } } } } } }),
   ]);
   const date = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "UTC" });

@@ -22,8 +22,8 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
     where: { id: eventId },
     include: {
       owner: { select: { name: true, email: true } },
-      sessions: { where: { eventDayId: null }, orderBy: { label: "asc" }, include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } },
-      days: { orderBy: { date: "asc" }, include: { sessions: { orderBy: { startTime: "asc" }, include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } }, _count: { select: { registrantDays: true } } } },
+      sessions: { where: { eventDayId: null }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } },
+      days: { orderBy: { date: "asc" }, include: { sessions: { orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } }, _count: { select: { registrantDays: true } } } },
       organizers: { orderBy: { addedAt: "asc" }, include: { user: { select: { name: true, email: true } } } },
       _count: { select: { registrants: true } },
     },
@@ -94,7 +94,7 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
     <section className="flex flex-col gap-3">
       <h2 className="font-heading text-xl font-semibold">Audit log ของโครงการ</h2>
       <div className="overflow-x-auto rounded-xl border bg-card"><Table><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>กิจกรรม</TableHead><TableHead>เป้าหมาย</TableHead><TableHead>รายละเอียด</TableHead></TableRow></TableHeader><TableBody>
-        {auditLogs.map((log) => <TableRow key={log.id}><TableCell className="px-5">{new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(log.createdAt)}</TableCell><TableCell>{log.actor.name}<div className="text-xs text-muted-foreground">{log.actor.email}</div></TableCell><TableCell><code className="text-xs">{log.action}</code></TableCell><TableCell><code className="text-xs">{log.target ?? "—"}</code></TableCell><TableCell className="max-w-80 whitespace-normal text-xs">{log.metadata ? JSON.stringify(log.metadata) : "—"}</TableCell></TableRow>)}
+        {auditLogs.map((log) => <TableRow key={log.id}><TableCell className="px-5">{new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(log.createdAt)}</TableCell><TableCell>{log.actor?.name ?? "ผู้ลงทะเบียน"}<div className="text-xs text-muted-foreground">{log.actor?.email ?? "ผ่านลิงก์สถานะส่วนตัว"}</div></TableCell><TableCell><code className="text-xs">{log.action}</code></TableCell><TableCell><code className="text-xs">{log.target ?? "—"}</code></TableCell><TableCell className="max-w-80 whitespace-normal text-xs">{log.metadata ? JSON.stringify(log.metadata) : "—"}</TableCell></TableRow>)}
         {auditLogs.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-center text-muted-foreground">ยังไม่มี audit log</TableCell></TableRow>}
       </TableBody></Table></div>
     </section>

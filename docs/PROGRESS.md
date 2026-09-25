@@ -1,5 +1,90 @@
 # Development progress
 
+## สิ่งที่ต้องทำ (อัปเดต 26 กันยายน 2026)
+
+รายการเรียงตามลำดับที่แนะนำ · ติ๊ก `[x]` เมื่อเสร็จ
+
+### A. บันทึกงานปัจจุบัน
+
+- [ ] commit และ push งานรอบล่าสุด (layout หน้าฟอร์มลงทะเบียน, แก้คำตอบเอง, แก้ข้อมูลหน้างาน, .xlsx, ระยะเก็บข้อมูล, ลำดับรอบ, ETag polling, kiosk)
+
+### B. ทำต่อได้ทันที (ไม่ต้องรอข้อมูลภายนอก)
+
+- [ ] ผู้ลงทะเบียนเปลี่ยนวันที่เลือกเองจากหน้าสถานะ (เพิ่ม/สลับวันในโหมด `per_day` ถ้าที่นั่งพอ ใช้ตรรกะที่นั่ง/คิวเดียวกับตอนสมัคร และบันทึก audit)
+- [ ] ไล่เทียบ UI กับ mockup แบบ B หน้าที่เหลือ:
+  - [ ] หน้าลงทะเบียนสาธารณะ 3 ขั้น + หน้าสถานะ/QR
+  - [ ] หน้าเช็คชื่อหน้างาน + โหมด kiosk
+  - [ ] หน้า admin (ผู้ใช้ / โครงการ / audit log)
+  - [ ] หน้ารายชื่อผู้ลงทะเบียน + แดชบอร์ด
+  - [ ] ตรวจทุกหน้าที่ความกว้างมือถือ (ไม่มี scroll แนวนอน, ปุ่มกดง่าย)
+- [ ] ตรวจสถานะ UI ให้ครบทุกหน้าตามสเปก: loading, empty, error, 403, 404, 429
+- [ ] ตรวจ accessibility ขั้นต่ำ: label ครบ, โฟกัสมองเห็นได้, contrast WCAG AA, ใช้คีย์บอร์ดได้ทั้งหมด
+- [ ] รัน seed ใหม่กับฐาน local (200 ผู้ลงทะเบียน 2 โหมด) แล้วดูความเร็วหน้ารายชื่อ/แดชบอร์ด
+
+### C. ทดสอบกับคน/อุปกรณ์จริง
+
+- [ ] ให้ผู้ใช้ลองทั้ง flow ใน browser: สร้าง/เผยแพร่โครงการ → สมัคร 3 ขั้น (มีฟิลด์เงื่อนไข) → สถานะ/QR/แก้ข้อมูล → อนุมัติ/ปฏิเสธ/คิวสำรอง → เช็คชื่อ/undo/อนุญาตพิเศษ → kiosk → export
+- [ ] ทดสอบบนมือถือ/แท็บเล็ตที่ใช้หน้างานจริง: สิทธิ์กล้อง, เสียง beep/สั่น, เครื่องยิงบาร์โค้ด
+- [ ] ทดสอบเน็ตหลุด: ตัด/ต่อเน็ต, ซิงก์ซ้ำ, เช็คจากหลายเครื่องพร้อมกัน, คนถูกยกเลิกระหว่างออฟไลน์, รอบถูกลบ, สลับบัญชีเจ้าหน้าที่
+- [ ] ทดสอบโหลดสูงกว่าเดิม (สมัครหลักร้อย–พันคน, หลายเครื่องเช็คชื่อพร้อมกัน)
+
+### D. รอคีย์/ข้อมูลบริการภายนอก
+
+- [ ] อีเมล (Resend หรือ SMTP) ผ่าน background queue: ส่ง QR/ผลอนุมัติ/ปฏิเสธ/เลื่อนคิว, resend (rate limit), broadcast + ประวัติการส่ง, ลืมรหัสผ่าน (ลิงก์ 30 นาที), magic link/OTP หน้าสถานะ, เตือนก่อนวันงาน
+- [ ] LINE Login + Messaging API (ยืนยันข้อจำกัดต้องเป็นเพื่อน OA และ provider เดียวกันก่อน) พร้อม fallback ไปอีเมล
+- [ ] Cloudflare Turnstile (production ต้องมีก่อนเปิดรับสมัคร)
+- [ ] Object storage แบบ private + signed URL สำหรับไฟล์แนบ และที่เก็บรูปปก (+ resize/crop ด้วย sharp)
+- [ ] ตัวตั้งเวลาเรียก `maintenance:pending-holds` (ทุก ~15 นาที) และ `maintenance:retention` (วันละครั้ง) ด้วย `CRON_SECRET`
+- [ ] ทดสอบการส่งจริง, กรณีส่งไม่สำเร็จ และค่าความปลอดภัยก่อนขึ้น production
+
+### E. ต้องได้ข้อมูลจากหน่วยงาน
+
+- [ ] LDAP: server/TLS/bind/search base + กติกาแมปกลุ่มเป็น role แล้วออกแบบการเชื่อมบัญชีเดิมและทดสอบสิทธิ์
+- [ ] ข้อความ PDPA/ประกาศความเป็นส่วนตัวฉบับจริง (รวมรายชื่อผู้ประมวลผลข้อมูลภายนอก) แล้วเพิ่มเป็น consent เวอร์ชันใหม่
+- [ ] แผนสำรองข้อมูล MySQL + object storage และรายการ env สำหรับ production
+
+### F. เฟส 2 (ไม่บังคับ)
+
+- [ ] วุฒิบัตร PDF ตามเกณฑ์การเข้าร่วม พร้อม QR ตรวจสอบ
+- [ ] รายงานสรุปโครงการ (PDF/xlsx) แยกตามวัน รอบ หน่วยงาน
+- [ ] แบบประเมินหลังอบรม
+
+## Remaining local items (2026-09-26)
+
+Migrations `20260926000000_retention_edit_session_order` and `20260926010000_checkin_synced_at` are applied to local MySQL.
+
+- **Registration form builder (step 3):** redesigned to mockup B.
+  - Left: a field list with badges; conditional children are indented.
+  - Right: an edit panel with the option list, the condition section, and file settings.
+  - Fixed a regression where non-select fields could not be added.
+- **Self-service edit:** registrants can change their answers from the status link until the deadline, as long as they are not cancelled or rejected.
+  - Validation is the same as registration, including conditions.
+  - Email, days and uploaded files stay fixed.
+  - The audit entry (actor = registrant) lists the changed field keys only, never values.
+- **On-site corrections:** check-in staff can fix answers from the search results. Only fields marked "show on check-in" that are not sensitive can change, and each correction is audited.
+- **`.xlsx` export:** Thai headers, Buddhist-era dates in Bangkok time, frozen header row and filters. It is audited as `EXPORT_XLSX`; CSV is unchanged.
+- **Retention:**
+  - Each event has `retentionDays` (default 365 after the last event day).
+  - `/api/jobs/retention` (`CRON_SECRET`, `npm run maintenance:retention`) anonymizes registrants: answers, email, dedupe key, consent IP, reject reason, QR and status link.
+  - Uploads are deleted. Statuses, day rows and check-ins remain as statistics. The run is audited.
+- **Session order:** sessions have `sortOrder` with up/down controls in step 4. Everywhere sorts by day, then `sortOrder`, so whole-course "session X of N" stays chronological.
+- **Check-in polling:** `/check-in/[eventId]/state` returns an ETag (304 when unchanged) and a PII-free delta since a timestamp. The check-in page polls every 4 s and re-renders only on change. `CheckIn.syncedAt` records the server-side time for offline syncs.
+- **Check-in method:** each check-in records `method` (camera, scanner, manual, kiosk, override).
+- **Kiosk mode:** `/check-in/[eventId]/kiosk?session=`.
+  - Staff set a PIN (hashed in sessionStorage) before handing the device over.
+  - Attendees only scan: no search, no override, and the result clears after 5 s.
+  - Exiting or changing session requires the PIN, and the back button is held.
+  - The device stays signed in as the staff account, so use the browser's own kiosk/fullscreen mode on shared tablets.
+- **Check-in colors:** result colors on the dark check-in screen now use light tones for contrast.
+- **Audit log:** `AuditLog.actorId` is nullable (registrant or system actions) with `onDelete: Restrict`, so staff audit history cannot be orphaned.
+- **Tests:** new `test:integration:local-features`; `schedule` was updated for the new form builder. Verified `npm test`, lint, build and all nine MySQL suites. Browser checks (Chrome via Playwright) covered the form builder, kiosk flow, polling (200 then 304), and the self-edit page.
+- **Still pending:**
+  - Changing selected days from the status page.
+  - A visual pass on the remaining public/check-in/admin screens.
+  - Tests on real phones and cameras.
+  - External delivery: email, LINE, Turnstile, object storage.
+  - LDAP login.
+
 ## Local rules pass (2026-09-25, cont.)
 
 Scope: remaining rev.2/rev.3 items that do not need external services. Migration `20260925050000_accounts_consent_dedupe_override` is applied to local MySQL.
@@ -126,34 +211,9 @@ Scope: remaining rev.2/rev.3 items that do not need external services. Migration
 
 หมายเหตุ: Docker ใช้งานได้ปกติเมื่อรันด้วยบัญชี Windows; ข้อความ `Access is denied` ก่อนหน้านี้มาจากบัญชี sandbox ของ Codex ไม่ใช่ Docker/MySQL เสีย หาก `prisma generate` แจ้ง `EPERM` ให้หยุด dev server ที่กำลังล็อก Prisma engine ก่อนแล้วรันใหม่
 
-## ต้องทำต่อ (ตามลำดับ)
+## ต้องทำต่อ
 
-### 1. ยืนยัน flow หลังปรับ UI
-
-- [x] ยืนยัน Docker/MySQL healthy, apply migrations และ seed ข้อมูล local แล้ว
-- [x] รัน integration tests `schedule`, `registration`, `concurrency`, `cancellation` ซ้ำกับโค้ดล่าสุดแล้ว
-- [x] เพิ่มและรันกรณี integration สำหรับเพิ่มวันจัดหลายวันพร้อมกัน: สำเร็จทั้งหมด, วันที่ซ้ำ และ rollback เมื่อรายการหนึ่งผิดพลาด
-- [ ] ทดสอบผ่าน browser จริงตั้งแต่ผู้จัดสร้าง/เผยแพร่โครงการ → ผู้เข้าร่วมลงทะเบียนครบ 3 ขั้น → สถานะ/QR → อนุมัติ/คิวสำรอง → เช็คชื่อ/undo รวมทั้งฟิลด์แบบมีเงื่อนไข
-- [ ] ทดสอบกล้อง, IndexedDB และ offline queue บนมือถือ/แท็บเล็ตจริง: ตัด/ต่อเน็ต, ซิงก์ซ้ำ, รายการขัดแย้ง และการเปลี่ยนบัญชีเจ้าหน้าที่; เพิ่มการทดสอบโหลดที่สูงกว่าชุด concurrency ปัจจุบัน
-
-### 2. เก็บ UI ให้ตรง mockup แบบ B
-
-- [x] จัด layout ขั้นตั้งค่าโครงการเป็นสองคอลัมน์ตาม mockup B; ที่นั่งรายวันแบบไม่จำกัด (เว้นว่าง), ปฏิทินหลายวัน และการเลือกรอบกลาง/ผูกวันจัดทำแล้ว
-- [x] ทำตัวแก้ฟอร์มแบบลาก พร้อมปุ่มขึ้น/ลงที่เข้าถึงได้และตรวจลำดับฟิลด์เงื่อนไข
-- [x] เพิ่มสรุปจำนวนลงทะเบียน, การใช้ที่นั่ง, ผู้รออนุมัติ และคิวสำรองบนรายการโครงการ
-- [x] เพิ่มหน้า `/admin` ให้จัดการบัญชีผู้ใช้ครบวงจร (สร้าง/แก้ชื่อ อีเมล รหัสผ่าน role และสถานะ), ดูและจัดการทุกโครงการ, และดู system audit log; ป้องกันแก้บัญชีตัวเอง/ปิด admin คนสุดท้าย และบันทึก audit
-- [x] เพิ่มหน้ารายละเอียดโครงการสำหรับ admin แสดงสถานะลงทะเบียน, วัน/รอบเช็คชื่อ, ผู้ร่วมจัด และ audit log; admin จัดการโครงการและลบโครงการได้ พร้อมบันทึก audit
-- [ ] ไล่เทียบ public/check-in/admin และหน้าจอมือถือด้วยภาพเทียบ mockup ก่อนระบุว่า UI เสร็จ
-
-### 3. เชื่อมบริการภายนอกเมื่อได้คีย์และข้อมูล
-
-- [ ] ตั้งค่าอีเมล/LINE เพื่อส่งลิงก์สถานะ, QR และประกาศ broadcast อัตโนมัติ; ระหว่างนี้ผู้จัดส่งลิงก์หรือ QR เองได้
-- [ ] เชื่อม LINE Login, Cloudflare Turnstile และที่เก็บรูปปก/ไฟล์; production ต้องไม่เปิดรับสมัครโดยไม่มี Turnstile
-- [ ] ทดสอบการส่งจริง, กรณีส่งไม่สำเร็จ และการตั้งค่าความปลอดภัยก่อนใช้งานจริง
-
-### 4. เปลี่ยนระบบล็อกอินเป็น LDAP ในอนาคต
-
-- [ ] รับค่า server/TLS/bind/search base และกติกาแมปกลุ่มเป็น role จากผู้ดูแลระบบ แล้วออกแบบการเชื่อมบัญชีเดิมและทดสอบสิทธิ์; ปัจจุบันใช้ Auth.js Credentials สำหรับ local เท่านั้น
+ย้ายไปอยู่ที่หัวข้อ “สิ่งที่ต้องทำ” ด้านบนสุดของไฟล์ (อัปเดต 26 กันยายน 2026)
 
 ## วิธีเริ่ม
 

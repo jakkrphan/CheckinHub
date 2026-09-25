@@ -6,7 +6,9 @@ import { redirect } from "next/navigation";
 
 import { requireEventAccess } from "@/server/authorization/event";
 import { canManageEvent, requiresAdminAudit } from "@/server/authorization/policy";
+import { readRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
+import { mergeAnswers } from "@/server/registrations/self-edit";
 
 export type ScanResult = {
   kind: "success" | "duplicate" | "invalid" | "wrong-day" | "session-missing" | "error";
@@ -21,7 +23,10 @@ function validClientEventId(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) || /^[0-9a-f]{64}$/i.test(value);
 }
 
-async function recordCheckIn(eventId: string, sessionId: string, code: string, options: { clientEventId?: string; scannedAt?: string; override?: { note: string } }): Promise<ScanResult> {
+const checkInMethods = ["camera", "scanner", "manual", "kiosk"] as const;
+export type CheckInMethod = (typeof checkInMethods)[number];
+
+async function recordCheckIn(eventId: string, sessionId: string, code: string, options: { clientEventId?: string; scannedAt?: string; override?: { note: string }; method?: string }): Promise<ScanResult> {
   const { user, event, membership } = await requireEventAccess(eventId, "checkIn");
   const mayOverride = canManageEvent(membership);
   if (options.override && !mayOverride) return { kind: "invalid", message: "บัญชีนี้ไม่มีสิทธิ์อนุญาตเป็นกรณีพิเศษ" };
@@ -53,6 +58,7 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
       }
       const checkIn = await tx.checkIn.create({ data: {
         registrantId: person.id, sessionId, checkedInById: user.id, checkedInAt: scannedDate, clientEventId, activeKey: `${person.id}:${sessionId}`,
+        method: options.override ? "override" : checkInMethods.includes(options.method as CheckInMethod) ? options.method : null,
         ...(outsideDay && options.override ? { isOverride: true, overrideNote: options.override.note } : {}),
       }, select: { id: true } });
       if (outsideDay && options.override) {
@@ -60,7 +66,7 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
       }
       const prefix = outsideDay ? "อนุญาตเป็นกรณีพิเศษและเช็คชื่อแล้ว" : "เช็คชื่อสำเร็จ";
       if (event.seatMode === "whole_course") {
-        const allSessions = await tx.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { label: "asc" }], select: { id: true } });
+        const allSessions = await tx.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }], select: { id: true } });
         const checked = await tx.checkIn.count({ where: { registrantId: person.id, session: { eventId }, voidedAt: null } });
         return { kind: "success", message: `${prefix} · รอบนี้เป็นรอบที่ ${allSessions.findIndex((item) => item.id === sessionId) + 1} จาก ${allSessions.length} · เข้าแล้ว ${checked} รอบ` };
       }
@@ -77,8 +83,8 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
   }
 }
 
-export async function checkInCode(eventId: string, sessionId: string, code: string, clientEventId?: string, scannedAt?: string): Promise<ScanResult> {
-  return recordCheckIn(eventId, sessionId, code, { clientEventId, scannedAt });
+export async function checkInCode(eventId: string, sessionId: string, code: string, clientEventId?: string, scannedAt?: string, method?: CheckInMethod): Promise<ScanResult> {
+  return recordCheckIn(eventId, sessionId, code, { clientEventId, scannedAt, method });
 }
 
 /** Admits someone whose day is not approved; limited to owner, full collaborators and admins, with a mandatory reason. */
@@ -91,7 +97,7 @@ export async function overrideCheckIn(eventId: string, sessionId: string, code: 
 export async function checkInPerson(eventId: string, sessionId: string, registrantId: string): Promise<ScanResult> {
   await requireEventAccess(eventId, "checkIn");
   const person = await db.registrant.findFirst({ where: { id: registrantId, eventId, status: "APPROVED" }, select: { qrCode: true } });
-  return person?.qrCode ? checkInCode(eventId, sessionId, person.qrCode) : { kind: "invalid", message: "ผู้สมัครยังไม่ได้รับอนุมัติ" };
+  return person?.qrCode ? checkInCode(eventId, sessionId, person.qrCode, undefined, undefined, "manual") : { kind: "invalid", message: "ผู้สมัครยังไม่ได้รับอนุมัติ" };
 }
 
 export async function checkInPersonForm(eventId: string, sessionId: string, registrantId: string) {
@@ -101,7 +107,7 @@ export async function checkInPersonForm(eventId: string, sessionId: string, regi
 
 export async function checkInCodeForm(eventId: string, sessionId: string, formData: FormData) {
   const raw = formData.get("code");
-  const result = await checkInCode(eventId, sessionId, typeof raw === "string" ? raw : "");
+  const result = await checkInCode(eventId, sessionId, typeof raw === "string" ? raw : "", undefined, undefined, "scanner");
   redirect(`/check-in/${eventId}?session=${sessionId}&result=${result.kind}`);
 }
 
@@ -118,4 +124,28 @@ export async function undoCheckIn(eventId: string, sessionId: string, registrant
     await tx.auditLog.create({ data: { eventId, actorId: user.id, action: requiresAdminAudit(membership) ? "CHECKIN_REVOKED_BY_ADMIN" : "CHECKIN_VOIDED", target: record.id, metadata: { sessionId, registrantId } } });
   });
   revalidatePath(`/check-in/${eventId}`);
+}
+
+/**
+ * On-site correction of small mistakes (e.g. a misspelt name) before checking someone in.
+ * Only fields shown on the check-in screen may change, for every role, and each change is audited.
+ */
+export async function correctCheckInAnswers(eventId: string, sessionId: string, registrantId: string, formData: FormData) {
+  const { user, event } = await requireEventAccess(eventId, "checkIn");
+  const fields = readRegistrationFields(event.fields);
+  const editable = new Set(fields.filter((field) => field.showOnCheckin && !field.sensitive && field.type !== "file").map((field) => field.key));
+  const query = formData.get("q");
+  const back = `/check-in/${eventId}?session=${sessionId}${typeof query === "string" && query ? `&q=${encodeURIComponent(query)}` : ""}`;
+  const person = await db.registrant.findFirst({ where: { id: registrantId, eventId, status: "APPROVED", anonymizedAt: null }, select: { answers: true } });
+  if (!person || !editable.size) redirect(`${back}&corrected=invalid`);
+  const merged = mergeAnswers(fields, person.answers, formData, editable);
+  if (!merged) redirect(`${back}&corrected=invalid`);
+  if (merged.changed.length) {
+    await db.$transaction([
+      db.registrant.update({ where: { id: registrantId }, data: { answers: merged.answers as Prisma.InputJsonValue } }),
+      db.auditLog.create({ data: { eventId, actorId: user.id, action: "CHECKIN_ANSWERS_CORRECTED", target: registrantId, metadata: { changedFields: merged.changed, sessionId } } }),
+    ]);
+    revalidatePath(`/check-in/${eventId}`);
+  }
+  redirect(`${back}&corrected=${merged.changed.length ? "1" : "0"}`);
 }

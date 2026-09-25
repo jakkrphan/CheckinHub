@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { hashBearerCode } from "@/server/registrations/registration";
 import { db } from "@/server/db";
+import { canSelfEdit } from "@/server/registrations/self-edit";
 
 export const metadata: Metadata = { title: "สถานะการลงทะเบียน" };
 
@@ -26,11 +27,11 @@ const dateFormatter = new Intl.DateTimeFormat("th-TH", {
 
 export default async function RegistrationStatusPage({ params, searchParams }: PageProps<"/events/[slug]/status/[token]">) {
   const { slug, token } = await params;
-  const { error, cancelled } = await searchParams;
+  const { error, cancelled, updated } = await searchParams;
   const registrant = await db.registrant.findUnique({
     where: { statusTokenHash: hashBearerCode(token) },
     include: {
-      event: { select: { slug: true, title: true, location: true, seatMode: true, deletedAt: true } },
+      event: { select: { slug: true, title: true, location: true, seatMode: true, deletedAt: true, status: true, registrationDeadline: true } },
       days: { include: { eventDay: { select: { date: true } } }, orderBy: { eventDay: { date: "asc" } } },
     },
   });
@@ -54,10 +55,13 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
         {registrant.status === "WAITLISTED" && <p className="rounded-xl border bg-card p-4 text-center text-sm text-muted-foreground">{registrant.event.seatMode === "whole_course" ? "ที่นั่งทั้งหลักสูตรเต็ม ระบบจัดคุณไว้ในคิวสำรองของโครงการ" : "วันที่เลือกมีที่นั่งเต็ม ระบบจัดคุณไว้ในคิวสำรอง หากมีคนยกเลิกจะเลื่อนคิวตามลำดับ"}</p>}
         {registrant.status === "PENDING" && <p className="rounded-xl border bg-card p-4 text-center text-sm text-muted-foreground">ผู้จัดจะตรวจใบสมัครก่อน เมื่ออนุมัติแล้ว QR จะปรากฏที่หน้านี้</p>}
         {registrant.status === "REJECTED" && registrant.rejectReason && <p className="rounded-xl border bg-card p-4 text-center text-sm text-muted-foreground">เหตุผลจากผู้จัด: {registrant.rejectReason}</p>}
+        {updated === "1" && <p role="status" className="rounded-xl border bg-card p-4 text-sm">บันทึกการแก้ไขข้อมูลแล้ว</p>}
+        {updated === "0" && <p role="status" className="rounded-xl border bg-card p-4 text-sm">ไม่มีข้อมูลที่เปลี่ยนแปลง</p>}
         {cancelled && <p role="status" className="rounded-xl border bg-card p-4 text-sm">ยกเลิกวันที่เลือกแล้ว หากมีคิวสำรองระบบจะเลื่อนคนถัดไปตามลำดับ</p>}
         <section className="flex flex-col gap-4 rounded-xl border bg-card p-5">
           <h3 className="font-heading text-lg font-semibold">ข้อมูลของคุณ</h3>
           <div className="flex flex-col gap-2 text-sm"><p><span className="text-muted-foreground">อีเมล</span><br />{registrant.email}</p>{registrant.event.location && <p><span className="text-muted-foreground">สถานที่</span><br />{registrant.event.location}</p>}</div>
+          {canSelfEdit(registrant, registrant.event) && <Button asChild variant="outline" size="sm" className="w-fit"><Link href={`/events/${slug}/status/${token}/edit`}>แก้ไขข้อมูลของฉัน</Link></Button>}
           <div className="flex flex-col gap-2 border-t pt-3">{registrant.days.map((day, index) => <div key={day.id} className="flex items-center justify-between gap-3 text-sm"><span>วันที่ {index + 1} · {dateFormatter.format(day.eventDay.date)}</span><Badge variant={day.status === "APPROVED" ? "default" : "secondary"}>{statusLabel[day.status]}{queuePositions.has(day.id) ? ` · คิวที่ ${queuePositions.get(day.id)}` : ""}</Badge></div>)}</div>
         </section>
         <p className="text-center text-xs leading-relaxed text-muted-foreground">เก็บลิงก์หน้านี้ไว้เพื่อตรวจสถานะหรือดู QR อีกครั้ง อย่าแชร์ลิงก์กับผู้อื่น</p>

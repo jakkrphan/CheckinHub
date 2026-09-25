@@ -159,6 +159,12 @@ async function sessionLabelTaken(tx: Prisma.TransactionClient, eventId: string, 
   return !!clash;
 }
 
+/** New sessions go to the end of the event's display order. */
+async function nextSortOrder(tx: Prisma.TransactionClient, eventId: string) {
+  const last = await tx.session.aggregate({ where: { eventId }, _max: { sortOrder: true } });
+  return (last._max.sortOrder ?? 0) + 1;
+}
+
 export async function addSession(eventId: string, dayId: string, formData: FormData) {
   const { membership, user } = await requireEventAccess(eventId, "manage");
   const parsed = sessionInput.safeParse({ label: formData.get("label") });
@@ -174,7 +180,7 @@ export async function addSession(eventId: string, dayId: string, formData: FormD
     await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
     if (await sessionLabelTaken(tx, eventId, day.id, parsed.data.label)) return false;
     const session = await tx.session.create({
-      data: { eventId, eventDayId: day.id, label: parsed.data.label },
+      data: { eventId, eventDayId: day.id, label: parsed.data.label, sortOrder: await nextSortOrder(tx, eventId) },
     });
     if (requiresAdminAudit(membership)) {
       await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
@@ -216,7 +222,7 @@ export async function addSessionForScope(eventId: string, formData: FormData) {
       if (await sessionLabelTaken(tx, eventId, eventDayId, parsed.data.label)) return false;
     }
     for (const eventDayId of eventDayIds) {
-      const session = await tx.session.create({ data: { eventId, eventDayId, label: parsed.data.label } });
+      const session = await tx.session.create({ data: { eventId, eventDayId, label: parsed.data.label, sortOrder: await nextSortOrder(tx, eventId) } });
       if (requiresAdminAudit(membership)) {
         await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
       }
@@ -249,6 +255,28 @@ export async function removeSession(eventId: string, sessionId: string, formData
   });
 
   if (!removed) redirect(eventUrl(eventId, "error=session-in-use"));
+  revalidatePath(`/organizer/${eventId}`);
+  redirect(eventUrl(eventId, "saved=session"));
+}
+
+/** Moves a session one place within its own day (or within the every-day group); sessions sort by day first. */
+export async function moveSession(eventId: string, sessionId: string, direction: "up" | "down") {
+  const { membership, user } = await requireEventAccess(eventId, "manage");
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+    const target = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { eventDayId: true } });
+    if (!target) return;
+    const group = await tx.session.findMany({ where: { eventId, eventDayId: target.eventDayId }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }, { id: "asc" }], select: { id: true, sortOrder: true } });
+    const index = group.findIndex((item) => item.id === sessionId);
+    const swapWith = index + (direction === "up" ? -1 : 1);
+    if (swapWith < 0 || swapWith >= group.length) return;
+    // Renumber the group from its current slots so ties from older data cannot block the swap.
+    const slots = group.map((item) => item.sortOrder).sort((a, b) => a - b).map((value, position, all) => position > 0 && value <= all[position - 1] ? all[position - 1] + 1 : value);
+    const reordered = [...group];
+    [reordered[index], reordered[swapWith]] = [reordered[swapWith], reordered[index]];
+    for (const [position, item] of reordered.entries()) await tx.session.update({ where: { id: item.id }, data: { sortOrder: slots[position] } });
+    if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_MOVED_BY_ADMIN", sessionId);
+  });
   revalidatePath(`/organizer/${eventId}`);
   redirect(eventUrl(eventId, "saved=session"));
 }

@@ -29,6 +29,7 @@ const eventSettingsInput = eventInput.extend({
   autoApprove: z.boolean(),
   pendingHoldHours: z.preprocess((value) => value === "" || value == null ? null : value, z.coerce.number().int().min(1).max(720).nullable()),
   waitlistPromotion: z.enum(["MANUAL", "AUTO"]),
+  retentionDays: z.preprocess((value) => value === "" || value == null ? 365 : value, z.coerce.number().int().min(30).max(3650)),
 });
 
 function parseEventForm(formData: FormData) {
@@ -44,6 +45,7 @@ function parseEventForm(formData: FormData) {
     autoApprove: formData.get("autoApprove") === "on",
     pendingHoldHours: formData.get("pendingHoldHours"),
     waitlistPromotion: formData.get("waitlistPromotion") ?? "MANUAL",
+    retentionDays: formData.get("retentionDays"),
   });
 }
 
@@ -83,6 +85,7 @@ export async function createEvent(formData: FormData) {
       maxSeats: parsed.data.seatMode === "whole_course" ? parsed.data.maxSeats : null,
       attendanceThreshold: parsed.data.seatMode === "whole_course" ? parsed.data.attendanceThreshold : null,
       pendingHoldHours: parsed.data.pendingHoldHours,
+      retentionDays: parsed.data.retentionDays,
       waitlistPromotion: parsed.data.waitlistPromotion,
       coverImageKey: cover.key,
       coverImageUrl: cover.key ? `/events/${slug}/cover` : null,
@@ -112,6 +115,7 @@ export async function updateEvent(eventId: string, formData: FormData) {
     autoApprove: formData.get("autoApprove") === "on",
     pendingHoldHours: formData.get("pendingHoldHours") ?? originalEvent.pendingHoldHours?.toString() ?? "",
     waitlistPromotion: formData.get("waitlistPromotion") ?? originalEvent.waitlistPromotion,
+    retentionDays: formData.get("retentionDays") ?? originalEvent.retentionDays.toString(),
   });
   if (!parsed.success) redirect(`/organizer/${eventId}?error=invalid`);
   if (originalEvent.status !== "DRAFT" && parsed.data.seatMode !== originalEvent.seatMode) redirect(`/organizer/${eventId}?error=invalid`);
@@ -150,6 +154,7 @@ export async function updateEvent(eventId: string, formData: FormData) {
         maxSeats: parsed.data.seatMode === "whole_course" ? parsed.data.maxSeats : null,
         attendanceThreshold: parsed.data.seatMode === "whole_course" ? parsed.data.attendanceThreshold : null,
         pendingHoldHours: parsed.data.pendingHoldHours,
+        retentionDays: parsed.data.retentionDays,
         waitlistPromotion: parsed.data.waitlistPromotion,
         ...(uploadedCover.key ? { coverImageKey: uploadedCover.key, coverImageUrl: `/events/${originalEvent.slug}/cover` } : {}),
         ...(removeCover ? { coverImageKey: null, coverImageUrl: null } : {}),
@@ -191,14 +196,14 @@ export async function cloneEvent(eventId: string) {
       description: event.description, location: event.location, eventType: event.eventType,
       autoApprove: event.autoApprove, fields: event.fields as Prisma.InputJsonValue,
       seatMode: event.seatMode, maxSeats: event.maxSeats, attendanceThreshold: event.attendanceThreshold,
-      pendingHoldHours: event.pendingHoldHours, waitlistPromotion: event.waitlistPromotion,
+      pendingHoldHours: event.pendingHoldHours, waitlistPromotion: event.waitlistPromotion, retentionDays: event.retentionDays,
       status: "DRAFT", registrationDeadline: null,
     } });
     for (const day of days) {
       const newDay = await tx.eventDay.create({ data: { eventId: copy.id, date: day.date, maxSeats: day.maxSeats } });
-      for (const session of day.sessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: newDay.id, label: session.label, startTime: session.startTime, endTime: session.endTime } });
+      for (const session of day.sessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: newDay.id, label: session.label, startTime: session.startTime, endTime: session.endTime, sortOrder: session.sortOrder } });
     }
-    for (const session of globalSessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: null, label: session.label, startTime: session.startTime, endTime: session.endTime } });
+    for (const session of globalSessions) await tx.session.create({ data: { eventId: copy.id, eventDayId: null, label: session.label, startTime: session.startTime, endTime: session.endTime, sortOrder: session.sortOrder } });
     if (requiresAdminAudit(membership)) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "EVENT_CLONED_BY_ADMIN", target: copy.id, metadata: { sourceEventId: eventId } } });
     return copy;
   });

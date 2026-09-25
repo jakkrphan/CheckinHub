@@ -22,7 +22,12 @@ type DisplayResult = ScanResult | { kind: "queued"; message: string; canOverride
 
 const reviewTime = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
 
-export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eventId: string; sessionId: string; operatorId: string; sessionLabels: Record<string, string> }) {
+/**
+ * `kiosk` mode is for attendees scanning their own QR: no override, no staff tools, and the result clears itself
+ * so the next person never sees the previous one.
+ */
+export function Scanner({ eventId, sessionId, operatorId, sessionLabels, mode = "staff" }: { eventId: string; sessionId: string; operatorId: string; sessionLabels: Record<string, string>; mode?: "staff" | "kiosk" }) {
+  const kiosk = mode === "kiosk";
   const video = useRef<HTMLVideoElement>(null);
   const busy = useRef(false);
   const last = useRef({ code: "", at: 0 });
@@ -40,7 +45,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
 
   function setResult(next: DisplayResult | null, scannedCode = "") {
     setResultState(next);
-    setOverrideCode(next?.kind === "wrong-day" && next.canOverride ? scannedCode : "");
+    setOverrideCode(!kiosk && next?.kind === "wrong-day" && next.canOverride ? scannedCode : "");
     if (!next) return;
     signalResult(next.kind === "success" ? "success" : next.kind === "duplicate" || next.kind === "wrong-day" || next.kind === "queued" ? "warning" : "error");
   }
@@ -77,7 +82,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
     } finally { syncing.current = false; }
   }
 
-  async function submit(raw: string) {
+  async function submit(raw: string, source: "camera" | "scanner") {
     const value = raw.trim();
     if (!value || busy.current) return;
     if (value.length > 200) { setResult({ kind: "invalid", message: "รหัส QR ยาวเกินไป" }); return; }
@@ -87,7 +92,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
     try {
       if (!navigator.onLine) await queue(value);
       else {
-        setResult(await checkInCode(eventId, sessionId, value, crypto.randomUUID()), value);
+        setResult(await checkInCode(eventId, sessionId, value, crypto.randomUUID(), undefined, kiosk ? "kiosk" : source), value);
         setCode("");
       }
     } catch {
@@ -106,6 +111,12 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
       setResult({ kind: "error", message: "บันทึกกรณีพิเศษไม่สำเร็จ กรุณาตรวจการเชื่อมต่อแล้วลองใหม่" });
     } finally { busy.current = false; }
   }
+
+  useEffect(() => {
+    if (!kiosk || !result) return;
+    const timer = window.setTimeout(() => setResultState(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [kiosk, result]);
 
   useEffect(() => {
     // Unsynced scans live only on this device; warn before the tab is closed or navigated away.
@@ -138,7 +149,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
     let controls: { stop: () => void } | undefined;
     const reader = new BrowserQRCodeReader();
     reader.decodeFromVideoDevice(undefined, video.current, (scan) => {
-      if (!cancelled && scan) void submit(scan.getText());
+      if (!cancelled && scan) void submit(scan.getText(), "camera");
     }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch(() => setCameraError("เปิดกล้องไม่ได้ กรุณาตรวจสิทธิ์กล้องหรือใช้เครื่องยิงแทน"));
     return () => { cancelled = true; controls?.stop(); };
     // Camera lifecycle is tied to the selected session and camera toggle.
@@ -152,14 +163,15 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels }: { eve
       <div aria-hidden="true" className="pointer-events-none absolute inset-[18%] border-4 border-primary/80 rounded-2xl" />
     </div>
     <Button type="button" variant="outline" onClick={() => { setCameraError(""); setCamera(!camera); }}>{camera ? "ปิดกล้อง" : "เปิดกล้อง"}</Button>
-    <form action={checkInCodeForm.bind(null, eventId, sessionId)} className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void submit(code); }}><FieldGroup><Field><FieldLabel htmlFor="scan-code">เครื่องยิง / พิมพ์รหัส QR</FieldLabel><Input id="scan-code" name="code" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="สแกนหรือพิมพ์รหัส QR" autoComplete="off" /></Field></FieldGroup><Button type="submit">เช็คชื่อ</Button></form>
-    <div className="flex flex-wrap items-center gap-3 text-sm"><span className={online ? "text-primary" : "text-muted-foreground"}>{online ? "ออนไลน์" : "ออฟไลน์"} · ค้างในเครื่อง {pending} รายการ{needsReview ? ` (ต้องตรวจสอบ ${needsReview})` : ""}</span>{pending > 0 && <Button type="button" size="sm" variant="outline" disabled={!online} onClick={() => void sync(true)}>ลองซิงก์อีกครั้ง</Button>}{needsReview > 0 && <Button type="button" size="sm" variant="destructive" onClick={async () => { if (!window.confirm(`ยืนยันลบ ${needsReview} รายการที่ตรวจไม่ผ่าน? การลบนี้กู้คืนไม่ได้และไม่ได้เช็คชื่อให้`)) return; const removed = await discardRejectedScans(operatorId); setNeedsReview(0); setReviewItems([]); await refreshPending(); setResult({ kind: "error", message: `ลบ ${removed} รายการที่ตรวจไม่ผ่านจากเครื่องแล้ว (ไม่ได้เช็คชื่อ)` }); }}>ลบรายการที่ตรวจไม่ผ่าน</Button>}</div>
-    {cameraError && <p role="alert" className="mt-2 text-sm text-destructive">{cameraError}</p>}
-    {reviewItems.length > 0 && <section aria-label="รายการที่ต้องตรวจสอบ" className="rounded-lg border border-destructive/50 p-3 text-sm">
-      <h3 className="font-semibold text-destructive">ต้องตรวจสอบ — ยังไม่ได้เช็คชื่อ</h3>
+    <form action={checkInCodeForm.bind(null, eventId, sessionId)} className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void submit(code, "scanner"); }}><FieldGroup><Field><FieldLabel htmlFor="scan-code">เครื่องยิง / พิมพ์รหัส QR</FieldLabel><Input id="scan-code" name="code" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="สแกนหรือพิมพ์รหัส QR" autoComplete="off" /></Field></FieldGroup><Button type="submit">เช็คชื่อ</Button></form>
+    {!kiosk && <div className="flex flex-wrap items-center gap-3 text-sm"><span className={online ? "text-primary" : "text-muted-foreground"}>{online ? "ออนไลน์" : "ออฟไลน์"} · ค้างในเครื่อง {pending} รายการ{needsReview ? ` (ต้องตรวจสอบ ${needsReview})` : ""}</span>{pending > 0 && <Button type="button" size="sm" variant="outline" disabled={!online} onClick={() => void sync(true)}>ลองซิงก์อีกครั้ง</Button>}{needsReview > 0 && <Button type="button" size="sm" variant="destructive" onClick={async () => { if (!window.confirm(`ยืนยันลบ ${needsReview} รายการที่ตรวจไม่ผ่าน? การลบนี้กู้คืนไม่ได้และไม่ได้เช็คชื่อให้`)) return; const removed = await discardRejectedScans(operatorId); setNeedsReview(0); setReviewItems([]); await refreshPending(); setResult({ kind: "error", message: `ลบ ${removed} รายการที่ตรวจไม่ผ่านจากเครื่องแล้ว (ไม่ได้เช็คชื่อ)` }); }}>ลบรายการที่ตรวจไม่ผ่าน</Button>}</div>}
+    {kiosk && (!online || pending > 0) && <p className="text-sm text-muted-foreground">{online ? "" : "ออฟไลน์ · "}รอส่งข้อมูล {pending} รายการ กรุณาแจ้งเจ้าหน้าที่</p>}
+    {cameraError && <p role="alert" className="mt-2 text-sm text-red-200">{cameraError}</p>}
+    {!kiosk && reviewItems.length > 0 && <section aria-label="รายการที่ต้องตรวจสอบ" className="rounded-lg border border-red-400/60 p-3 text-sm">
+      <h3 className="font-semibold text-red-200">ต้องตรวจสอบ — ยังไม่ได้เช็คชื่อ</h3>
       <ul className="mt-2 flex flex-col gap-1">{reviewItems.map((item) => <li key={item.id} className="flex flex-col border-t pt-1 first:border-t-0 first:pt-0"><span>{reviewTime.format(item.queuedAt)} · {sessionLabels[item.sessionId] ?? "รอบที่ถูกลบแล้ว"}</span><span className="text-xs text-muted-foreground">{item.message}</span></li>)}</ul>
     </section>}
-    {result && <div role="status" className={cn("mt-4 flex flex-col gap-3 rounded-lg border-2 p-4 font-semibold", result.kind === "success" ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : result.kind === "queued" ? "border-muted-foreground/40 bg-muted" : result.kind === "duplicate" || result.kind === "wrong-day" ? "border-amber-500 bg-amber-500/10 text-amber-800 dark:text-amber-200" : "border-destructive bg-destructive/10 text-destructive")}>
+    {result && <div role="status" className={cn("mt-4 flex flex-col gap-3 rounded-lg border-2 p-4 font-semibold", kiosk && "p-6 text-center text-2xl", result.kind === "success" ? "border-emerald-400 bg-emerald-500/15 text-emerald-200" : result.kind === "queued" ? "border-muted-foreground/40 bg-muted" : result.kind === "duplicate" || result.kind === "wrong-day" ? "border-amber-400 bg-amber-500/15 text-amber-100" : "border-red-400 bg-red-500/15 text-red-200")}>
       <p>{result.message}</p>
       {overrideCode && <form className="flex flex-col gap-2 font-normal text-foreground" onSubmit={(event) => { event.preventDefault(); void submitOverride(); }}>
         <label htmlFor="override-note" className="text-sm">อนุญาตเป็นกรณีพิเศษ (บันทึกเหตุผลลง audit log)</label>
