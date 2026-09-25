@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -51,8 +50,8 @@
 
 :root {
   /* Values follow checkin-mockup-b/assets/tokens.css. */
-  --font-app-sans: "Sarabun", "Leelawadee UI", Tahoma, sans-serif;
-  --font-display: "Anuphan", "Sarabun", sans-serif;
+  --font-app-sans: var(--font-sarabun), "Sarabun", "Leelawadee UI", Tahoma, sans-serif;
+  --font-display: var(--font-anuphan), var(--font-sarabun), "Anuphan", sans-serif;
   --font-app-mono: "Cascadia Code", Consolas, monospace;
   --background: #f6f4ef;
   --foreground: #1b1a17;

@@ -103,18 +103,20 @@ try {
   const filteredUrl = `${organizerUrl}?q=${encodeURIComponent("Person 1")}&status=PENDING&day=${day.id}&field=name&answer=${encodeURIComponent("Person 1")}`;
   const filteredHtml = await (await fetch(filteredUrl, { headers: { cookie } })).text();
   ensure(filteredHtml.includes(first.email) && !filteredHtml.includes(second.email), "Registrant search/day/answer filters did not narrow results");
-  const firstPersonIndex = html.indexOf(first.email, html.indexOf("<article"));
-  ensure(firstPersonIndex >= 0, "First applicant missing from organizer page");
-  const rejectForm = formsFrom(html.slice(firstPersonIndex)).find((form) => form.includes("ปฏิเสธ"));
+  ensure(html.includes(first.email), "First applicant missing from organizer list");
+  // The registrant page is master-detail: decisions live in the selected person's detail panel.
+  const detail = async (id) => (await fetch(`${organizerUrl}?selected=${id}`, { headers: { cookie } })).text();
+  const approveFormIn = (page) => formsFrom(page).find((form) => form.includes('name="returnTo"') && form.includes("อนุมัติ") && !form.includes("วันนี้") && !form.includes('name="reason"') && !form.includes('name="registrantId"') && !form.includes("ออกลิงก์"));
+  html = await detail(first.id);
+  const rejectForm = formsFrom(html).find((form) => form.includes("ยืนยันปฏิเสธ"));
   ensure(rejectForm, "Reject form missing");
   response = await submit(organizerUrl, rejectForm, {}, cookie);
   ensure(response.status === 303, `Reject failed: ${response.status}`);
   const after = await db.registrant.findMany({ where: { eventId }, orderBy: { registeredAt: "asc" } });
   const promoted = after.find((person) => person.id === second.id);
   ensure(after.find((person) => person.id === first.id)?.status === "REJECTED" && promoted?.status === "PENDING", `Waitlist promotion failed: ${JSON.stringify(after.map(({ email, status }) => ({ email, status })))}`);
-  html = await (await fetch(organizerUrl, { headers: { cookie } })).text();
-  const secondPersonIndex = html.indexOf(second.email, html.indexOf("<article"));
-  const approveForm = formsFrom(html.slice(secondPersonIndex)).find((form) => form.includes("อนุมัติ"));
+  html = await detail(second.id);
+  const approveForm = approveFormIn(html);
   ensure(approveForm, "Approve form missing");
   response = await submit(organizerUrl, approveForm, {}, cookie);
   ensure(response.status === 303, "Approval failed");
@@ -190,9 +192,8 @@ try {
   ensure(response.status === 303, "Mixed-day registration failed");
   const mixed = await db.registrant.findFirstOrThrow({ where: { eventId, email: `mixed-${suffix}@example.invalid` }, include: { days: true } });
   ensure(mixed.status === "PENDING" && mixed.days.find((item) => item.eventDayId === day.id)?.status === "WAITLISTED" && mixed.days.find((item) => item.eventDayId === otherDay.id)?.status === "PENDING", "Mixed-day capacity did not stay independent");
-  html = await (await fetch(organizerUrl, { headers: { cookie } })).text();
-  const mixedIndex = html.indexOf(mixed.email, html.indexOf("<article"));
-  const mixedDayApprovals = formsFrom(html.slice(mixedIndex, html.indexOf("</article>", mixedIndex))).filter((form) => form.includes("อนุมัติวันนี้"));
+  html = await detail(mixed.id);
+  const mixedDayApprovals = formsFrom(html).filter((form) => form.includes("อนุมัติวันนี้"));
   ensure(mixedDayApprovals.length === 2, "Per-day approval controls missing");
   response = await submit(organizerUrl, mixedDayApprovals[1], {}, cookie);
   ensure(response.status === 303, "Per-day approval failed");
@@ -208,9 +209,8 @@ try {
   response = await submit(publicUrl, registrationForm, { email: `closed-${suffix}@example.invalid`, dayId: otherDay.id, "answer:name": "Closed day", consent: "on" });
   ensure(response.status === 303 && response.headers.get("location")?.includes("error=not-open") && await db.registrant.count({ where: { eventId, email: `closed-${suffix}@example.invalid` } }) === 0, "Closed day accepted a registration");
 
-  html = await (await fetch(organizerUrl, { headers: { cookie } })).text();
-  const approvedIndex = html.indexOf(second.email, html.indexOf("<article"));
-  const reissueForm = formsFrom(html.slice(approvedIndex)).find((form) => form.includes("ออกลิงก์สถานะใหม่"));
+  html = await detail(second.id);
+  const reissueForm = formsFrom(html).find((form) => form.includes("ออกลิงก์สถานะใหม่"));
   ensure(reissueForm, "Reissue form missing");
   response = await submit(organizerUrl, reissueForm, { confirm: "on" }, cookie);
   ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), "Reissuing status link failed");

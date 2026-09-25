@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "6mb" },
+    // Enables forbidden() / forbidden.tsx for a real 403 on admin-only pages.
+    authInterrupts: true,
   },
   async headers() {
     const production = process.env.NODE_ENV === "production";

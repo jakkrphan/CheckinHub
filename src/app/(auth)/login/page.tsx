@@ -1,61 +1,55 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AuthError, CredentialsSignin } from "next-auth";
 import { redirect } from "next/navigation";
+import { CalendarCheck2Icon, CheckIcon, QrCodeIcon, ShieldCheckIcon } from "lucide-react";
 
-import { signIn } from "@/auth";
-import { Button } from "@/components/ui/button";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { auth } from "@/auth";
+import { homeFor, safeReturnTo } from "@/server/auth/return-to";
+import { db } from "@/server/db";
 
-export const metadata: Metadata = {
-  title: "เข้าสู่ระบบ",
-};
+import { LoginForm } from "./login-form";
 
-export default async function LoginPage({
-  searchParams,
-}: PageProps<"/login">) {
-  const { error, notice } = await searchParams;
+export const metadata: Metadata = { title: "เข้าสู่ระบบ" };
 
-  async function login(formData: FormData) {
-    "use server";
+const features = [
+  { icon: CalendarCheck2Icon, text: "สร้างโครงการ ตั้งวัน ที่นั่ง และฟอร์มลงทะเบียน" },
+  { icon: QrCodeIcon, text: "เช็คชื่อหน้างานด้วยกล้อง เครื่องยิง หรือค้นหาชื่อ" },
+  { icon: ShieldCheckIcon, text: "ทุกการเข้าถึงข้อมูลส่วนบุคคลถูกบันทึกตรวจสอบได้" },
+];
 
-    try {
-      await signIn("credentials", {
-        email: formData.get("email"),
-        password: formData.get("password"),
-        redirectTo: "/organizer",
-      });
-    } catch (cause) {
-      if (cause instanceof CredentialsSignin && cause.code === "rate_limited") redirect("/login?error=rate-limited");
-      if (cause instanceof AuthError) redirect("/login?error=invalid");
-      throw cause;
-    }
+export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const { error, notice, next: nextParam } = await searchParams;
+  const next = safeReturnTo(nextParam);
+  const session = await auth();
+  if (session?.user?.id && error !== "inactive") {
+    const user = await db.user.findUnique({ where: { id: session.user.id }, select: { role: true, isActive: true } });
+    if (user?.isActive) redirect(next ?? homeFor(user.role));
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center gap-8 px-5 py-12">
-      <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold text-primary">เช็คอินอบรม</p>
-        <h1 className="font-heading text-3xl font-bold tracking-tight">เข้าสู่ระบบผู้จัด</h1>
-        <p className="text-muted-foreground">ใช้บัญชีที่ผู้ดูแลระบบสร้างให้เพื่อจัดการโครงการหรือเช็คชื่อหน้างาน</p>
-      </div>
-      <form action={login} className="flex flex-col gap-6 rounded-xl border bg-card p-6 shadow-sm">
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="email">อีเมล</FieldLabel>
-            <Input id="email" name="email" type="email" autoComplete="username" required />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="password">รหัสผ่าน</FieldLabel>
-            <Input id="password" name="password" type="password" autoComplete="current-password" required />
-          </Field>
-        </FieldGroup>
-        {notice === "password-set" && <p role="status" className="text-sm text-primary">ตั้งรหัสผ่านเรียบร้อยแล้ว เข้าสู่ระบบด้วยรหัสผ่านใหม่ได้เลย</p>}
-        {error && <p role="alert" className="text-sm text-destructive">{error === "rate-limited" ? "พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่" : "อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีถูกปิดใช้งาน"}</p>}
-        <Button type="submit" size="lg">เข้าสู่ระบบ</Button>
-      </form>
-      <p className="text-sm text-muted-foreground">ลืมรหัสผ่านหรือยังไม่ได้ตั้งรหัสผ่าน? ติดต่อผู้ดูแลระบบเพื่อขอลิงก์ตั้งรหัสผ่าน · <Link href="/" className="underline underline-offset-4">กลับหน้าแรก</Link></p>
+    <main className="grid min-h-svh w-full lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <section className="hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex" aria-label="เกี่ยวกับระบบ">
+        <div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground"><CheckIcon className="size-6" aria-hidden="true" /></span><span className="font-heading text-xl font-bold">CheckInHub</span></div>
+        <div className="flex max-w-md flex-col gap-6">
+          <h2 className="font-heading text-3xl font-bold leading-snug">ระบบลงทะเบียนและเช็คชื่อผู้เข้าอบรม</h2>
+          <ul className="flex flex-col gap-4">{features.map(({ icon: Icon, text }) => <li key={text} className="flex items-start gap-3 text-sidebar-foreground/85"><Icon className="mt-0.5 size-5 shrink-0 text-sidebar-primary" aria-hidden="true" />{text}</li>)}</ul>
+        </div>
+        <p className="text-xs text-sidebar-foreground/60">สำหรับเจ้าหน้าที่และผู้จัดโครงการ · ผู้เข้าอบรมไม่ต้องเข้าสู่ระบบ</p>
+      </section>
+      <section className="flex items-center justify-center px-5 py-12">
+        <div className="flex w-full max-w-sm flex-col gap-8">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 lg:hidden"><span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><CheckIcon className="size-5" aria-hidden="true" /></span><span className="font-heading font-bold">CheckInHub</span></div>
+            <h1 className="font-heading text-3xl font-bold tracking-tight">เข้าสู่ระบบ</h1>
+            <p className="text-muted-foreground">ใช้บัญชีที่ผู้ดูแลระบบสร้างให้ เพื่อจัดการโครงการหรือเช็คชื่อหน้างาน</p>
+          </div>
+          {next && !error && <p role="status" className="rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">กรุณาเข้าสู่ระบบเพื่อไปยังหน้าที่เปิดไว้ต่อ</p>}
+          {error === "inactive" && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">บัญชีนี้ถูกปิดใช้งานหรือหมดสิทธิ์แล้ว กรุณาติดต่อผู้ดูแลระบบ</p>}
+          {notice === "password-set" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-3 py-2 text-sm text-accent-foreground">ตั้งรหัสผ่านเรียบร้อยแล้ว เข้าสู่ระบบด้วยรหัสผ่านใหม่ได้เลย</p>}
+          <LoginForm next={next} />
+          <p className="text-sm leading-relaxed text-muted-foreground">ลืมรหัสผ่านหรือยังไม่ได้ตั้งรหัสผ่าน? ขอลิงก์ตั้งรหัสผ่านจากผู้ดูแลระบบ · <Link href="/" className="underline underline-offset-4 hover:text-foreground">กลับหน้าแรก</Link></p>
+        </div>
+      </section>
     </main>
   );
 }

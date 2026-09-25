@@ -165,77 +165,6 @@ async function nextSortOrder(tx: Prisma.TransactionClient, eventId: string) {
   return (last._max.sortOrder ?? 0) + 1;
 }
 
-export async function addSession(eventId: string, dayId: string, formData: FormData) {
-  const { membership, user } = await requireEventAccess(eventId, "manage");
-  const parsed = sessionInput.safeParse({ label: formData.get("label") });
-  if (!parsed.success) redirect(eventUrl(eventId, "error=invalid-session"));
-
-  const day = await db.eventDay.findFirst({
-    where: { id: dayId, eventId },
-    select: { id: true },
-  });
-  if (!day) redirect(eventUrl(eventId, "error=invalid-session"));
-
-  const added = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
-    if (await sessionLabelTaken(tx, eventId, day.id, parsed.data.label)) return false;
-    const session = await tx.session.create({
-      data: { eventId, eventDayId: day.id, label: parsed.data.label, sortOrder: await nextSortOrder(tx, eventId) },
-    });
-    if (requiresAdminAudit(membership)) {
-      await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
-    }
-    return true;
-  });
-  if (!added) redirect(eventUrl(eventId, "error=duplicate-session"));
-
-  revalidatePath(`/organizer/${eventId}`);
-  redirect(eventUrl(eventId, "saved=session"));
-}
-
-export async function addSessionForScope(eventId: string, formData: FormData) {
-  const { membership, user } = await requireEventAccess(eventId, "manage");
-  const parsed = z.object({
-    label: sessionInput.shape.label,
-    scope: z.string().min(1).max(64),
-  }).safeParse({ label: formData.get("label"), scope: formData.get("scope") });
-  if (!parsed.success) redirect(eventUrl(eventId, "error=invalid-session"));
-
-  let eventDayIds: (string | null)[];
-  if (parsed.data.scope === "EVENT") {
-    eventDayIds = [null];
-  } else {
-    const days = await db.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true } });
-    if (parsed.data.scope === "EACH_DAY") {
-      if (days.length === 0) redirect(eventUrl(eventId, "error=invalid-session"));
-      eventDayIds = days.map((day) => day.id);
-    } else {
-      const day = days.find((item) => item.id === parsed.data.scope);
-      if (!day) redirect(eventUrl(eventId, "error=invalid-session"));
-      eventDayIds = [day.id];
-    }
-  }
-
-  const added = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
-    for (const eventDayId of eventDayIds) {
-      if (await sessionLabelTaken(tx, eventId, eventDayId, parsed.data.label)) return false;
-    }
-    for (const eventDayId of eventDayIds) {
-      const session = await tx.session.create({ data: { eventId, eventDayId, label: parsed.data.label, sortOrder: await nextSortOrder(tx, eventId) } });
-      if (requiresAdminAudit(membership)) {
-        await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
-      }
-    }
-    return true;
-  });
-  if (!added) redirect(eventUrl(eventId, "error=duplicate-session"));
-
-  revalidatePath(`/organizer/${eventId}`);
-  revalidatePath("/organizer");
-  redirect(eventUrl(eventId, "saved=session"));
-}
-
 export async function removeSession(eventId: string, sessionId: string, formData?: FormData) {
   const { membership, user } = await requireEventAccess(eventId, "manage");
   // Removing a session deletes its check-in history, so that case needs an explicit confirmation and is always audited.
@@ -254,9 +183,9 @@ export async function removeSession(eventId: string, sessionId: string, formData
     return true;
   });
 
-  if (!removed) redirect(eventUrl(eventId, "error=session-in-use"));
+  if (!removed) redirect(sessionUrl(eventId, sessionId, "error=session-in-use"));
   revalidatePath(`/organizer/${eventId}`);
-  redirect(eventUrl(eventId, "saved=session"));
+  redirect(sessionUrl(eventId, undefined, "saved=session"));
 }
 
 /** Moves a session one place within its own day (or within the every-day group); sessions sort by day first. */
@@ -278,23 +207,126 @@ export async function moveSession(eventId: string, sessionId: string, direction:
     if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_MOVED_BY_ADMIN", sessionId);
   });
   revalidatePath(`/organizer/${eventId}`);
-  redirect(eventUrl(eventId, "saved=session"));
+  redirect(sessionUrl(eventId, sessionId, "saved=session"));
 }
 
-export async function updateSession(eventId: string, sessionId: string, formData: FormData) {
+const timeInput = z.union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]);
+
+/** Session times are clock times in Bangkok; they are stored on the session's day (or 1970-01-01 for every-day sessions). */
+function sessionTime(day: Date | null, value: string) {
+  if (!value) return null;
+  const date = day ? day.toISOString().slice(0, 10) : "1970-01-01";
+  return new Date(`${date}T${value}:00+07:00`);
+}
+
+const bangkokClock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" });
+const clockOf = (value: Date | null) => value ? bangkokClock.format(value) : "";
+
+function sessionUrl(eventId: string, sessionId: string | undefined, message: string) {
+  return `/organizer/${eventId}?step=4&${message}${sessionId ? `&session=${sessionId}` : ""}`;
+}
+
+/**
+ * Creates (sessionId = null) or edits a session: label, day binding and optional start/end time.
+ * A session that already has check-ins cannot move to another day, since that would change who it applies to.
+ */
+export async function saveSession(eventId: string, sessionId: string | null, formData: FormData) {
   const { membership, user } = await requireEventAccess(eventId, "manage");
-  const parsed = sessionInput.safeParse({ label: formData.get("label") });
-  if (!parsed.success) redirect(eventUrl(eventId, "error=invalid-session"));
-  const renamed = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
-    const current = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { eventDayId: true } });
-    if (!current) return true;
-    if (await sessionLabelTaken(tx, eventId, current.eventDayId, parsed.data.label, sessionId)) return false;
-    const updated = await tx.session.updateMany({ where: { id: sessionId, eventId }, data: { label: parsed.data.label } });
-    if (updated.count && requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_UPDATED_BY_ADMIN", sessionId);
-    return true;
+  const parsed = z.object({ label: sessionInput.shape.label, scope: z.string().min(1).max(64), start: timeInput, end: timeInput }).safeParse({
+    label: formData.get("label"), scope: formData.get("scope"), start: formData.get("start") ?? "", end: formData.get("end") ?? "",
   });
-  if (!renamed) redirect(eventUrl(eventId, "error=duplicate-session"));
+  if (!parsed.success) redirect(sessionUrl(eventId, sessionId ?? undefined, "error=invalid-session"));
+  if (parsed.data.start && parsed.data.end && parsed.data.end <= parsed.data.start) redirect(sessionUrl(eventId, sessionId ?? undefined, "error=invalid-session-time"));
+
+  if (!sessionId && parsed.data.scope === "EACH_DAY") {
+    // One session per event day with the same label and clock times; all-or-nothing if any day already uses the label.
+    const created = await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+      const days = await tx.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true, date: true } });
+      if (!days.length) return null;
+      for (const day of days) if (await sessionLabelTaken(tx, eventId, day.id, parsed.data.label)) return null;
+      for (const day of days) {
+        const session = await tx.session.create({ data: { eventId, eventDayId: day.id, label: parsed.data.label, startTime: sessionTime(day.date, parsed.data.start), endTime: sessionTime(day.date, parsed.data.end), sortOrder: await nextSortOrder(tx, eventId) }, select: { id: true } });
+        if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
+      }
+      return days.length;
+    });
+    if (!created) redirect(sessionUrl(eventId, undefined, "error=duplicate-session"));
+    revalidatePath(`/organizer/${eventId}`);
+    revalidatePath("/organizer");
+    redirect(sessionUrl(eventId, undefined, `saved=session&added=${created}`));
+  }
+
+  const outcome = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+    const day = parsed.data.scope === "EVENT" ? null : await tx.eventDay.findFirst({ where: { id: parsed.data.scope, eventId }, select: { id: true, date: true } });
+    if (parsed.data.scope !== "EVENT" && !day) return { error: "invalid-session" } as const;
+    const data = { label: parsed.data.label, eventDayId: day?.id ?? null, startTime: sessionTime(day?.date ?? null, parsed.data.start), endTime: sessionTime(day?.date ?? null, parsed.data.end) };
+    if (sessionId) {
+      const current = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { eventDayId: true, _count: { select: { checkIns: true } } } });
+      if (!current) return { error: "invalid-session" } as const;
+      if (current._count.checkIns && current.eventDayId !== data.eventDayId) return { error: "session-day-locked" } as const;
+      if (await sessionLabelTaken(tx, eventId, data.eventDayId, data.label, sessionId)) return { error: "duplicate-session" } as const;
+      await tx.session.update({ where: { id: sessionId }, data });
+      if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_UPDATED_BY_ADMIN", sessionId);
+      return { id: sessionId } as const;
+    }
+    if (await sessionLabelTaken(tx, eventId, data.eventDayId, data.label)) return { error: "duplicate-session" } as const;
+    const created = await tx.session.create({ data: { ...data, eventId, sortOrder: await nextSortOrder(tx, eventId) }, select: { id: true } });
+    if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", created.id);
+    return { id: created.id } as const;
+  });
+  if ("error" in outcome) redirect(sessionUrl(eventId, sessionId ?? undefined, `error=${outcome.error}`));
   revalidatePath(`/organizer/${eventId}`);
-  redirect(eventUrl(eventId, "saved=session"));
+  redirect(sessionUrl(eventId, outcome.id, "saved=session"));
+}
+
+const presets = {
+  MORNING: { label: "เช้า", start: "08:30", end: "12:00" },
+  AFTERNOON: { label: "บ่าย", start: "13:00", end: "16:30" },
+  FULL_DAY: { label: "เต็มวัน", start: "08:30", end: "16:30" },
+} as const;
+
+/** Adds a preset session to every event day that does not already have a session with that label. */
+export async function addPresetSessions(eventId: string, preset: keyof typeof presets) {
+  const { membership, user } = await requireEventAccess(eventId, "manage");
+  const template = presets[preset];
+  if (!template) redirect(sessionUrl(eventId, undefined, "error=invalid-session"));
+  const added = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+    const days = await tx.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true, date: true } });
+    let count = 0;
+    for (const day of days) {
+      if (await sessionLabelTaken(tx, eventId, day.id, template.label)) continue;
+      const session = await tx.session.create({ data: { eventId, eventDayId: day.id, label: template.label, startTime: sessionTime(day.date, template.start), endTime: sessionTime(day.date, template.end), sortOrder: await nextSortOrder(tx, eventId) }, select: { id: true } });
+      if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", session.id);
+      count++;
+    }
+    return count;
+  });
+  revalidatePath(`/organizer/${eventId}`);
+  redirect(sessionUrl(eventId, undefined, added ? `saved=session&added=${added}` : "error=preset-exists"));
+}
+
+/** Copies one day's sessions (label and clock times) to every other day, skipping labels a day already has. */
+export async function copyDaySessions(eventId: string, sourceDayId: string) {
+  const { membership, user } = await requireEventAccess(eventId, "manage");
+  const added = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+    const days = await tx.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true, date: true } });
+    const source = await tx.session.findMany({ where: { eventId, eventDayId: sourceDayId }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }] });
+    let count = 0;
+    for (const day of days) {
+      if (day.id === sourceDayId) continue;
+      for (const session of source) {
+        if (await sessionLabelTaken(tx, eventId, day.id, session.label)) continue;
+        const created = await tx.session.create({ data: { eventId, eventDayId: day.id, label: session.label, startTime: sessionTime(day.date, clockOf(session.startTime)), endTime: sessionTime(day.date, clockOf(session.endTime)), sortOrder: await nextSortOrder(tx, eventId) }, select: { id: true } });
+        if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_SESSION_ADDED_BY_ADMIN", created.id);
+        count++;
+      }
+    }
+    return count;
+  });
+  revalidatePath(`/organizer/${eventId}`);
+  redirect(sessionUrl(eventId, undefined, added ? `saved=session&added=${added}` : "error=preset-exists"));
 }

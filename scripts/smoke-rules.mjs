@@ -105,15 +105,20 @@ try {
 
   // Session labels: same label on different days is fine; an every-day session may not reuse it.
   const eventPage = `${base}/organizer/${eventId}?step=4`;
-  html = await (await fetch(eventPage, { headers: { cookie } })).text();
+  html = await (await fetch(`${eventPage}&session=new`, { headers: { cookie } })).text();
   const addScopeForm = formsFrom(html).find((part) => part.includes('name="scope"'));
   response = await post(eventPage, addScopeForm, { label: "เช้า", scope: "EVENT" }, { cookie });
   ensure(location(response).includes("error=duplicate-session"), "Every-day session reused a day session label");
   response = await post(eventPage, addScopeForm, { label: "บ่าย", scope: "EACH_DAY" }, { cookie });
   ensure(location(response).includes("saved=session") && await db.session.count({ where: { eventId, label: "บ่าย" } }) === 2, "Per-day sessions with the same label could not be created");
+  response = await post(eventPage, addScopeForm, { label: "เย็น", scope: dayOne.id, start: "17:00", end: "16:00" }, { cookie });
+  ensure(location(response).includes("error=invalid-session-time"), "End time before start time was accepted");
+  response = await post(eventPage, addScopeForm, { label: "เย็น", scope: dayOne.id, start: "16:00", end: "17:30" }, { cookie });
+  const evening = await db.session.findFirst({ where: { eventId, label: "เย็น" } });
+  ensure(evening?.startTime?.toISOString() === "2031-11-01T09:00:00.000Z" && evening.endTime?.toISOString() === "2031-11-01T10:30:00.000Z", `Session times not stored as Bangkok clock time: ${evening?.startTime?.toISOString()}`);
 
   // Removing a session with check-ins needs explicit confirmation, then deletes and audits.
-  html = await (await fetch(eventPage, { headers: { cookie } })).text();
+  html = await (await fetch(`${eventPage}&session=${morningOne.id}`, { headers: { cookie } })).text();
   const removeForm = formsFrom(html).find((part) => part.includes('name="confirmCheckIns"'));
   ensure(removeForm, "Confirmation form for removing a used session missing");
   response = await post(eventPage, removeForm, {}, { cookie });

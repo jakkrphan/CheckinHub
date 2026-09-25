@@ -100,7 +100,7 @@ try {
   const queueHead = await db.registrantEventDay.findFirstOrThrow({ where: { status: "WAITLISTED", eventDay: { eventId } }, orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }], select: { registrantId: true } });
   const revoked = await db.registrant.findFirstOrThrow({ where: { eventId, status: "APPROVED", id: { not: learner.id } }, orderBy: { registeredAt: "desc" } });
   page = await (await fetch(`${organizerUrl}?q=${encodeURIComponent(revoked.email)}`, { headers: { cookie } })).text();
-  const revokeForm = formsFrom(page).find((part) => part.includes("ถอนการอนุมัติ"));
+  const revokeForm = formsFrom(page).find((part) => part.includes("ยกเลิกการเข้าร่วม"));
   ensure(revokeForm, "Revoke form missing");
   await post(organizerUrl, revokeForm, {}, { cookie });
   ensure((await db.registrant.findUniqueOrThrow({ where: { id: revoked.id } })).status === "CANCELLED", "Revoke did not cancel the learner");
@@ -110,7 +110,7 @@ try {
 
   // A learner who already checked in cannot be revoked (history would be orphaned).
   page = await (await fetch(`${organizerUrl}?q=${encodeURIComponent(learner.email)}`, { headers: { cookie } })).text();
-  await post(organizerUrl, formsFrom(page).find((part) => part.includes("ถอนการอนุมัติ")), {}, { cookie });
+  await post(organizerUrl, formsFrom(page).find((part) => part.includes("ยกเลิกการเข้าร่วม")), {}, { cookie });
   ensure((await db.registrant.findUniqueOrThrow({ where: { id: learner.id } })).status === "APPROVED", "Learner with check-ins was revoked");
 
   // Self-cancellation cancels the whole course and promotes the next learner.

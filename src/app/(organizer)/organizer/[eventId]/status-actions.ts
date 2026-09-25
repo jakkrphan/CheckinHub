@@ -9,7 +9,8 @@ import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
 
 export async function changeEventStatus(eventId: string, target: "PUBLISHED" | "CLOSED") {
-  const { event, membership, user } = await requireEventAccess(eventId, "manage");
+  // Publishing and closing are owner-only (admins included), per the access-control spec.
+  const { event, membership, user } = await requireEventAccess(eventId, "administer");
   if (target === "PUBLISHED") {
     const [days, globalSessionCount] = await Promise.all([
       db.eventDay.findMany({ where: { eventId }, include: { sessions: { select: { id: true } } } }),

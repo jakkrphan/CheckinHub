@@ -60,8 +60,8 @@ function EventRegistrationSummary({
 function EventActionBadges({ pending, waitlisted }: { pending: number; waitlisted: number }) {
   if (!pending && !waitlisted) return <span className="text-sm text-muted-foreground">—</span>;
   return <div className="flex max-w-40 flex-wrap gap-1">
-    {pending > 0 && <Badge variant="secondary">รออนุมัติ {pending.toLocaleString("th-TH")}</Badge>}
-    {waitlisted > 0 && <Badge variant="outline">รอคิว {waitlisted.toLocaleString("th-TH")}</Badge>}
+    {pending > 0 && <Badge variant="secondary" className="bg-amber-100 text-amber-900">รออนุมัติ {pending.toLocaleString("th-TH")}</Badge>}
+    {waitlisted > 0 && <Badge variant="secondary">รอคิว {waitlisted.toLocaleString("th-TH")}</Badge>}
   </div>;
 }
 
@@ -174,7 +174,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                         <div className="flex flex-col gap-2">
                           <Link href={`/organizer/${event.id}/dashboard`} className="font-heading font-semibold whitespace-normal hover:underline">{event.title}</Link>
                           <span className="flex flex-wrap gap-2">
-                            <Badge variant={event.status === "PUBLISHED" ? "default" : "secondary"}>{statusLabel[event.status]}</Badge>
+                            <Badge variant="secondary" className={event.status === "PUBLISHED" ? "bg-accent text-accent-foreground" : event.status === "DRAFT" ? "bg-amber-100 text-amber-900" : "bg-muted text-muted-foreground"}>{statusLabel[event.status]}</Badge>
                             <Badge variant="outline">{typeLabel[event.eventType]}</Badge>
                             <Badge variant="outline">{event.autoApprove ? "อนุมัติอัตโนมัติ" : "อนุมัติเอง"}</Badge>
                           </span>

@@ -14,10 +14,10 @@
 - [ ] ไล่เทียบ UI กับ mockup แบบ B หน้าที่เหลือ:
   - [ ] หน้าลงทะเบียนสาธารณะ 3 ขั้น + หน้าสถานะ/QR
   - [ ] หน้าเช็คชื่อหน้างาน + โหมด kiosk
-  - [ ] หน้า admin (ผู้ใช้ / โครงการ / audit log)
-  - [ ] หน้ารายชื่อผู้ลงทะเบียน + แดชบอร์ด
+  - [x] หน้า admin (ผู้ใช้ / โครงการ / audit log) — 26 ก.ย.
+  - [x] หน้ารายชื่อผู้ลงทะเบียน (master-detail) + แดชบอร์ด — 26 ก.ย.
   - [ ] ตรวจทุกหน้าที่ความกว้างมือถือ (ไม่มี scroll แนวนอน, ปุ่มกดง่าย)
-- [ ] ตรวจสถานะ UI ให้ครบทุกหน้าตามสเปก: loading, empty, error, 403, 404, 429
+- [ ] ตรวจสถานะ UI ให้ครบทุกหน้าตามสเปก: loading, empty, error, 403, 404, 429 (ฝั่ง admin/organizer/login ทำแล้ว 26 ก.ย. · เหลือหน้า public/เช็คชื่อ และ loading state ของหน้าที่โหลดช้า)
 - [ ] ตรวจ accessibility ขั้นต่ำ: label ครบ, โฟกัสมองเห็นได้, contrast WCAG AA, ใช้คีย์บอร์ดได้ทั้งหมด
 - [ ] รัน seed ใหม่กับฐาน local (200 ผู้ลงทะเบียน 2 โหมด) แล้วดูความเร็วหน้ารายชื่อ/แดชบอร์ด
 
@@ -48,6 +48,55 @@
 - [ ] วุฒิบัตร PDF ตามเกณฑ์การเข้าร่วม พร้อม QR ตรวจสอบ
 - [ ] รายงานสรุปโครงการ (PDF/xlsx) แยกตามวัน รอบ หน่วยงาน
 - [ ] แบบประเมินหลังอบรม
+
+## Staff area UX pass (2026-09-26)
+
+- **Login:**
+  - Split layout with a brand panel.
+  - Errors show without a page reload and the email field keeps its value.
+  - Show/hide password toggle and a loading state on the button.
+  - An expired session returns to the page it came from (`/login?next=`). `next` must be a staff path, so off-site redirects are blocked.
+  - Signed-in users visiting `/login` go straight to their home (staff → `/check-in`), and deactivated accounts get a clear message.
+- **Error pages:**
+  - A Thai-language 404 at the app root and inside the organizer/admin/check-in areas (the sidebar stays visible).
+  - A real 403 via `forbidden()` (`experimental.authInterrupts`) when non-admins open `/admin`.
+  - Error boundaries for every area with retry, plus `global-error`.
+  - A `proxy.ts` only forwards the requested path for the `next=` redirect.
+  - No `loading.tsx`: streaming would turn `notFound()` into HTTP 200, which weakens permission checks.
+- **Fonts:** Sarabun/Anuphan now load through `next/font`. The Google Fonts `@import` had been blocked by the CSP, so pages fell back to system fonts.
+- **Admin users (mockup B):**
+  - Search with a role filter.
+  - Avatar, role dropdown that saves on change, status pills, and project counts.
+  - One open/close-account button per row; edit and link actions live in a native popover (never clipped by the table).
+  - A "create account" popover.
+  - A recent audit log card with Thai action labels (`src/features/audit/labels.ts`).
+  - The audit log table uses the same labels, with details collapsed.
+- **Admin event (mockup B):**
+  - An "opened with admin rights" banner linking to this project's audit log; viewing is audited only when the admin is not a member.
+  - Status strip, day cards with seat bars and per-session progress, collaborators, and recent audit.
+  - Session times now show in Asia/Bangkok; they were UTC before.
+  - Seats count approved people. Before, every status was counted against the seat limit.
+- **Organizer:**
+  - The dashboard uses the shared `getEventOverview` and `EventOverviewPanels`, polls every 5 s, and shows an attendance-continuity block for whole-course events.
+  - The event header shows a status chip with the deadline, compact day list, and location.
+  - Project list status badges are colored.
+- **Registrants page (mockup B master-detail):**
+  - Left: status tabs, search, day and answer filters, compact rows with per-day chips, and bulk approve with a live count.
+  - Right: selected person's details (answers, sensitive/file links, per-day actions, queue position, check-ins) and an action footer (approve/override, reject with reason, cancel, QR, new status link).
+  - After every action the page returns to the same filters and person.
+  - On mobile it switches between list and detail. Before, the page was ~30,000px tall.
+- **Settings step 4 (check-in sessions, mockup B):**
+  - Day cards with "+ เพิ่มรอบ", compact session rows (time, "เช็คแล้ว N" badge, edit/delete), an empty-day hint, and a dashed every-day group.
+  - Right panel: add/edit a session (name, day binding or "every day"/"one per day", start/end time in Bangkok, reorder, and delete that asks for confirmation when check-ins exist).
+  - Quick add of เช้า/บ่าย/เต็มวัน to all days, and copying day N's sessions to the other days.
+  - New actions `saveSession`, `addPresetSessions` and `copyDaySessions`. A session with check-ins cannot change day. `?session=new` opens the add form.
+- **Settings step 5 (collaborators & publish, mockup B):**
+  - Collaborator card: add by email with a role, owner row, role dropdown that saves on change, remove button, and the check-in-only note. Full collaborators see the list read-only.
+  - Publish card: status chip, readiness checklist with "ไปแก้" links, copyable public link, and publish / close / reopen buttons.
+  - "Other actions" card: clone, shortcuts, and delete with confirmation.
+  - The sidebar shows the project name, and a step is ticked only when its data is actually ready.
+- **Permission fix:** publishing and closing are now owner/admin only (`changeEventStatus` uses `administer`, as the spec requires). Before, full collaborators could publish.
+- **Tests:** `registration`, `whole-course` and `admin` were updated for the new UI. `admin` now also covers the 403, `next=` and the off-site `next` block. All nine MySQL suites, lint and build pass.
 
 ## Remaining local items (2026-09-26)
 

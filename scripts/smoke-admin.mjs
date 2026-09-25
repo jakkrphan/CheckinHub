@@ -160,6 +160,16 @@ try {
   const auditPage = await (await fetch(`${base}/admin?view=audit&scope=system&actor=${encodeURIComponent(admin.email)}`, { headers: { cookie } })).text();
   ensure(auditPage.includes("ADMIN_INVITE_LINK_ISSUED") === false && auditPage.includes("ADMIN_PASSWORD_RESET_LINK_ISSUED") && !auditPage.includes("ACCOUNT_INVITE_ACCEPTED"), "Audit log actor filter did not narrow results");
 
+  // Access states: non-admins get a real 403, anonymous visitors are sent to login with a safe return path.
+  const organizerLogin = await login("organizer@checkinhub.local", "CheckInHub123!");
+  const organizerCookie = [organizerLogin.response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ")].join("; ");
+  ensure(organizerLogin.ok, "Seed organizer could not sign in");
+  ensure((await fetch(`${base}/admin`, { headers: { cookie: organizerCookie }, redirect: "manual" })).status === 403, "Non-admin did not receive 403 on /admin");
+  response = await fetch(`${base}/organizer/some-event/registrants?status=PENDING`, { redirect: "manual" });
+  ensure(response.headers.get("location")?.includes("/login?next=%2Forganizer%2Fsome-event%2Fregistrants%3Fstatus%3DPENDING"), `Anonymous deep link did not keep a return path: ${response.headers.get("location")}`);
+  const loginPage = await (await fetch(`${base}/login?next=${encodeURIComponent("https://evil.example/")}`)).text();
+  ensure(!loginPage.includes('name="next"'), "Login form accepted an off-site return path");
+
   const event = await db.event.create({ data: {
     slug: `admin-delete-${token}`, title: "Admin delete smoke", ownerId: admin.id,
     status: "CLOSED", fields: [], days: { create: [{ date: new Date("2032-01-10T00:00:00.000Z") }] },

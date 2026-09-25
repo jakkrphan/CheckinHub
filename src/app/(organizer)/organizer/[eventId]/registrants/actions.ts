@@ -11,6 +11,16 @@ import { getSeatAvailability, seatsTaken, syncRegistrantStatus } from "@/server/
 import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle";
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
 
+/** Returns to the list view the organizer acted from (filters + selected person), adding the result flags. */
+function backTo(eventId: string, formData: FormData | undefined, flags: Record<string, string | number | undefined>) {
+  const base = `/organizer/${eventId}/registrants`;
+  const raw = formData?.get("returnTo");
+  const url = new URL(typeof raw === "string" && (raw === base || raw.startsWith(`${base}?`)) ? raw : base, "http://local");
+  for (const key of ["result", "approved", "requested"]) url.searchParams.delete(key);
+  for (const [key, value] of Object.entries(flags)) if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
+  return `${url.pathname}${url.search}`;
+}
+
 export async function decideRegistrant(eventId: string, registrantId: string, decision: "approve" | "reject" | "cancel", formData?: FormData) {
   const { user, membership } = await requireEventAccess(eventId, "manage");
   const rawReason = decision === "reject" ? formData?.get("reason") : null;
@@ -78,13 +88,13 @@ export async function decideRegistrant(eventId: string, registrantId: string, de
     else throw error;
   }
   revalidatePath(`/organizer/${eventId}/registrants`);
-  redirect(`/organizer/${eventId}/registrants?result=${result}${requestedDays ? `&approved=${approvedDays}&requested=${requestedDays}` : ""}`);
+  redirect(backTo(eventId, formData, { result, approved: requestedDays ? approvedDays : undefined, requested: requestedDays || undefined }));
 }
 
 export async function approveSelected(eventId: string, formData: FormData) {
   const { user, membership } = await requireEventAccess(eventId, "manage");
   const ids = formData.getAll("registrantId").filter((value): value is string => typeof value === "string" && !!value);
-  if (!ids.length || ids.length > 100 || new Set(ids).size !== ids.length) redirect(`/organizer/${eventId}/registrants?result=invalid`);
+  if (!ids.length || ids.length > 100 || new Set(ids).size !== ids.length) redirect(backTo(eventId, formData, { result: "invalid" }));
   const outcome = await db.$transaction(async (tx) => {
     await lockEventDays(tx, eventId);
     const event = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { id: true, seatMode: true, maxSeats: true } });
@@ -117,13 +127,13 @@ export async function approveSelected(eventId: string, formData: FormData) {
     return { approvedDays, requestedDays };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   revalidatePath(`/organizer/${eventId}/registrants`);
-  redirect(`/organizer/${eventId}/registrants?result=${!outcome ? "invalid" : outcome.approvedDays < outcome.requestedDays ? "partial" : "updated"}${outcome ? `&approved=${outcome.approvedDays}&requested=${outcome.requestedDays}` : ""}`);
+  redirect(backTo(eventId, formData, { result: !outcome ? "invalid" : outcome.approvedDays < outcome.requestedDays ? "partial" : "updated", approved: outcome?.approvedDays, requested: outcome?.requestedDays }));
 }
 
-export async function decideRegistrantDay(eventId: string, registrantId: string, eventDayId: string, decision: "approve" | "reject" | "cancel") {
+export async function decideRegistrantDay(eventId: string, registrantId: string, eventDayId: string, decision: "approve" | "reject" | "cancel", formData?: FormData) {
   const { user, membership } = await requireEventAccess(eventId, "manage");
   const event = await db.event.findUniqueOrThrow({ where: { id: eventId }, select: { seatMode: true } });
-  if (event.seatMode === "whole_course") redirect(`/organizer/${eventId}/registrants?result=invalid`);
+  if (event.seatMode === "whole_course") redirect(backTo(eventId, formData, { result: "invalid" }));
   let result = "updated";
   await db.$transaction(async (tx) => {
     await lockEventDays(tx, eventId);
@@ -149,12 +159,12 @@ export async function decideRegistrantDay(eventId: string, registrantId: string,
     if (requiresAdminAudit(membership)) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "REGISTRANT_DAY_UPDATED_BY_ADMIN", target: row.id, metadata: { decision } } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   revalidatePath(`/organizer/${eventId}/registrants`);
-  redirect(`/organizer/${eventId}/registrants?result=${result}`);
+  redirect(backTo(eventId, formData, { result }));
 }
 
 export async function reissueStatusLink(eventId: string, registrantId: string, formData: FormData) {
   const { event, user } = await requireEventAccess(eventId, "manage");
-  if (formData.get("confirm") !== "on") redirect(`/organizer/${eventId}/registrants?result=confirm`);
+  if (formData.get("confirm") !== "on") redirect(backTo(eventId, formData, { result: "confirm" }));
   const token = newBearerCode();
   const person = await db.$transaction(async (tx) => {
     const current = await tx.registrant.findFirst({ where: { id: registrantId, eventId }, select: { id: true } });
@@ -163,6 +173,6 @@ export async function reissueStatusLink(eventId: string, registrantId: string, f
     await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "STATUS_LINK_REISSUED", target: registrantId } });
     return current;
   });
-  if (!person) redirect(`/organizer/${eventId}/registrants?result=missing`);
+  if (!person) redirect(backTo(eventId, formData, { result: "missing" }));
   redirect(`/events/${event.slug}/status/${token}`);
 }

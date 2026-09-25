@@ -15,6 +15,6 @@ export function DeleteEventButton({ eventId, title, hasRegistrants }: { eventId:
   }
 
   return <form action={deleteEvent.bind(null, eventId)} onSubmit={confirmDelete}>
-    <Button type="submit" variant="destructive" size="sm">ลบโครงการ</Button>
+    <Button type="submit" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive">ลบโครงการ</Button>
   </form>;
 }

@@ -124,7 +124,7 @@ try {
 
   // Session order: moving the afternoon session up reorders the check-in chips.
   const stepUrl = `${base}/organizer/${event.id}?step=4`;
-  html = await (await fetch(stepUrl, { headers: { cookie } })).text();
+  html = await (await fetch(`${stepUrl}&session=${second.id}`, { headers: { cookie } })).text();
   const moveUp = formsFrom(html).find((part) => part.includes('aria-label="เลื่อนรอบ บ่าย ขึ้น"'));
   ensure(moveUp, "Session reorder control missing");
   await post(stepUrl, moveUp, {}, { cookie });
