@@ -70,7 +70,7 @@
   --accent-foreground: #0a5345;
   --destructive: #b42318;
   --border: #e4e0d6;
-  --input: #d6d1c6;
+  --input: #89857a;
   --ring: #0e6b58;
   --chart-1: #0e6b58;
   --chart-2: #5fd0b3;
@@ -95,6 +95,7 @@
   --checkin-background: #0e1311;
   --checkin-surface: #1a211e;
   --checkin-border: #2a332f;
+  --checkin-input-border: #66756e;
   --checkin-muted: #a7b2ad;
   --checkin-accent: #5fd0b3;
 }
@@ -116,7 +117,7 @@
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --input: oklch(1 0 0 / 40%);
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -131,6 +132,33 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+.checkin-screen {
+  --background: var(--checkin-background);
+  --foreground: #ffffff;
+  --card: var(--checkin-surface);
+  --card-foreground: #ffffff;
+  --popover: var(--checkin-surface);
+  --popover-foreground: #ffffff;
+  --primary: var(--checkin-accent);
+  --primary-foreground: var(--checkin-background);
+  --secondary: var(--checkin-surface);
+  --secondary-foreground: #ffffff;
+  --muted: var(--checkin-border);
+  --muted-foreground: var(--checkin-muted);
+  --accent: var(--checkin-border);
+  --accent-foreground: #ffffff;
+  --border: var(--checkin-border);
+  --input: var(--checkin-input-border);
+  --ring: var(--checkin-accent);
+}
+
+@media (pointer: coarse) {
+  [data-slot="button"] {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
 }
 
 @layer base {

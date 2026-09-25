@@ -28,7 +28,7 @@ Staff perform check-ins as attendees/guests arrive at an event, venue, or front 
 
 ## Capabilities and Constraints
 
-The project now has a Next.js scaffold, a Prisma schema and initial migration, Auth.js Credentials sign-in, server-side access guards, and an organizer event list backed by database queries. Database migration and end-to-end sign-in still need a configured MySQL connection. The requested event registration and check-in flows are specified in `ระบบเช็คชื่ออบรม.md`, with UI references in `checkin-mockup-b/`; most of those flows are not implemented yet.
+The local development flow now covers organizer event creation and publishing, public registration with dynamic fields and conditional logic, approval and waitlist lifecycle, private status links and QR codes, organizer registrant management and CSV export, check-in with undo and an encrypted offline queue, and system administration with audit logs. Local attachments and cover images use private disk storage. This is a development-ready local flow, not a production-ready deployment: production still needs persistent private object storage, email and LINE delivery/login, Turnstile credentials, LDAP configuration from the organization's directory team, and browser/device acceptance checks. Credentials sign-in is temporary for development. UI references are in `docs/checkin-mockup-b/`.
 
 ## Product Principles
 

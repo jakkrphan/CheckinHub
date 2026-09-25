@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { AuthError } from "next-auth";
+import Link from "next/link";
+import { AuthError, CredentialsSignin } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { signIn } from "@/auth";
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
 export default async function LoginPage({
   searchParams,
 }: PageProps<"/login">) {
-  const { error } = await searchParams;
+  const { error, notice } = await searchParams;
 
   async function login(formData: FormData) {
     "use server";
@@ -26,6 +27,7 @@ export default async function LoginPage({
         redirectTo: "/organizer",
       });
     } catch (cause) {
+      if (cause instanceof CredentialsSignin && cause.code === "rate_limited") redirect("/login?error=rate-limited");
       if (cause instanceof AuthError) redirect("/login?error=invalid");
       throw cause;
     }
@@ -49,9 +51,11 @@ export default async function LoginPage({
             <Input id="password" name="password" type="password" autoComplete="current-password" required />
           </Field>
         </FieldGroup>
-        {error && <p role="alert" className="text-sm text-destructive">อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีถูกปิดใช้งาน</p>}
+        {notice === "password-set" && <p role="status" className="text-sm text-primary">ตั้งรหัสผ่านเรียบร้อยแล้ว เข้าสู่ระบบด้วยรหัสผ่านใหม่ได้เลย</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error === "rate-limited" ? "พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่" : "อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีถูกปิดใช้งาน"}</p>}
         <Button type="submit" size="lg">เข้าสู่ระบบ</Button>
       </form>
+      <p className="text-sm text-muted-foreground">ลืมรหัสผ่านหรือยังไม่ได้ตั้งรหัสผ่าน? ติดต่อผู้ดูแลระบบเพื่อขอลิงก์ตั้งรหัสผ่าน · <Link href="/" className="underline underline-offset-4">กลับหน้าแรก</Link></p>
     </main>
   );
 }

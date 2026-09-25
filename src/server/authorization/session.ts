@@ -16,12 +16,19 @@ export async function requireActiveUser() {
   return user;
 }
 
+export async function requireAdminUser() {
+  const user = await requireActiveUser();
+  if (user.role !== "ADMIN") redirect("/organizer");
+  return user;
+}
+
 export async function requireOrganizerUser() {
   const user = await requireActiveUser();
   if (user.role !== "STAFF") return user;
 
   const accessibleEvent = await db.event.findFirst({
     where: {
+      deletedAt: null,
       OR: [
         { ownerId: user.id },
         { organizers: { some: { userId: user.id, role: "FULL" } } },

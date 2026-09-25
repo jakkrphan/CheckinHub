@@ -1,0 +1,4 @@
+ALTER TABLE `Event`
+  ADD COLUMN `seatMode` VARCHAR(191) NOT NULL DEFAULT 'per_day',
+  ADD COLUMN `maxSeats` INTEGER NULL,
+  ADD COLUMN `attendanceThreshold` INTEGER NULL;

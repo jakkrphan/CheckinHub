@@ -1,0 +1,96 @@
+import { z } from "zod";
+
+const conditionalRuleSchema = z.object({
+  field: z.string().min(1),
+  operator: z.enum(["equals", "in", "includes"]),
+  value: z.union([z.string(), z.array(z.string())]),
+});
+
+export const registrationFieldSchema = z.object({
+  key: z.string().min(1).max(191),
+  label: z.string().trim().min(1).max(191),
+  type: z.enum(["text", "textarea", "email", "tel", "date", "select", "checkbox", "file"]),
+  required: z.boolean(),
+  showOnCheckin: z.boolean().default(false),
+  sensitive: z.boolean().default(false),
+  options: z.array(z.string().trim().min(1).max(191)).max(30).optional(),
+  acceptedFileTypes: z.array(z.string()).optional(),
+  maxFileSizeMb: z.number().positive().optional(),
+  conditional: conditionalRuleSchema.optional(),
+});
+
+export const registrationFieldsSchema = z.array(registrationFieldSchema).max(50);
+
+export type RegistrationFieldConfig = z.infer<typeof registrationFieldSchema>;
+export type RegistrationFileAnswer = { storageKey: string; originalName: string; contentType: string; size: number };
+export type RegistrationAnswerValue = string | string[] | RegistrationFileAnswer;
+
+export function readRegistrationFields(value: unknown): RegistrationFieldConfig[] {
+  const parsed = registrationFieldsSchema.safeParse(value);
+  if (!parsed.success) throw new Error("Invalid event registration field configuration");
+  return parsed.data;
+}
+
+export function validateRegistrationFields(fields: RegistrationFieldConfig[]) {
+  if (fields.length === 0) return false;
+  const seen = new Map<string, RegistrationFieldConfig>();
+  for (const field of fields) {
+    if (seen.has(field.key)) return false;
+    if (field.showOnCheckin && (field.sensitive || field.type === "file")) return false;
+    if ((field.type === "select" || field.type === "checkbox") && (!field.options?.length || new Set(field.options).size !== field.options.length)) return false;
+    if (field.type === "file" && (!field.acceptedFileTypes?.length || field.acceptedFileTypes.some((type) => !["pdf", "jpg", "jpeg", "png", "webp"].includes(type.toLowerCase().replace(/^\./, ""))) || !field.maxFileSizeMb || field.maxFileSizeMb > 5)) return false;
+    if (field.conditional) {
+      const parent = seen.get(field.conditional.field);
+      if (!parent || !["select", "checkbox"].includes(parent.type)) return false;
+      const values = Array.isArray(field.conditional.value) ? field.conditional.value : [field.conditional.value];
+      if (!values.length || values.some((value) => !parent.options?.includes(value))) return false;
+    }
+    seen.set(field.key, field);
+  }
+  return true;
+}
+
+export function conditionMatches(field: RegistrationFieldConfig, answers: Record<string, RegistrationAnswerValue>) {
+  if (!field.conditional) return true;
+  const answer = answers[field.conditional.field];
+  const values = Array.isArray(field.conditional.value) ? field.conditional.value : [field.conditional.value];
+  if (field.conditional.operator === "equals") return typeof answer === "string" && values.includes(answer);
+  if (field.conditional.operator === "in") return Array.isArray(answer) ? answer.some((item) => values.includes(item)) : typeof answer === "string" && values.includes(answer);
+  return Array.isArray(answer) && answer.some((item) => values.includes(item));
+}
+
+export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer> = {}) {
+  if (!validateRegistrationFields(fields)) return null;
+  const answers: Record<string, RegistrationAnswerValue> = {};
+
+  for (const field of fields) {
+    if (!conditionMatches(field, answers)) continue;
+    if (field.type === "file") {
+      const upload = uploads[field.key];
+      if (field.required && !upload) return null;
+      if (upload) answers[field.key] = upload;
+      continue;
+    }
+
+    const values = formData.getAll(`answer:${field.key}`);
+    if (field.type === "checkbox") {
+      const selected = values.filter((value): value is string => typeof value === "string" && value.length > 0);
+      if (selected.some((value) => !field.options?.includes(value)) || selected.length !== new Set(selected).size) return null;
+      if (field.required && selected.length === 0) return null;
+      answers[field.key] = selected;
+      continue;
+    }
+
+    if (values.length > 1 || (values[0] !== undefined && typeof values[0] !== "string")) return null;
+    const value = typeof values[0] === "string" ? values[0].trim() : "";
+    if (field.required && !value) return null;
+    if (value.length > 3000) return null;
+    if (field.type === "select" && value && !field.options?.includes(value)) return null;
+    if (field.type === "email" && value && !z.email().safeParse(value).success) return null;
+    if (field.type === "tel" && value && !/^[+0-9() .-]{6,30}$/.test(value)) return null;
+    if (field.type === "date" && value && !z.iso.date().safeParse(value).success) return null;
+    answers[field.key] = value;
+  }
+
+  return answers;
+}

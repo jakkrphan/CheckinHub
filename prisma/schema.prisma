@@ -38,6 +38,11 @@ enum RegistrantStatus {
   CANCELLED
 }
 
+enum WaitlistPromotion {
+  MANUAL
+  AUTO
+}
+
 enum NotificationChannel {
   EMAIL
   LINE
@@ -48,7 +53,7 @@ model User {
   id                  String           @id @default(cuid())
   name                String
   email               String           @unique
-  passwordHash        String
+  passwordHash        String?
   role                UserRole         @default(ORGANIZER)
   isActive            Boolean          @default(true)
   createdAt           DateTime         @default(now())
@@ -57,7 +62,39 @@ model User {
   organizerOf         EventOrganizer[]
   approvedRegistrants Registrant[]     @relation("RegistrantApprover")
   performedCheckIns   CheckIn[]        @relation("CheckInOperator")
+  voidedCheckIns      CheckIn[]        @relation("CheckInVoider")
   auditLogs           AuditLog[]       @relation("AuditActor")
+  accountTokens       UserToken[]      @relation("TokenOwner")
+  issuedTokens        UserToken[]      @relation("TokenIssuer")
+}
+
+enum UserTokenKind {
+  INVITE
+  RESET
+}
+
+model UserToken {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation("TokenOwner", fields: [userId], references: [id], onDelete: Cascade)
+  kind        UserTokenKind
+  tokenHash   String        @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String?
+  createdBy   User?         @relation("TokenIssuer", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now())
+
+  @@index([userId, kind])
+  @@index([createdById])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  keyHash   String
+  createdAt DateTime @default(now())
+
+  @@index([keyHash, createdAt])
 }
 
 model Event {
@@ -71,8 +108,15 @@ model Event {
   coverImageUrl        String?
   coverImageKey        String?
   fields               Json
+  fieldsVersion        Int              @default(1)
   registrationDeadline DateTime?
   autoApprove          Boolean          @default(false)
+  seatMode             String           @default("per_day")
+  maxSeats             Int?
+  attendanceThreshold  Int?
+  pendingHoldHours     Int?
+  waitlistPromotion    WaitlistPromotion @default(MANUAL)
+  deletedAt            DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
   ownerId              String
@@ -85,6 +129,7 @@ model Event {
 
   @@index([ownerId])
   @@index([status, registrationDeadline])
+  @@index([deletedAt])
 }
 
 model EventDay {
@@ -93,6 +138,7 @@ model EventDay {
   event          Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
   date           DateTime             @db.Date
   maxSeats       Int?
+  isClosed       Boolean              @default(false)
   registrantDays RegistrantEventDay[]
   sessions       Session[]
 
@@ -133,35 +179,47 @@ model Registrant {
   eventId         String
   event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
   answers         Json
+  fieldsVersion   Int                 @default(1)
   registeredAt    DateTime            @default(now())
+  consentedAt     DateTime?
+  consentVersion  String?
+  consentIp       String?             @db.VarChar(64)
   updatedAt       DateTime            @updatedAt
   email           String?
+  dedupeKey       String?
   lineUserId      String?
   notifyVia       NotificationChannel @default(EMAIL)
+  autoApproveAtRegistration Boolean    @default(false)
   status          RegistrantStatus    @default(PENDING)
   approvedAt      DateTime?
   approvedById    String?
   approvedBy      User?               @relation("RegistrantApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   cancelledAt     DateTime?
+  rejectReason    String?             @db.Text
   qrCode          String?             @unique
   statusTokenHash String               @unique
   checkIns        CheckIn[]
   days            RegistrantEventDay[]
 
-  @@unique([eventId, email])
+  @@unique([eventId, dedupeKey])
+  @@index([eventId, email])
   @@index([eventId, status, registeredAt])
   @@index([approvedById])
 }
 
 model RegistrantEventDay {
-  id           String     @id @default(cuid())
+  id           String           @id @default(cuid())
   registrantId String
-  registrant   Registrant @relation(fields: [registrantId], references: [id], onDelete: Cascade)
+  registrant   Registrant       @relation(fields: [registrantId], references: [id], onDelete: Cascade)
   eventDayId   String
-  eventDay     EventDay   @relation(fields: [eventDayId], references: [id], onDelete: Cascade)
+  eventDay     EventDay         @relation(fields: [eventDayId], references: [id], onDelete: Cascade)
+  status       RegistrantStatus @default(PENDING)
+  waitlistedAt DateTime?
+  pendingSince DateTime?
 
   @@unique([registrantId, eventDayId])
-  @@index([eventDayId])
+  @@index([eventDayId, status, waitlistedAt])
+  @@index([status, pendingSince])
 }
 
 model CheckIn {
@@ -173,10 +231,18 @@ model CheckIn {
   checkedInAt   DateTime   @default(now())
   checkedInById String?
   checkedInBy   User?      @relation("CheckInOperator", fields: [checkedInById], references: [id], onDelete: SetNull)
+  voidedAt      DateTime?
+  voidedById    String?
+  voidedBy      User?      @relation("CheckInVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  activeKey     String?    @unique
+  clientEventId String?    @unique
+  isOverride    Boolean    @default(false)
+  overrideNote  String?    @db.VarChar(500)
 
-  @@unique([registrantId, sessionId])
   @@index([sessionId, checkedInAt])
+  @@index([registrantId])
   @@index([checkedInById])
+  @@index([sessionId, voidedAt, checkedInAt])
 }
 
 model AuditLog {
@@ -192,4 +258,12 @@ model AuditLog {
 
   @@index([eventId, createdAt])
   @@index([actorId, createdAt])
+}
+
+model RegistrationAttempt {
+  id        String   @id @default(cuid())
+  ipHash    String
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
 }
