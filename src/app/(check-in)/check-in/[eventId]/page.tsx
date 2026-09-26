@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, MonitorSmartphoneIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, LayoutGridIcon, MonitorSmartphoneIcon, SearchIcon } from "lucide-react";
 
 import { checkInPersonForm, correctCheckInAnswers, undoCheckIn } from "@/app/(check-in)/check-in/[eventId]/actions";
 import { Scanner } from "@/app/(check-in)/check-in/[eventId]/scanner";
@@ -9,6 +9,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { LiveRefresh } from "@/components/live-refresh";
 import { Input } from "@/components/ui/input";
 import { readRegistrationFields } from "@/features/events/registration-fields";
+import { kioskEnabled } from "@/features/flags";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
@@ -44,9 +45,9 @@ export default async function EventCheckInPage({ params, searchParams }: PagePro
   return <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-4 py-4 md:max-w-4xl md:px-6 [@media(orientation:landscape)_and_(max-height:540px)]:max-w-4xl">
     {session ? <LiveRefresh url={`/check-in/${eventId}/state?session=${session.id}`} /> : <AutoRefresh />}
     <header className="flex items-center gap-3">
-      <Button asChild variant="secondary" size="icon-lg" className="size-11" aria-label="กลับไปโครงการทั้งหมด"><Link href="/check-in"><ChevronLeftIcon aria-hidden="true" /></Link></Button>
+      <Button asChild variant="secondary" className="h-11 shrink-0 gap-1.5 px-3"><Link href="/check-in" aria-label="กลับไปเลือกโครงการ"><LayoutGridIcon aria-hidden="true" /><span className="max-[359px]:hidden">เลือกโครงการ</span></Link></Button>
       <div className="min-w-0 flex-1"><h1 className="truncate font-heading text-base font-bold">{event.title}</h1><p className="flex items-center gap-1.5 text-xs text-primary"><span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />อัปเดตสด · {sessions.length} รอบ</p></div>
-      {session && <Button asChild variant="secondary" className="h-11"><Link href={`/check-in/${eventId}/kiosk?session=${session.id}`}><MonitorSmartphoneIcon data-icon="inline-start" aria-hidden="true" />kiosk</Link></Button>}
+      {kioskEnabled && session && <Button asChild variant="secondary" className="h-11"><Link href={`/check-in/${eventId}/kiosk?session=${session.id}`}><MonitorSmartphoneIcon data-icon="inline-start" aria-hidden="true" />kiosk</Link></Button>}
     </header>
     {session ? <>
       <button type="button" popoverTarget="session-picker" className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-left">

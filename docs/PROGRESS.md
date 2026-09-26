@@ -164,6 +164,16 @@
 - **Permission fix:** publishing and closing are now owner/admin only (`changeEventStatus` uses `administer`, as the spec requires). Before, full collaborators could publish.
 - **Tests:** `registration`, `whole-course` and `admin` were updated for the new UI. `admin` now also covers the 403, `next=` and the off-site `next` block. All nine MySQL suites, lint and build pass.
 
+## Check-in input modes (2026-09-26)
+
+- **Scan mode:** a switch at the top chooses "เครื่องยิง QR" (default) or "กล้อง", remembered per device (localStorage).
+  - Scanner mode hides the camera and shows a large "พร้อมรับจากเครื่องยิง" panel that turns amber when the code input loses focus (tap to fix). Focus returns to the input after every result.
+  - Camera mode starts the camera when chosen and shows a retry button if permission is denied. Kiosk uses the mode last chosen on that device, without the switch.
+- **No sound or vibration:** beeps, the sound toggle and vibration were removed at the user's request (spec §3 asked for beep + vibration). Results are visual only: the colour-coded result sheet. `feedback.ts` was deleted.
+- **Kiosk switched off for this release:** `FEATURE_KIOSK` (default off, see `src/features/flags.ts` and `.env.example`). The kiosk button is hidden and `/check-in/[eventId]/kiosk` returns 404; the code stays. Before turning it back on, add a "forgot PIN" flow (the PIN lives only in the browser tab, so today the only way out is closing the tab) and consider device-level locking (iPad Guided Access / Android screen pinning).
+- **Scanner ready state:** fixed the panel saying "not ready" on first load while the input was already focused (autoFocus ran before hydration).
+- **Back button:** the header shows "เลือกโครงการ" with a grid icon (icon only below 360px) instead of a bare chevron.
+
 ## Registrant, check-in and polish pass (2026-09-26, later)
 
 - **Self-service day change:** per-day events get `/events/[slug]/status/[token]/days`.

@@ -160,9 +160,11 @@ try {
   response = await fetch(`${base}/check-in/${event.id}/state?session=${first.id}`, { redirect: "manual" });
   ensure(response.status !== 200 && location(response).includes("/login"), `State endpoint answered without a session cookie: ${response.status}`);
 
-  // Kiosk page renders for a valid session and hides staff tools.
-  html = await (await fetch(`${base}/check-in/${event.id}/kiosk?session=${first.id}`, { headers: { cookie: staffCookie } })).text();
-  ensure(html.includes("เช้า") && !html.includes("ค้นหาผู้เข้าร่วม"), "Kiosk page missing or showing staff search");
+  // Kiosk is behind FEATURE_KIOSK: when on it renders without staff tools, when off the page does not exist.
+  response = await fetch(`${base}/check-in/${event.id}/kiosk?session=${first.id}`, { headers: { cookie: staffCookie } });
+  html = await response.text();
+  if (process.env.FEATURE_KIOSK === "true") ensure(html.includes("เช้า") && !html.includes("ค้นหาผู้เข้าร่วม"), "Kiosk page missing or showing staff search");
+  else ensure(response.status === 404 && !(await (await fetch(`${base}/check-in/${event.id}?session=${first.id}`, { headers: { cookie: staffCookie } })).text()).includes("/kiosk"), "Disabled kiosk is still reachable or linked");
 
   // Session order: moving the afternoon session up reorders the check-in chips.
   const stepUrl = `${base}/organizer/${event.id}?step=4`;
@@ -242,7 +244,7 @@ try {
   response = await post(editUrl, editForm, { "answer:name": "Too late", "answer:kind": "ทั่วไป" });
   ensure(!location(response).includes("updated=1") && (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers.name !== "Too late", "Self-edit accepted after the deadline");
 
-  process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method, kiosk page, session order, xlsx export and retention anonymization passed.\n");
+  process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method, kiosk switch, session order, xlsx export and retention anonymization passed.\n");
 } finally {
   for (const id of eventIds) await db.event.deleteMany({ where: { id } });
   if (staffId) { await db.auditLog.deleteMany({ where: { actorId: staffId } }); await db.user.deleteMany({ where: { id: staffId } }); }

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { Scanner } from "@/app/(check-in)/check-in/[eventId]/scanner";
+import { kioskEnabled } from "@/features/flags";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 
@@ -10,6 +11,8 @@ import { KioskLock } from "./kiosk-lock";
 export const metadata: Metadata = { title: "เช็คชื่อด้วยตนเอง" };
 
 export default async function KioskPage({ params, searchParams }: PageProps<"/check-in/[eventId]/kiosk">) {
+  // Switched off for this release (see features/flags.ts).
+  if (!kioskEnabled) notFound();
   const { eventId } = await params;
   const { session: sessionParam } = await searchParams;
   const { event, user } = await requireEventAccess(eventId, "checkIn");

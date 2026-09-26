@@ -100,7 +100,7 @@ function pagesFor({ event, draft, approved, session }) {
     { name: "account-password", path: "/account/password", staff: true },
     { name: "check-in-list", path: "/check-in", staff: true, touch: true },
     { name: "check-in", path: `/check-in/${id}?session=${session.id}`, staff: true, touch: true },
-    { name: "kiosk", path: `/check-in/${id}/kiosk?session=${session.id}`, staff: true, touch: true },
+    ...(process.env.FEATURE_KIOSK === "true" ? [{ name: "kiosk", path: `/check-in/${id}/kiosk?session=${session.id}`, staff: true, touch: true }] : []),
   ].filter((page) => !args.only || page.name.includes(String(args.only)));
 }
 

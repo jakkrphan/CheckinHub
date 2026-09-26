@@ -2,10 +2,9 @@
 
 import { BrowserQRCodeReader } from "@zxing/browser";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CalendarXIcon, CameraIcon, CheckIcon, CloudOffIcon, CopyCheckIcon, KeyboardIcon, LockIcon, ScanBarcodeIcon, Undo2Icon, Volume2Icon, VolumeXIcon, WifiOffIcon } from "lucide-react";
+import { CalendarXIcon, CameraIcon, CheckIcon, CloudOffIcon, CopyCheckIcon, KeyboardIcon, LockIcon, RefreshCwIcon, ScanBarcodeIcon, Undo2Icon, WifiOffIcon } from "lucide-react";
 
 import { checkInCode, checkInCodeForm, overrideCheckIn, undoCheckIn, type ScanResult } from "@/app/(check-in)/check-in/[eventId]/actions";
-import { isMuted, setMuted, signalResult, subscribeMuted, unlockAudio } from "@/app/(check-in)/check-in/[eventId]/feedback";
 import { discardRejectedScans, listReviewScans, pendingScanCount, queueScan, syncQueuedScans, type ReviewScan } from "@/app/(check-in)/check-in/[eventId]/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +18,22 @@ function subscribeOnline(callback: () => void) {
 
 type DisplayResult = ScanResult | { kind: "queued"; message: string; canOverride?: undefined };
 
+/** How this device reads QR codes; defaults to a USB/Bluetooth scanner and is remembered per device. */
+type InputMode = "scanner" | "camera";
+const MODE_KEY = "checkin-input-mode";
+const modeListeners = new Set<() => void>();
+function readMode(): InputMode {
+  try { return localStorage.getItem(MODE_KEY) === "camera" ? "camera" : "scanner"; } catch { return "scanner"; }
+}
+function writeMode(mode: InputMode) {
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage may be blocked; the choice then lasts for this page only */ }
+  for (const listener of modeListeners) listener();
+}
+function subscribeMode(listener: () => void) {
+  modeListeners.add(listener);
+  return () => { modeListeners.delete(listener); };
+}
+
 const reviewTime = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
 
 /**
@@ -30,7 +45,9 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   const video = useRef<HTMLVideoElement>(null);
   const busy = useRef(false);
   const last = useRef({ code: "", at: 0 });
-  const [camera, setCamera] = useState(false);
+  const inputMode = useSyncExternalStore(subscribeMode, readMode, () => "scanner" as InputMode);
+  const camera = inputMode === "camera";
+  const [cameraAttempt, setCameraAttempt] = useState(0);
   const [code, setCode] = useState("");
   const [result, setResultState] = useState<DisplayResult | null>(null);
   const [overrideCode, setOverrideCode] = useState("");
@@ -48,9 +65,8 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
 
   function setResult(next: DisplayResult | null, scannedCode = "") {
     setResultState(next);
+    // Results are visual only (no sound or vibration, by request): the colour-coded sheet carries the outcome.
     setOverrideCode(!kiosk && next?.kind === "wrong-day" && next.canOverride ? scannedCode : "");
-    if (!next) return;
-    signalResult(next.kind === "success" ? "success" : next.kind === "duplicate" || next.kind === "wrong-day" || next.kind === "queued" ? "warning" : "error");
   }
 
   async function refreshPending() { setPending(await pendingScanCount(operatorId)); }
@@ -121,9 +137,10 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     const timer = window.setTimeout(() => {
       if (!kiosk && result.kind === "success" && result.person) setRecent({ id: result.person.id, name: result.person.name, time: result.time ?? "" });
       setResultState(null);
+      if (!camera) codeInput.current?.focus();
     }, kiosk ? 5000 : 2500);
     return () => window.clearTimeout(timer);
-  }, [kiosk, result, overrideCode]);
+  }, [kiosk, result, overrideCode, camera]);
 
   useEffect(() => {
     // Unsynced scans live only on this device; warn before the tab is closed or navigated away.
@@ -132,13 +149,6 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [pending]);
-
-  useEffect(() => {
-    const unlock = () => unlockAudio();
-    window.addEventListener("pointerdown", unlock);
-    window.addEventListener("keydown", unlock);
-    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
-  }, []);
 
   useEffect(() => {
     void pendingScanCount(operatorId).then((count) => { setPending(count); void refreshReview(); void sync(); }).catch(() => setResult({ kind: "error", message: "เปิดคิวออฟไลน์ไม่ได้ กรุณาเช็คชื่อขณะออนไลน์" }));
@@ -157,13 +167,23 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     const reader = new BrowserQRCodeReader();
     reader.decodeFromVideoDevice(undefined, video.current, (scan) => {
       if (!cancelled && scan) void submit(scan.getText(), "camera");
-    }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch(() => setCameraError("เปิดกล้องไม่ได้ กรุณาตรวจสิทธิ์กล้องหรือใช้เครื่องยิงแทน"));
+    }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch(() => setCameraError("เปิดกล้องไม่ได้ กรุณาอนุญาตสิทธิ์กล้องในเบราว์เซอร์ หรือสลับไปใช้เครื่องยิง QR"));
     return () => { cancelled = true; controls?.stop(); };
-    // Camera lifecycle is tied to the selected session and camera toggle.
+    // Camera lifecycle is tied to the selected session, the input mode and retries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, eventId, sessionId]);
+  }, [camera, cameraAttempt, eventId, sessionId]);
 
-  const soundOff = useSyncExternalStore(subscribeMuted, isMuted, () => false);
+  useEffect(() => {
+    // autoFocus can land before hydration, so React never saw the focus event; sync the "ready" state once mounted.
+    const frame = requestAnimationFrame(() => setInputFocused(document.activeElement === codeInput.current));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  function chooseMode(next: InputMode) {
+    setCameraError("");
+    writeMode(next);
+    if (next === "scanner") window.setTimeout(() => codeInput.current?.focus(), 0);
+  }
 
   function closeResult() {
     if (!kiosk && result?.kind === "success" && result.person) setRecent({ id: result.person.id, name: result.person.name, time: result.time ?? "" });
@@ -172,43 +192,51 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     codeInput.current?.focus();
   }
 
-  // Tablets and short landscape phones put the camera and the controls side by side so the code input stays on screen.
-  return <section aria-label="สแกนเช็คชื่อ" className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 [@media(orientation:landscape)_and_(max-height:540px)]:grid-cols-2">
-    <div className="flex min-w-0 flex-col gap-3">
-    <div className={cn("relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-black [@media(orientation:landscape)_and_(max-height:540px)]:aspect-auto [@media(orientation:landscape)_and_(max-height:540px)]:h-[55svh]", kiosk ? "aspect-square" : "aspect-[4/3]")}>
-      {camera ? <video ref={video} muted playsInline className="absolute inset-0 size-full object-cover" />
-        : <Button type="button" variant="secondary" size="lg" className="relative z-10 h-12" onClick={() => { setCameraError(""); setCamera(true); }}><CameraIcon data-icon="inline-start" aria-hidden="true" />เปิดกล้องเพื่อสแกน</Button>}
-      <span aria-hidden="true" className="pointer-events-none absolute inset-[16%]">
-        <span className="absolute left-0 top-0 size-10 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
-        <span className="absolute right-0 top-0 size-10 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
-        <span className="absolute bottom-0 left-0 size-10 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
-        <span className="absolute bottom-0 right-0 size-10 rounded-br-2xl border-b-4 border-r-4 border-primary" />
-        {camera && <span className="absolute inset-x-[8%] top-1/2 h-0.5 bg-primary/80 shadow-[0_0_12px_var(--primary)] motion-safe:animate-pulse" />}
-      </span>
-      {(!online || pending > 0) && <div role="status" className="absolute inset-x-3 top-3 z-10 flex items-center gap-2 rounded-lg border border-amber-400/60 bg-amber-950/85 px-3 py-2 text-xs font-semibold text-amber-200">
-        <WifiOffIcon className="size-4 shrink-0" aria-hidden="true" /><span className="flex-1">{online ? "" : "เน็ตหลุด · "}เก็บไว้ในเครื่อง {pending} รายการ รอ sync</span>
-        {!kiosk && pending > 0 && <button type="button" disabled={!online} onClick={() => void sync(true)} className="underline underline-offset-2 disabled:opacity-50">ลองใหม่</button>}
-      </div>}
-      {camera && <Button type="button" variant="secondary" size="sm" className="absolute bottom-3 right-3 z-10" onClick={() => setCamera(false)}>ปิดกล้อง</Button>}
-    </div>
-    <p className="text-center text-sm text-muted-foreground">{kiosk ? "ส่อง QR จากหน้าสถานะของคุณให้อยู่ในกรอบ" : "ส่อง QR ให้อยู่ในกรอบ · หรือยิงด้วยเครื่องสแกน"}</p>
-    {cameraError && <p role="alert" className="rounded-lg border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm text-red-200">{cameraError}</p>}
-    </div>
+  const offline = (!online || pending > 0) && <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-400/60 bg-amber-950/85 px-3 py-2 text-xs font-semibold text-amber-200">
+    <WifiOffIcon className="size-4 shrink-0" aria-hidden="true" /><span className="flex-1">{online ? "" : "เน็ตหลุด · "}เก็บไว้ในเครื่อง {pending} รายการ รอ sync</span>
+    {!kiosk && pending > 0 && <button type="button" disabled={!online} onClick={() => void sync(true)} className="min-h-8 underline underline-offset-2 disabled:opacity-50">ลองใหม่</button>}
+  </div>;
+
+  return <section aria-label="สแกนเช็คชื่อ" className="flex flex-col gap-3">
+    {!kiosk && <div role="radiogroup" aria-label="วิธีสแกน QR" className="grid grid-cols-2 gap-1 rounded-2xl bg-card p-1">
+      {([["scanner", "เครื่องยิง QR", ScanBarcodeIcon], ["camera", "กล้อง", CameraIcon]] as const).map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={inputMode === value} onClick={() => chooseMode(value)}
+        className={cn("flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors", inputMode === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground")}>
+        <Icon className="size-4" aria-hidden="true" />{label}
+      </button>)}
+    </div>}
+    {offline}
+
+    {/* Camera mode on tablets and short landscape phones: camera and controls side by side so the code input stays on screen. */}
+    <div className={cn("grid grid-cols-1 items-start gap-3", camera && "md:grid-cols-2 [@media(orientation:landscape)_and_(max-height:540px)]:grid-cols-2")}>
+    {camera && <div className="flex min-w-0 flex-col gap-3">
+      <div className={cn("relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-black [@media(orientation:landscape)_and_(max-height:540px)]:aspect-auto [@media(orientation:landscape)_and_(max-height:540px)]:h-[55svh]", kiosk ? "aspect-square" : "aspect-[4/3]")}>
+        <video ref={video} muted playsInline className="absolute inset-0 size-full object-cover" />
+        <span aria-hidden="true" className="pointer-events-none absolute inset-[16%]">
+          <span className="absolute left-0 top-0 size-10 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
+          <span className="absolute right-0 top-0 size-10 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
+          <span className="absolute bottom-0 left-0 size-10 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
+          <span className="absolute bottom-0 right-0 size-10 rounded-br-2xl border-b-4 border-r-4 border-primary" />
+          {!cameraError && <span className="absolute inset-x-[8%] top-1/2 h-0.5 bg-primary/80 shadow-[0_0_12px_var(--primary)] motion-safe:animate-pulse" />}
+        </span>
+      </div>
+      <p className="text-center text-sm text-muted-foreground">{kiosk ? "ส่อง QR จากหน้าสถานะของคุณให้อยู่ในกรอบ" : "ส่อง QR ให้อยู่ในกรอบ"}</p>
+      {cameraError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm text-red-200"><span className="flex-1">{cameraError}</span><Button type="button" variant="secondary" size="sm" className="h-9" onClick={() => { setCameraError(""); setCameraAttempt((attempt) => attempt + 1); }}><RefreshCwIcon data-icon="inline-start" aria-hidden="true" />ลองอีกครั้ง</Button></div>}
+    </div>}
 
     <div className="flex flex-col gap-3 rounded-2xl bg-card p-4">
-      {!kiosk && <div className="flex gap-2">
-        <button type="button" onClick={() => codeInput.current?.focus()} className={cn("flex h-11 flex-1 items-center gap-2 rounded-lg px-3 text-sm font-semibold", inputFocused ? "bg-primary/15 text-primary" : "bg-muted/60 text-muted-foreground")}>
-          <ScanBarcodeIcon className="size-4" aria-hidden="true" />{inputFocused ? "เครื่องยิงพร้อม" : "แตะเพื่อใช้เครื่องยิง"}
-        </button>
-        <button type="button" aria-pressed={!soundOff} onClick={() => setMuted(!soundOff)} className="flex h-11 items-center gap-2 rounded-lg bg-muted/60 px-3 text-sm font-semibold">
-          {soundOff ? <VolumeXIcon className="size-4" aria-hidden="true" /> : <Volume2Icon className="size-4" aria-hidden="true" />}เสียงเตือน {soundOff ? "ปิด" : "เปิด"}
-        </button>
-      </div>}
-      <form action={checkInCodeForm.bind(null, eventId, sessionId)} className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void submit(code, "scanner"); }}>
+      {!camera && <button type="button" onClick={() => codeInput.current?.focus()} aria-live="polite"
+        className={cn("flex min-h-24 w-full items-center gap-4 rounded-xl border-2 px-4 py-4 text-left transition-colors", inputFocused ? "border-primary bg-primary/10" : "border-amber-400/70 bg-amber-500/10")}>
+        <ScanBarcodeIcon className={cn("size-10 shrink-0", inputFocused ? "text-primary" : "text-amber-300")} aria-hidden="true" />
+        <span className="flex flex-col gap-0.5">
+          <span className={cn("font-heading text-lg font-bold", inputFocused ? "text-primary" : "text-amber-200")}>{inputFocused ? "พร้อมรับจากเครื่องยิง" : "แตะที่นี่ให้เครื่องยิงพร้อม"}</span>
+          <span className="text-sm text-muted-foreground">{inputFocused ? "ยิง QR ได้เลย ระบบเช็คชื่อให้ทันที" : "ช่องรับรหัสไม่ได้เลือกอยู่ เครื่องยิงจะพิมพ์ไม่เข้า"}</span>
+        </span>
+      </button>}
+      <form action={checkInCodeForm.bind(null, eventId, sessionId)} className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void submit(code, camera ? "camera" : "scanner"); }}>
         <label htmlFor="scan-code" className="sr-only">เครื่องยิง / พิมพ์รหัส QR</label>
         <div className="relative flex-1">
           <KeyboardIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input ref={codeInput} id="scan-code" name="code" autoFocus value={code} onChange={(event) => setCode(event.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} placeholder="ยิงหรือพิมพ์รหัส QR" autoComplete="off" className="h-12 pl-9 text-base" />
+          <Input ref={codeInput} id="scan-code" name="code" autoFocus={!camera} value={code} onChange={(event) => setCode(event.target.value)} onFocus={() => setInputFocused(true)} onBlur={() => setInputFocused(false)} placeholder={camera ? "หรือพิมพ์รหัส QR" : "ยิงหรือพิมพ์รหัส QR"} autoComplete="off" className="h-12 pl-9 text-base" />
         </div>
         <Button type="submit" size="lg" className="h-12 px-5">เช็ค</Button>
       </form>
@@ -226,6 +254,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
         <h3 className="font-semibold text-red-200">ต้องตรวจสอบ — ยังไม่ได้เช็คชื่อ</h3>
         <ul className="mt-2 flex flex-col gap-1">{reviewItems.map((item) => <li key={item.id} className="flex flex-col border-t pt-1 first:border-t-0 first:pt-0"><span>{reviewTime.format(item.queuedAt)} · {sessionLabels[item.sessionId] ?? "รอบที่ถูกลบแล้ว"}</span><span className="text-xs text-muted-foreground">{item.message}</span></li>)}</ul>
       </section>}
+    </div>
     </div>
 
     {result && <ResultSheet result={result} kiosk={kiosk} sessionTitle={sessionTitle} onClose={closeResult}>
