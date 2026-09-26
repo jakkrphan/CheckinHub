@@ -1,23 +1,28 @@
 import { Prisma } from "@prisma/client";
 
-import { parseRegistrationAnswers, readRegistrationFields, type RegistrationFieldConfig, type RegistrationFileAnswer } from "@/features/events/registration-fields";
+import { parseRegistrationAnswers, readFileAnswers, readRegistrationFields, type RegistrationFieldConfig, type RegistrationFileAnswer } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { hashBearerCode } from "@/server/registrations/registration";
 
 export type SelfEditResult = "saved" | "unchanged" | "invalid" | "closed" | "not-found";
 
-const isFileAnswer = (value: unknown): value is RegistrationFileAnswer =>
-  !!value && typeof value === "object" && !Array.isArray(value) && typeof (value as { storageKey?: unknown }).storageKey === "string";
-
 /**
  * Validates an answer change against the full form (required fields, conditions, formats).
  * With `editable`, only those field keys are read from the submission and only they may change.
+ * Answers under keys no longer in the form (fields the organizer removed) are carried over untouched.
  */
-export function mergeAnswers(fields: RegistrationFieldConfig[], stored: unknown, formData: FormData, editable?: Set<string>) {
+export function mergeAnswers(currentFields: RegistrationFieldConfig[], stored: unknown, formData: FormData, editable?: Set<string>) {
   const previous = stored && typeof stored === "object" && !Array.isArray(stored) ? stored as Record<string, unknown> : {};
-  const existingFiles: Record<string, RegistrationFileAnswer> = {};
-  for (const field of fields) if (field.type === "file" && isFileAnswer(previous[field.key])) existingFiles[field.key] = previous[field.key] as RegistrationFileAnswer;
+  // Check-in corrections must not fail because of fields staff cannot touch: a field added later as required,
+  // or an option the organizer has since removed. Those keep their stored value as it is.
+  const fields = editable ? currentFields.map((field) => {
+    if (editable.has(field.key)) return field;
+    const stale = ([] as unknown[]).concat(previous[field.key] ?? []).filter((value): value is string => typeof value === "string" && !!value && !!field.options && !field.options.includes(value));
+    return { ...field, required: false, ...(stale.length ? { options: [...field.options!, ...new Set(stale)] } : {}) };
+  }) : currentFields;
+  const existingFiles: Record<string, RegistrationFileAnswer[]> = {};
+  for (const field of fields) if (field.type === "file" && readFileAnswers(previous[field.key]).length) existingFiles[field.key] = readFileAnswers(previous[field.key]);
   let source = formData;
   if (editable) {
     source = new FormData();
@@ -28,13 +33,16 @@ export function mergeAnswers(fields: RegistrationFieldConfig[], stored: unknown,
       for (const value of values) if (typeof value === "string") source.append(name, value);
     }
   }
-  const answers = parseRegistrationAnswers(fields, source, existingFiles);
-  if (!answers) return null;
+  const parsed = parseRegistrationAnswers(fields, source, existingFiles);
+  if (!parsed) return null;
+  const known = new Set(fields.map((field) => field.key));
+  const orphans = Object.fromEntries(Object.entries(previous).filter(([key]) => !known.has(key)));
+  const answers = { ...orphans, ...parsed };
   const changed = [...new Set([...Object.keys(previous), ...Object.keys(answers)])]
     .filter((key) => JSON.stringify(previous[key] ?? null) !== JSON.stringify(answers[key] ?? null));
   if (editable && changed.some((key) => !editable.has(key))) return null;
-  const kept = new Set(Object.values(answers).filter(isFileAnswer).map((file) => file.storageKey));
-  const orphanedFiles = Object.values(existingFiles).map((file) => file.storageKey).filter((key) => !kept.has(key));
+  const kept = new Set(Object.values(answers).flatMap((value) => readFileAnswers(value)).map((file) => file.storageKey));
+  const orphanedFiles = Object.values(existingFiles).flat().map((file) => file.storageKey).filter((key) => !kept.has(key));
   return { answers, changed, orphanedFiles };
 }
 

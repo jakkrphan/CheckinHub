@@ -2,6 +2,7 @@
 
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { requireEventAccess } from "@/server/authorization/event";
@@ -9,6 +10,7 @@ import { canManageEvent, requiresAdminAudit } from "@/server/authorization/polic
 import { readRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { mergeAnswers } from "@/server/registrations/self-edit";
+import { cleanStation, currentStation, STATION_COOKIE } from "@/server/checkin/station";
 
 export type ScanPerson = {
   id: string;
@@ -29,6 +31,8 @@ export type ScanResult = {
   /** Active check-ins in this session / people expected (approved for the session's day). */
   count?: { checked: number; expected: number };
   time?: string;
+  /** Whole-course events: which session of the course this is and how many the person has attended. */
+  progress?: { session: number; total: number; attended: number };
 };
 
 const timeFormatter = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
@@ -58,11 +62,22 @@ function validClientEventId(value: string) {
 }
 
 const checkInMethods = ["camera", "scanner", "manual", "kiosk"] as const;
+
+/** Names this device's check-in point (e.g. "จุดที่ 2 · โต๊ะหน้าห้อง"); an empty name clears it. */
+export async function setCheckInStation(eventId: string, sessionId: string, formData: FormData) {
+  await requireEventAccess(eventId, "checkIn");
+  const name = cleanStation(formData.get("station"));
+  const store = await cookies();
+  if (name) store.set(STATION_COOKIE, name, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/check-in", maxAge: 60 * 60 * 24 * 365 });
+  else store.delete({ name: STATION_COOKIE, path: "/check-in" });
+  redirect(`/check-in/${eventId}?session=${sessionId}`);
+}
 export type CheckInMethod = (typeof checkInMethods)[number];
 
 async function recordCheckIn(eventId: string, sessionId: string, code: string, options: { clientEventId?: string; scannedAt?: string; override?: { note: string }; method?: string }): Promise<ScanResult> {
   const { user, event, membership } = await requireEventAccess(eventId, "checkIn");
   const mayOverride = canManageEvent(membership);
+  const station = await currentStation();
   if (options.override && !mayOverride) return { kind: "invalid", message: "บัญชีนี้ไม่มีสิทธิ์อนุญาตเป็นกรณีพิเศษ" };
   if (!code || code.length > 200) return { kind: "invalid", message: "รหัสไม่ถูกต้อง" };
   const { clientEventId } = options;
@@ -92,7 +107,7 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
         return { kind: "wrong-day", message, canOverride: mayOverride, person: who };
       }
       const checkIn = await tx.checkIn.create({ data: {
-        registrantId: person.id, sessionId, checkedInById: user.id, checkedInAt: scannedDate, clientEventId, activeKey: `${person.id}:${sessionId}`,
+        registrantId: person.id, sessionId, checkedInById: user.id, checkedInAt: scannedDate, clientEventId, activeKey: `${person.id}:${sessionId}`, station,
         method: options.override ? "override" : checkInMethods.includes(options.method as CheckInMethod) ? options.method : null,
         ...(outsideDay && options.override ? { isOverride: true, overrideNote: options.override.note } : {}),
       }, select: { id: true } });
@@ -104,7 +119,8 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
       if (event.seatMode === "whole_course") {
         const allSessions = await tx.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }], select: { id: true } });
         const checked = await tx.checkIn.count({ where: { registrantId: person.id, session: { eventId }, voidedAt: null } });
-        return { kind: "success", message: `${prefix} · รอบนี้เป็นรอบที่ ${allSessions.findIndex((item) => item.id === sessionId) + 1} จาก ${allSessions.length} · เข้าแล้ว ${checked} รอบ`, ...details };
+        const progress = { session: allSessions.findIndex((item) => item.id === sessionId) + 1, total: allSessions.length, attended: checked };
+        return { kind: "success", message: `${prefix} · รอบนี้เป็นรอบที่ ${progress.session} จาก ${progress.total} · เข้าแล้ว ${progress.attended} รอบ`, progress, ...details };
       }
       return { kind: "success", message: prefix, ...details };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });

@@ -4,6 +4,7 @@ import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { CheckIcon, MailIcon, MessageCircleIcon, ShieldCheckIcon } from "lucide-react";
 
 import { registerPublicEvent } from "@/app/(public)/events/[slug]/actions";
+import { CourseOverview } from "@/app/(public)/events/[slug]/course-overview";
 import { PublicFileField } from "@/app/(public)/events/[slug]/public-file-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { conditionMatches, type RegistrationFieldConfig } from "@/features/event
 import { CURRENT_CONSENT_TEXT } from "@/features/registrations/consent";
 import { cn } from "@/lib/utils";
 
-type DayOption = { id: string; date: string; label: string; remaining: number | null; maxSeats: number | null; isClosed: boolean };
+type DayOption = { id: string; date: string; label: string; schedule: string | null; remaining: number | null; maxSeats: number | null; isClosed: boolean };
 type Step = 1 | 2 | 3;
 
 // Fixed Thai name tables: Intl output differs between Node ICU and browser ICU (e.g. "พฤหัส" vs "พฤ."), which breaks hydration.
@@ -26,9 +27,9 @@ const utcDate = (date: string) => new Date(`${date}T00:00:00Z`);
 const shortDate = (date: string) => { const value = utcDate(date); return `${weekdayShort[value.getUTCDay()]} ${value.getUTCDate()} ${monthsShort[value.getUTCMonth()]}`; };
 
 const controlClass = "h-12 rounded-lg bg-card px-3.5 text-base md:text-base";
-const stepTitle = (step: Step, seatMode: string) => step === 1 ? seatMode === "whole_course" ? "วันอบรมทั้งหลักสูตร" : "เลือกวันที่จะเข้าร่วม" : step === 2 ? "ข้อมูลผู้ลงทะเบียน" : "ยืนยันการลงทะเบียน";
+const stepTitle = (step: Step, seatMode: string) => step === 1 ? seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่จะเข้าร่วม" : step === 2 ? "ข้อมูลผู้ลงทะเบียน" : "ยืนยันการลงทะเบียน";
 
-export function PublicRegistrationWizard({ slug, formTicket, fields, days, captchaSiteKey, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, attendanceThreshold, title, typeLabel, cover, details, notice }: {
+export function PublicRegistrationWizard({ slug, formTicket, fields, days, captchaSiteKey, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
   slug: string;
   formTicket: string;
   fields: RegistrationFieldConfig[];
@@ -39,7 +40,6 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
   seatMode: string;
   courseRemaining: number | null;
   courseMaxSeats: number | null;
-  attendanceThreshold: number | null;
   title: string;
   typeLabel: string;
   cover: ReactNode;
@@ -106,7 +106,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
       {field.type === "textarea" ? <Textarea id={id} name={name} required={field.required} maxLength={3000} rows={3} className="min-h-24 rounded-lg bg-card px-3.5 py-3 text-base md:text-base" onChange={(event) => setAnswer(event.target.value)} />
         : field.type === "select" ? <NativeSelect id={id} name={name} required={field.required} defaultValue="" className="h-12 bg-card px-3 text-base" onChange={(event) => setAnswer(event.target.value)}><option value="">เลือกคำตอบ</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</NativeSelect>
         : field.type === "checkbox" ? <div role="group" aria-label={field.label} className="flex flex-col gap-2">{field.options?.map((option) => <label key={option} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border bg-card px-3.5 text-base has-[:checked]:border-primary"><input type="checkbox" name={name} value={option} className="size-5 accent-primary" onChange={(event) => setAnswers((current) => { const selected = Array.isArray(current[field.key]) ? current[field.key] as string[] : []; return { ...current, [field.key]: event.target.checked ? [...selected, option] : selected.filter((item) => item !== option) }; })} />{option}</label>)}{field.required && <FieldDescription>เลือกอย่างน้อยหนึ่งข้อ</FieldDescription>}</div>
-        : field.type === "file" ? <PublicFileField id={id} name={name} required={field.required} acceptedFileTypes={field.acceptedFileTypes ?? []} maxFileSizeMb={field.maxFileSizeMb ?? 5} />
+        : field.type === "file" ? <PublicFileField id={id} name={name} required={field.required} acceptedFileTypes={field.acceptedFileTypes ?? []} maxFileSizeMb={field.maxFileSizeMb ?? 5} maxFiles={field.maxFiles ?? 1} />
         : <Input id={id} name={name} type={field.type} required={field.required} maxLength={field.type === "tel" ? 30 : 3000} className={controlClass} onChange={(event) => setAnswer(event.target.value)} />}
     </Field>;
   }
@@ -131,21 +131,23 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
       </header>
       {notice && <p role="alert" className="mx-5 mt-5 rounded-lg border border-destructive bg-card p-4 text-sm text-destructive">{notice}</p>}
 
-      <section className={cn("flex flex-col gap-3 px-5 py-5", step !== 1 && "hidden")} aria-label="เลือกวันที่เข้าร่วม">
-        {seatMode === "whole_course" ? <div className="rounded-lg border border-primary bg-accent p-4 text-sm"><strong>หลักสูตรต่อเนื่อง ต้องเข้าร่วมครบทุกวัน</strong><p className="mt-1">{courseRemaining === null ? "ไม่จำกัดที่นั่ง" : courseRemaining === 0 ? "ที่นั่งเต็ม · สมัครเพื่อเข้าคิวสำรองได้" : `เหลือ ${courseRemaining} / ${courseMaxSeats} ที่นั่ง`}</p>{attendanceThreshold !== null && <p className="mt-1 text-muted-foreground">ต้องเช็คชื่ออย่างน้อย {attendanceThreshold}% ของรอบทั้งหมดจึงผ่านเกณฑ์</p>}</div> : <p className="text-sm text-muted-foreground">เลือกได้หลายวัน อย่างน้อย 1 วัน · ที่นั่งนับแยกแต่ละวัน</p>}
+      <section className={cn("flex flex-col gap-3 px-5 py-5", seatMode === "whole_course" && "gap-3.5", step !== 1 && "hidden")} aria-label={seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่เข้าร่วม"}>
+        {seatMode === "whole_course" ? <CourseOverview days={days} remaining={courseRemaining} maxSeats={courseMaxSeats} /> : <>
+        <p className="text-sm text-muted-foreground">เลือกได้หลายวัน อย่างน้อย 1 วัน · ที่นั่งนับแยกแต่ละวัน</p>
         <fieldset className="flex flex-col gap-3"><legend className="sr-only">วันที่เข้าร่วม</legend>
           {days.map((day, index) => {
             const date = utcDate(day.date);
             const selected = selectedDays.includes(day.id);
             const full = day.remaining === 0;
-            return <label key={day.id} className={cn("flex items-center gap-4 rounded-xl border bg-card p-4 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50", seatMode === "whole_course" ? "cursor-default" : day.isClosed ? "cursor-not-allowed opacity-60" : "cursor-pointer", full && !selected && "bg-muted", selected && "border-primary bg-primary text-primary-foreground")}>
-              {seatMode !== "whole_course" && <input type="checkbox" name="dayId" value={day.id} checked={selected} disabled={day.isClosed} onChange={(event) => { setSelectedDays((current) => event.target.checked ? [...current, day.id] : current.filter((id) => id !== day.id)); setWizardError(""); }} className="sr-only" />}
+            return <label key={day.id} className={cn("flex items-center gap-4 rounded-xl border bg-card p-4 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50", day.isClosed ? "cursor-not-allowed opacity-60" : "cursor-pointer", full && !selected && "bg-muted", selected && "border-primary bg-primary text-primary-foreground")}>
+              <input type="checkbox" name="dayId" value={day.id} checked={selected} disabled={day.isClosed} onChange={(event) => { setSelectedDays((current) => event.target.checked ? [...current, day.id] : current.filter((id) => id !== day.id)); setWizardError(""); }} className="sr-only" />
               <span className={cn("flex w-14 shrink-0 flex-col items-center rounded-lg bg-secondary px-1 py-2 text-xs", selected && "bg-primary-foreground/15 text-primary-foreground")}><span>{weekdayCard[date.getUTCDay()]}</span><strong className="font-heading text-2xl leading-tight">{date.getUTCDate()}</strong><span>{monthsShort[date.getUTCMonth()]}</span></span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1"><strong>วันที่ {index + 1}</strong><span className="text-xs">{seatMode === "whole_course" ? day.label : day.isClosed ? "ปิดรับลงทะเบียนวันนี้" : day.remaining === null ? "ไม่จำกัดที่นั่ง" : full ? "เต็ม · เลือกได้เพื่อเข้าคิวสำรอง" : `เหลือ ${day.remaining} จาก ${day.maxSeats} ที่นั่ง`}</span></span>
-              {seatMode !== "whole_course" && (day.isClosed ? <Badge variant="secondary">ปิดรับ</Badge> : selected ? <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-foreground text-primary"><CheckIcon className="size-4" aria-hidden="true" /></span> : full ? <Badge variant="destructive">เต็ม</Badge> : <span aria-hidden="true" className="size-5 shrink-0 rounded-full border-2 border-input" />)}
+              <span className="flex min-w-0 flex-1 flex-col gap-1"><strong>วันที่ {index + 1}</strong><span className="text-xs">{day.isClosed ? "ปิดรับลงทะเบียนวันนี้" : day.remaining === null ? "ไม่จำกัดที่นั่ง" : full ? "เต็ม · เลือกได้เพื่อเข้าคิวสำรอง" : `เหลือ ${day.remaining} จาก ${day.maxSeats} ที่นั่ง`}</span></span>
+              {day.isClosed ? <Badge variant="secondary">ปิดรับ</Badge> : selected ? <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-foreground text-primary"><CheckIcon className="size-4" aria-hidden="true" /></span> : full ? <Badge variant="destructive">เต็ม</Badge> : <span aria-hidden="true" className="size-5 shrink-0 rounded-full border-2 border-input" />}
             </label>;
           })}
         </fieldset>
+        </>}
       </section>
 
       <section ref={answerSection} className={cn("flex flex-col gap-4 px-5 py-5", step !== 2 && "hidden")} aria-label="ข้อมูลผู้ลงทะเบียน">
@@ -176,8 +178,9 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
         <div className="flex items-center gap-3">
           {/* Distinct keys: reusing one DOM button would flip it to type=submit mid-click and submit step 3 immediately. */}
           {step === 3 && <Button type="button" variant="outline" className="h-13 px-4" onClick={() => goTo(2)}>ย้อนกลับ</Button>}
-          {step < 3 ? <Button key="next" type="button" className="h-13 flex-1 text-base font-bold" onClick={nextStep}>{step === 1 ? seatMode === "whole_course" ? `ถัดไป · สมัครทั้ง ${days.length} วัน` : `ถัดไป · เลือกแล้ว ${selectedDays.length} วัน` : "ถัดไป · ยืนยันข้อมูล"}</Button> : <Button key="submit" type="submit" className="h-13 flex-1 text-base font-bold">ยืนยันการลงทะเบียน</Button>}
+          {step < 3 ? <Button key="next" type="button" className="h-13 flex-1 text-base font-bold" onClick={nextStep}>{step === 1 ? seatMode === "whole_course" ? "ถัดไป · กรอกข้อมูล" : `ถัดไป · เลือกแล้ว ${selectedDays.length} วัน` : "ถัดไป · ยืนยันข้อมูล"}</Button> : <Button key="submit" type="submit" className="h-13 flex-1 text-base font-bold">ยืนยันการลงทะเบียน</Button>}
         </div>
+        {step === 1 && seatMode === "whole_course" && <p className="text-center text-xs text-muted-foreground">ไม่ต้องเลือกวัน ระบบลงให้ครบทั้ง {days.length} วัน</p>}
         {step === 3 && <p className="text-center text-xs text-muted-foreground">{autoApprove ? "ได้ QR ทันทีหลังยืนยัน (ถ้ายังมีที่นั่ง)" : "โครงการนี้อนุมัติเอง — จะได้ QR เมื่อผู้จัดอนุมัติ"}</p>}
       </footer>
     </form>

@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 
-import { readRegistrationFields } from "@/features/events/registration-fields";
+import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 
@@ -41,8 +41,7 @@ export async function GET(request: Request, context: RouteContext<"/organizer/[e
       person.days.map((item) => `${day(item.eventDay.date)}: ${xlsx ? statusLabel[item.status] : item.status}`).join("; "),
       ...fields.map((field) => {
         const answer = answers[field.key];
-        return field.type === "file" && answer && typeof answer === "object" && !Array.isArray(answer)
-          ? (answer as { originalName?: unknown }).originalName : answer;
+        return field.type === "file" ? readFileAnswers(answer).map((file) => file.originalName).join(", ") : answer;
       }),
       ...sessions.map((session) => {
         const checkIn = person.checkIns.find((item) => item.sessionId === session.id);

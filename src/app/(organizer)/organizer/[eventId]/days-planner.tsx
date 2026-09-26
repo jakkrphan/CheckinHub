@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
-import { ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, LoaderCircleIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, LoaderCircleIcon, MinusIcon, PlusIcon, UsersIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -41,12 +41,15 @@ const formData = (entries: Record<string, string | string[]>) => {
 };
 
 /** Step 2 (mockup B): click calendar days to add/remove them; per-day seats use a stepper that saves on its own. */
-export function DaysPlanner({ days, today, seatMode, addDays, wholeCourseSeats }: {
+export type CourseSeats = { maxSeats: number | null; taken: number; waitlisted: number; update: ServerAction };
+
+export function DaysPlanner({ days, today, seatMode, addDays, course }: {
   days: PlannerDay[];
   today: string;
   seatMode: "per_day" | "whole_course";
   addDays: ServerAction;
-  wholeCourseSeats: number | null;
+  /** Whole-course events only: the single course-wide seat limit and who holds it. */
+  course: CourseSeats | null;
 }) {
   const [month, setMonth] = useState(() => {
     const anchor = days.find((day) => day.date >= today)?.date ?? today;
@@ -79,16 +82,19 @@ export function DaysPlanner({ days, today, seatMode, addDays, wholeCourseSeats }
       <p className="text-xs leading-relaxed text-muted-foreground">คลิกวันว่างเพื่อเพิ่ม · คลิกวันที่เลือกแล้วเพื่อเอาออก (เฉพาะวันที่ยังไม่มีผู้สมัครและรอบเช็คชื่อ){perDay && defaultSeats ? ` · วันใหม่ได้ ${Number(defaultSeats).toLocaleString("th-TH")} ที่นั่งเริ่มต้น` : ""}</p>
     </section>
 
+    <div className="flex min-w-0 flex-col gap-4">
+    {!perDay && course && <CourseSeatsCard course={course} />}
     <section aria-labelledby="picked-days" className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-4">
-        <h3 id="picked-days" className="font-heading text-lg font-bold">เลือกแล้ว {days.length} วัน</h3>
-        <span className="text-sm text-muted-foreground">{perDay ? `ที่นั่งรวม ${totalSeats.toLocaleString("th-TH")}${hasUnlimited ? " + ไม่จำกัด" : ""}` : `ที่นั่งทั้งหลักสูตร ${wholeCourseSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"} (ตั้งในขั้นที่ 1)`}</span>
+        <h3 id="picked-days" className="font-heading text-lg font-bold">{perDay ? `เลือกแล้ว ${days.length} วัน` : `วันของหลักสูตร · ${days.length} วัน`}</h3>
+        <span className="text-sm text-muted-foreground">{perDay ? `ที่นั่งรวม ${totalSeats.toLocaleString("th-TH")}${hasUnlimited ? " + ไม่จำกัด" : ""}` : "ทุกคนเข้าร่วมครบทุกวัน"}</span>
       </div>
       {days.length === 0 ? <p className="px-5 py-10 text-center text-sm text-muted-foreground">ยังไม่มีวันจัด · คลิกวันในปฏิทินเพื่อเพิ่ม</p>
         // Rows follow this card's width (container queries): beside the calendar on xl it is narrower than on a tablet.
         : <ul className="@container divide-y">{days.map((day) => <DayRow key={`${day.id}-${day.maxSeats}-${day.isClosed}-${day.date}`} day={day} perDay={perDay} lastDay={days.length === 1} />)}</ul>}
-      <p className="border-t bg-muted/50 px-5 py-3 text-xs text-muted-foreground">ขั้นที่ 4 (รอบเช็คชื่อ) จะผูกรอบกับวันเหล่านี้ได้ เช่น “วันที่ 1 · เช้า”</p>
+      <p className="border-t bg-muted/50 px-5 py-3 text-xs leading-relaxed text-muted-foreground">{perDay ? "ขั้นที่ 4 (รอบเช็คชื่อ) จะผูกรอบกับวันเหล่านี้ได้ เช่น “วันที่ 1 · เช้า”" : "ช่องกรอกที่นั่งรายวันถูกซ่อนในโหมดนี้ เพื่อไม่ให้เข้าใจผิดว่ารับกี่คนต่อวัน · เพิ่มวันหลังเผยแพร่ ระบบจะผูกวันใหม่ให้ผู้ลงทะเบียนทุกคนอัตโนมัติ แล้วเตือนให้ส่งประกาศแจ้ง"}</p>
     </section>
+    </div>
   </div>;
 }
 
@@ -163,7 +169,7 @@ function DayRow({ day, perDay, lastDay }: { day: PlannerDay; perDay: boolean; la
       {perDay ? <>
         <span className="h-1.5 overflow-hidden rounded-full bg-muted"><span className={cn("block h-full rounded-full", full ? "bg-destructive" : "bg-primary")} style={{ width: day.maxSeats ? `${Math.min(100, (day.approved / day.maxSeats) * 100)}%` : day.approved ? "100%" : "0%", opacity: day.maxSeats ? 1 : 0.25 }} /></span>
         <span className={cn("text-xs", full ? "font-semibold text-destructive" : "text-muted-foreground")}>{full ? "เต็มแล้ว " : "อนุมัติ "}{day.approved.toLocaleString("th-TH")} / {day.maxSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"} ที่{day.registrants > day.approved ? ` · สมัครทั้งหมด ${day.registrants.toLocaleString("th-TH")}` : ""}</span>
-      </> : <span className="text-xs text-muted-foreground">ผู้สมัครที่ผูกกับวันนี้ {day.registrants.toLocaleString("th-TH")} คน</span>}
+      </> : <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><UsersIcon className="size-4" aria-hidden="true" />ผู้เข้าอบรมทั้ง {day.registrants.toLocaleString("th-TH")} คน</span>}
     </div>
     {perDay ? <div className="flex flex-col items-end gap-1 @max-sm:col-span-2 @max-sm:row-start-2 @max-sm:items-start">
       <div className={cn("flex h-10 items-center rounded-lg border bg-background", invalid && "border-destructive")}>
@@ -206,4 +212,41 @@ function DayMenu({ day, perDay, lastDay }: { day: PlannerDay; perDay: boolean; l
       <Button type="submit" variant="ghost" size="icon-lg" disabled={!canRemove} aria-label={`ลบวันที่ ${day.number} ออกจากโครงการ`} title={canRemove ? undefined : "มีผู้สมัครหรือรอบเช็คชื่อแล้ว เอาออกไม่ได้"} className="text-muted-foreground hover:text-destructive"><XIcon aria-hidden="true" /></Button>
     </form>}
   </div>;
+}
+
+/** Whole-course seat limit (mockup B v3): one number for the course, saved with a stepper like the per-day seats. */
+function CourseSeatsCard({ course }: { course: CourseSeats }) {
+  const [seats, setSeats] = useState(course.maxSeats?.toString() ?? "");
+  const [pending, startTransition] = useTransition();
+  const minimum = Math.max(1, course.taken);
+  const value = seats === "" ? null : Number(seats);
+  const invalid = value !== null && (!Number.isInteger(value) || value < minimum);
+  const remaining = course.maxSeats === null ? null : Math.max(course.maxSeats - course.taken, 0);
+  const changed = (value ?? null) !== course.maxSeats;
+  function step(offset: number) {
+    setSeats(value === null ? (offset > 0 ? String(Math.max(minimum, 20)) : "") : String(Math.max(minimum, value + offset)));
+  }
+
+  return <section aria-labelledby="course-seats" className="flex flex-col gap-4 rounded-xl border bg-card p-5">
+    <div className="flex flex-col gap-0.5">
+      <h3 id="course-seats" className="font-heading text-lg font-bold">ที่นั่งของทั้งหลักสูตร</h3>
+      <p className="text-sm text-muted-foreground">รับได้กี่คนตลอดหลักสูตร ไม่ใช่กี่คนต่อวัน</p>
+    </div>
+    <form action={(formData) => startTransition(() => course.update(formData))} className="flex flex-col gap-2">
+      <label htmlFor="course-max-seats" className="text-sm font-semibold">จำนวนที่นั่งทั้งหลักสูตร</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className={cn("flex h-12 items-center rounded-lg border bg-background", invalid && "border-destructive")}>
+          <button type="button" onClick={() => step(-1)} disabled={value === null || value <= minimum} aria-label="ลดที่นั่ง" className="flex size-12 items-center justify-center rounded-l-lg hover:bg-muted disabled:opacity-40"><MinusIcon className="size-4" aria-hidden="true" /></button>
+          <input id="course-max-seats" name="maxSeats" inputMode="numeric" value={seats} placeholder="ไม่จำกัด" aria-invalid={invalid || undefined} onChange={(event) => setSeats(event.target.value.replace(/[^0-9]/g, ""))} className="h-full w-24 border-x bg-transparent text-center font-heading text-xl font-bold outline-none placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground" />
+          <button type="button" onClick={() => step(1)} aria-label="เพิ่มที่นั่ง" className="flex size-12 items-center justify-center rounded-r-lg hover:bg-muted"><PlusIcon className="size-4" aria-hidden="true" /></button>
+        </div>
+        <Button type="submit" disabled={!changed || invalid || pending} className="h-12">{pending ? "กำลังบันทึก…" : "บันทึกที่นั่ง"}</Button>
+      </div>
+      <span className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}>{invalid ? `ต่ำสุด ${minimum.toLocaleString("th-TH")} (มีคนจองแล้ว)` : "เว้นว่าง = ไม่จำกัด"}</span>
+    </form>
+    <div className="flex items-center gap-4 rounded-lg bg-accent px-4 py-3 text-accent-foreground">
+      <strong className="font-heading text-3xl">{remaining === null ? "∞" : remaining.toLocaleString("th-TH")}</strong>
+      <span className="flex flex-col text-sm"><span className="font-semibold">ที่นั่งคงเหลือของหลักสูตร</span><span className="text-xs opacity-80">รับแล้ว {course.taken.toLocaleString("th-TH")} คน (รออนุมัติ + อนุมัติแล้ว){course.waitlisted ? ` · คิวรอ ${course.waitlisted.toLocaleString("th-TH")} คน` : ""}</span></span>
+    </div>
+  </section>;
 }

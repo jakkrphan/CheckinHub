@@ -16,6 +16,8 @@ export const registrationFieldSchema = z.object({
   options: z.array(z.string().trim().min(1).max(191)).max(30).optional(),
   acceptedFileTypes: z.array(z.string()).optional(),
   maxFileSizeMb: z.number().positive().optional(),
+  /** Files per answer: 1 stores one file object (the original shape), 3 stores an array of up to 3. */
+  maxFiles: z.union([z.literal(1), z.literal(3)]).optional(),
   conditional: conditionalRuleSchema.optional(),
 });
 
@@ -23,7 +25,20 @@ export const registrationFieldsSchema = z.array(registrationFieldSchema).max(50)
 
 export type RegistrationFieldConfig = z.infer<typeof registrationFieldSchema>;
 export type RegistrationFileAnswer = { storageKey: string; originalName: string; contentType: string; size: number };
-export type RegistrationAnswerValue = string | string[] | RegistrationFileAnswer;
+export type RegistrationAnswerValue = string | string[] | RegistrationFileAnswer | RegistrationFileAnswer[];
+
+/** File types an organizer can allow; docx is detected from its ZIP container (see local-files.ts). */
+export const registrationFileTypes = ["pdf", "jpg", "jpeg", "png", "webp", "docx"] as const;
+
+export const isRegistrationFileAnswer = (value: unknown): value is RegistrationFileAnswer =>
+  !!value && typeof value === "object" && !Array.isArray(value) && typeof (value as { storageKey?: unknown }).storageKey === "string";
+
+/** Reads a stored file answer in either shape (one object, or an array for multi-file fields). */
+export function readFileAnswers(value: unknown): RegistrationFileAnswer[] {
+  return (Array.isArray(value) ? value : [value]).filter(isRegistrationFileAnswer);
+}
+
+export const maxFilesOf = (field: RegistrationFieldConfig) => field.type === "file" && field.maxFiles === 3 ? 3 : 1;
 
 export function readRegistrationFields(value: unknown): RegistrationFieldConfig[] {
   const parsed = registrationFieldsSchema.safeParse(value);
@@ -38,7 +53,7 @@ export function validateRegistrationFields(fields: RegistrationFieldConfig[]) {
     if (seen.has(field.key)) return false;
     if (field.showOnCheckin && (field.sensitive || field.type === "file")) return false;
     if ((field.type === "select" || field.type === "checkbox") && (!field.options?.length || new Set(field.options).size !== field.options.length)) return false;
-    if (field.type === "file" && (!field.acceptedFileTypes?.length || field.acceptedFileTypes.some((type) => !["pdf", "jpg", "jpeg", "png", "webp"].includes(type.toLowerCase().replace(/^\./, ""))) || !field.maxFileSizeMb || field.maxFileSizeMb > 5)) return false;
+    if (field.type === "file" && (!field.acceptedFileTypes?.length || field.acceptedFileTypes.some((type) => !(registrationFileTypes as readonly string[]).includes(type.toLowerCase().replace(/^\./, ""))) || !field.maxFileSizeMb || field.maxFileSizeMb > 5)) return false;
     if (field.conditional) {
       const parent = seen.get(field.conditional.field);
       if (!parent || !["select", "checkbox"].includes(parent.type)) return false;
@@ -54,21 +69,24 @@ export function conditionMatches(field: RegistrationFieldConfig, answers: Record
   if (!field.conditional) return true;
   const answer = answers[field.conditional.field];
   const values = Array.isArray(field.conditional.value) ? field.conditional.value : [field.conditional.value];
+  const selected = Array.isArray(answer) ? answer.filter((item): item is string => typeof item === "string") : null;
   if (field.conditional.operator === "equals") return typeof answer === "string" && values.includes(answer);
-  if (field.conditional.operator === "in") return Array.isArray(answer) ? answer.some((item) => values.includes(item)) : typeof answer === "string" && values.includes(answer);
-  return Array.isArray(answer) && answer.some((item) => values.includes(item));
+  if (field.conditional.operator === "in") return selected ? selected.some((item) => values.includes(item)) : typeof answer === "string" && values.includes(answer);
+  return !!selected && selected.some((item) => values.includes(item));
 }
 
-export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer> = {}) {
+export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}) {
   if (!validateRegistrationFields(fields)) return null;
   const answers: Record<string, RegistrationAnswerValue> = {};
 
   for (const field of fields) {
     if (!conditionMatches(field, answers)) continue;
     if (field.type === "file") {
-      const upload = uploads[field.key];
-      if (field.required && !upload) return null;
-      if (upload) answers[field.key] = upload;
+      const files = readFileAnswers(uploads[field.key]);
+      if (field.required && !files.length) return null;
+      // Single-file fields keep the original object shape; multi-file fields always store an array.
+      // The file count is enforced at upload time, so files kept from before a maxFiles change stay intact.
+      if (files.length) answers[field.key] = maxFilesOf(field) > 1 || files.length > 1 ? files : files[0];
       continue;
     }
 

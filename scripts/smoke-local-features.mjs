@@ -157,6 +157,11 @@ try {
   ensure((await db.checkIn.findFirstOrThrow({ where: { sessionId: first.id } })).method === "kiosk", "Check-in method was not recorded");
   await callCheckInAction(`/check-in/${event.id}?session=${second.id}`, "checkInCode", [event.id, second.id, qr, randomUUID(), undefined, "bogus"], staffCookie);
   ensure((await db.checkIn.findFirstOrThrow({ where: { sessionId: second.id } })).method === null, "Unknown check-in method was stored");
+  // The device's station (cookie) is recorded with the check-in; the check-in page shows it in the recent list.
+  await db.checkIn.deleteMany({ where: { sessionId: second.id } });
+  await callCheckInAction(`/check-in/${event.id}?session=${second.id}`, "checkInCode", [event.id, second.id, qr, randomUUID(), undefined, "scanner"], `${staffCookie}; checkin-station=Desk%202`);
+  ensure((await db.checkIn.findFirstOrThrow({ where: { sessionId: second.id } })).station === "Desk 2", "Check-in station was not recorded");
+  ensure((await (await fetch(`${base}/check-in/${event.id}?session=${second.id}`, { headers: { cookie: `${staffCookie}; checkin-station=Desk%202` } })).text()).includes("Desk 2"), "Check-in page does not show the station");
   response = await fetch(`${base}/check-in/${event.id}/state?session=${first.id}`, { redirect: "manual" });
   ensure(response.status !== 200 && location(response).includes("/login"), `State endpoint answered without a session cookie: ${response.status}`);
 
@@ -244,7 +249,7 @@ try {
   response = await post(editUrl, editForm, { "answer:name": "Too late", "answer:kind": "ทั่วไป" });
   ensure(!location(response).includes("updated=1") && (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers.name !== "Too late", "Self-edit accepted after the deadline");
 
-  process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method, kiosk switch, session order, xlsx export and retention anonymization passed.\n");
+  process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method and station, kiosk switch, session order, xlsx export and retention anonymization passed.\n");
 } finally {
   for (const id of eventIds) await db.event.deleteMany({ where: { id } });
   if (staffId) { await db.auditLog.deleteMany({ where: { actorId: staffId } }); await db.user.deleteMany({ where: { id: staffId } }); }

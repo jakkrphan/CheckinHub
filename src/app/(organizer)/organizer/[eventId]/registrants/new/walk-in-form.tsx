@@ -71,7 +71,7 @@ export function WalkInForm({ eventId, fields, days, seatMode, courseRemaining, b
                   const selected = Array.isArray(answers[field.key]) ? answers[field.key] as string[] : [];
                   set(field.key, event.target.checked ? [...selected, option] : selected.filter((item) => item !== option));
                 }} />{option}</label>)}</div>
-              : field.type === "file" ? <><Input id={id} name={name} type="file" required={field.required} accept={field.acceptedFileTypes?.map((type) => `.${type.replace(/^\./, "")}`).join(",")} /><span className="text-xs text-muted-foreground">ไฟล์ {field.acceptedFileTypes?.join(", ")} · ไม่เกิน {field.maxFileSizeMb} MB</span></>
+              : field.type === "file" ? <><Input id={id} name={name} type="file" multiple={(field.maxFiles ?? 1) > 1} required={field.required} accept={field.acceptedFileTypes?.map((type) => `.${type.replace(/^\./, "")}`).join(",")} /><span className="text-xs text-muted-foreground">ไฟล์ {field.acceptedFileTypes?.join(", ")} · ไม่เกิน {field.maxFileSizeMb} MB{(field.maxFiles ?? 1) > 1 ? ` ต่อไฟล์ · สูงสุด ${field.maxFiles} ไฟล์` : ""}</span></>
               : <Input id={id} name={name} type={field.type} required={field.required} maxLength={field.type === "tel" ? 30 : 3000} className="h-11" onChange={(event) => set(field.key, event.target.value)} />}
             {field.conditional && <span className="text-xs text-muted-foreground">ฟิลด์เงื่อนไข — แสดงเพราะ {labelOf(field.conditional.field)} = {values.join(" / ")}</span>}
           </div>;

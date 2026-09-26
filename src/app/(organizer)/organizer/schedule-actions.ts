@@ -89,6 +89,31 @@ export async function addEventDays(eventId: string, formData: FormData) {
   redirect(eventUrl(eventId, "saved=day"));
 }
 
+/**
+ * Whole-course events keep one seat limit for the whole course (set in step 2). It may not drop below the people
+ * already holding a seat (pending + approved); raising it promotes the queue when promotion is automatic.
+ */
+export async function updateCourseSeats(eventId: string, formData: FormData) {
+  const { membership, user, event } = await requireEventAccess(eventId, "manage");
+  if (event.seatMode !== "whole_course") redirect(eventUrl(eventId, "error=invalid-day"));
+  const parsed = maxSeatsInput.safeParse(formData.get("maxSeats") ?? "");
+  if (!parsed.success) redirect(eventUrl(eventId, "error=invalid-day"));
+  const failure = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
+    const current = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { maxSeats: true } });
+    const occupied = await tx.registrant.count({ where: { eventId, status: { in: ["PENDING", "APPROVED"] } } });
+    if (parsed.data !== null && parsed.data < occupied) return "seats-in-use";
+    await tx.event.update({ where: { id: eventId }, data: { maxSeats: parsed.data } });
+    if (current.maxSeats !== null && (parsed.data === null || parsed.data > current.maxSeats)) await promoteWaitlist(tx, eventId);
+    if (requiresAdminAudit(membership)) await auditAdminChange(tx, eventId, user.id, "EVENT_UPDATED_BY_ADMIN", eventId);
+    return null;
+  });
+  if (failure) redirect(eventUrl(eventId, `error=${failure}`));
+  revalidatePath(`/organizer/${eventId}`);
+  revalidatePath("/organizer");
+  redirect(eventUrl(eventId, "saved=day"));
+}
+
 export async function removeEventDay(eventId: string, dayId: string, formData: FormData) {
   const { membership, user, event } = await requireEventAccess(eventId, "manage");
 

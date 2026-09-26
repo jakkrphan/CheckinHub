@@ -50,13 +50,20 @@ export function EventOverviewPanels({ overview, seatMode, registrantsHref, aside
         <Meter value={overview.course.taken} max={overview.course.max} label="ที่นั่งทั้งหลักสูตรที่ถูกจอง" tone={overview.course.max !== null && overview.course.taken >= overview.course.max ? "danger" : "ink"} />
         <p className="text-xs text-muted-foreground">นับรออนุมัติ + อนุมัติแล้ว · คิวสำรอง {overview.course.waitlisted.toLocaleString("th-TH")} คน</p>
       </div>
-      {overview.continuity && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          ["เข้าครบทุกรอบ", overview.continuity.full, "text-primary"],
-          ["ขาด 1 รอบ", overview.continuity.missOne, "text-amber-700"],
-          ["ขาด 2 รอบขึ้นไป", overview.continuity.missMore, "text-destructive"],
-          [overview.continuity.threshold === null ? "ยังไม่ตั้งเกณฑ์ผ่าน" : `ผ่านเกณฑ์ ${overview.continuity.threshold}%`, overview.continuity.passed ?? "—", "text-foreground"],
-        ].map(([label, value, tone]) => <div key={String(label)} className="flex flex-col rounded-lg bg-muted/60 px-3 py-2"><span className={cn("font-heading text-2xl font-bold tabular-nums", String(tone))}>{typeof value === "number" ? value.toLocaleString("th-TH") : value}</span><span className="text-xs text-muted-foreground">{label}</span></div>)}
+      {/* Mockup B v3: attendance continuity for whole-course events. The certificate pass count is deferred to a later version. */}
+      {overview.continuity && <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="font-heading font-bold">ความต่อเนื่องของการเข้าอบรม</h3>
+          <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">เฉพาะโหมดรวมทั้งคอร์ส</span>
+        </div>
+        <p className="-mt-2 text-xs text-muted-foreground">นับจาก {overview.continuity.totalSessions.toLocaleString("th-TH")} รอบของหลักสูตร · ผู้อนุมัติแล้ว {(overview.continuity.full + overview.continuity.missOne + overview.continuity.missMore).toLocaleString("th-TH")} คน</p>
+        <div className="grid grid-cols-3 gap-3">
+          {([
+            ["เข้าครบทุกรอบ", overview.continuity.full, "text-primary"],
+            ["ขาด 1 รอบ", overview.continuity.missOne, "text-amber-700"],
+            ["ขาด 2 รอบขึ้นไป", overview.continuity.missMore, "text-destructive"],
+          ] as const).map(([label, value, tone]) => <div key={label} className="flex flex-col rounded-lg bg-muted/60 px-3 py-2"><span className={cn("font-heading text-2xl font-bold tabular-nums", tone)}>{value.toLocaleString("th-TH")} <span className="text-sm font-semibold">คน</span></span><span className="text-xs text-muted-foreground">{label}</span></div>)}
+        </div>
       </div>}
     </section>}
 

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { hashBearerCode } from "@/server/registrations/registration";
@@ -12,11 +13,10 @@ export function retentionDueAt(lastDay: Date, retentionDays: number) {
   return new Date(lastDay.getTime() + (retentionDays + 1) * DAY_MS);
 }
 
+/** Every stored upload in an answers object: single-file objects, multi-file arrays, and keys of fields removed from the form. */
 function fileKeys(answers: unknown) {
   if (!answers || typeof answers !== "object" || Array.isArray(answers)) return [];
-  return Object.values(answers as Record<string, unknown>)
-    .map((value) => value && typeof value === "object" && !Array.isArray(value) ? (value as { storageKey?: unknown }).storageKey : undefined)
-    .filter((key): key is string => typeof key === "string");
+  return Object.values(answers as Record<string, unknown>).flatMap((value) => readFileAnswers(value).map((file) => file.storageKey));
 }
 
 /**

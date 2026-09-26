@@ -1,11 +1,12 @@
-import { readRegistrationFields } from "@/features/events/registration-fields";
+import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
-import { readLocalRegistrationFile } from "@/server/registrations/local-files";
+import { docxContentType, readLocalRegistrationFile } from "@/server/registrations/local-files";
 
-const contentTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const contentTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", docxContentType]);
 
-export async function GET(_request: Request, context: RouteContext<"/organizer/[eventId]/registrants/[registrantId]/files/[fieldKey]">) {
+/** Downloads one attachment; multi-file answers pick the file with `?i=` (0-based, default 0). */
+export async function GET(request: Request, context: RouteContext<"/organizer/[eventId]/registrants/[registrantId]/files/[fieldKey]">) {
   const { eventId, registrantId, fieldKey } = await context.params;
   const { event, user } = await requireEventAccess(eventId, "view");
   const fields = readRegistrationFields(event.fields);
@@ -15,15 +16,14 @@ export async function GET(_request: Request, context: RouteContext<"/organizer/[
   const person = await db.registrant.findFirst({ where: { id: registrantId, eventId }, select: { answers: true } });
   const answers = person?.answers && typeof person.answers === "object" && !Array.isArray(person.answers)
     ? person.answers as Record<string, unknown> : {};
-  const answer = answers[fieldKey];
-  if (!answer || typeof answer !== "object" || Array.isArray(answer)) return new Response("Not found", { status: 404 });
-  const file = answer as Record<string, unknown>;
-  if (typeof file.storageKey !== "string" || typeof file.originalName !== "string" || typeof file.contentType !== "string" || !contentTypes.has(file.contentType)) {
+  const index = Number(new URL(request.url).searchParams.get("i") ?? "0");
+  const file = Number.isInteger(index) && index >= 0 ? readFileAnswers(answers[fieldKey])[index] : undefined;
+  if (!file || typeof file.originalName !== "string" || typeof file.contentType !== "string" || !contentTypes.has(file.contentType)) {
     return new Response("Not found", { status: 404 });
   }
   const bytes = await readLocalRegistrationFile(file.storageKey);
   if (!bytes) return new Response("Not found", { status: 404 });
-  await db.auditLog.create({ data: { eventId, actorId: user.id, action: "FILE_DOWNLOADED", target: registrantId, metadata: { fieldKey } } });
+  await db.auditLog.create({ data: { eventId, actorId: user.id, action: "FILE_DOWNLOADED", target: registrantId, metadata: { fieldKey, index } } });
   const safeName = file.originalName.replace(/[\r\n\0"\\]/g, "_").slice(0, 180) || "attachment";
   return new Response(new Uint8Array(bytes), { headers: {
     "content-type": file.contentType,

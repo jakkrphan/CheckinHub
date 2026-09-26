@@ -16,6 +16,19 @@ export const metadata: Metadata = {
   title: "ลงทะเบียนอบรม",
 };
 
+// Formatted on the server by hand (not Intl) so the string is identical wherever it renders.
+const bangkokTime = (value: Date) => { const shifted = new Date(value.getTime() + 7 * 60 * 60 * 1000); return `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`; };
+
+/** "08:30–16:30 · เช้า + บ่าย" for one day; sessions without a day apply to every day. */
+function daySchedule(dayId: string, sessions: { eventDayId: string | null; label: string; startTime: Date | null; endTime: Date | null }[]) {
+  const ofDay = sessions.filter((session) => session.eventDayId === null || session.eventDayId === dayId);
+  if (ofDay.length === 0) return null;
+  const starts = ofDay.flatMap((session) => session.startTime ? [session.startTime.getTime()] : []);
+  const ends = ofDay.flatMap((session) => session.endTime ? [session.endTime.getTime()] : []);
+  const range = starts.length > 0 && ends.length > 0 ? `${bangkokTime(new Date(Math.min(...starts)))}–${bangkokTime(new Date(Math.max(...ends)))}` : null;
+  return [range, ofDay.map((session) => session.label).join(" + ")].filter(Boolean).join(" · ");
+}
+
 export default async function PublicEventPage({
   params,
   searchParams,
@@ -34,11 +47,11 @@ export default async function PublicEventPage({
       autoApprove: true,
       seatMode: true,
       maxSeats: true,
-      attendanceThreshold: true,
       status: true,
       registrationDeadline: true,
       fields: true,
       days: { orderBy: { date: "asc" }, select: { id: true, date: true, maxSeats: true, isClosed: true } },
+      sessions: { orderBy: [{ sortOrder: "asc" }, { startTime: "asc" }], select: { eventDayId: true, label: true, startTime: true, endTime: true } },
     },
   });
 
@@ -72,6 +85,7 @@ export default async function PublicEventPage({
       id: day.id,
       date: day.date.toISOString().slice(0, 10),
       label: dateFormatter.format(day.date),
+      schedule: daySchedule(day.id, event.sessions),
       maxSeats: day.maxSeats,
       isClosed: day.isClosed,
       remaining: availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null,
@@ -99,7 +113,7 @@ export default async function PublicEventPage({
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
         {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} attendanceThreshold={event.attendanceThreshold} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
     );
   }

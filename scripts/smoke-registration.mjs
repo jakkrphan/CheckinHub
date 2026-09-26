@@ -223,7 +223,109 @@ try {
   ensure(oldStatus.status === 404 && newStatus.status === 200, "Old status link was not invalidated or new link failed");
   const dashboard = await fetch(`${base}/organizer/${eventId}/dashboard`, { headers: { cookie } });
   ensure(dashboard.status === 200 && (await dashboard.text()).includes("ภาพรวมการลงทะเบียนและเช็คชื่อ"), "Dashboard did not render");
-  process.stdout.write("Registration, waitlist, wrong-day/concurrent check-in, undo, link rotation and role access passed.\n");
+  // Form builder after publishing with registrants (spec 1.4): edits are allowed and audited; changes that would
+  // orphan stored answers need an explicit confirmation; answers are never deleted.
+  const settingsUrl = `${base}/organizer/${eventId}`;
+  const fieldPanel = async (key) => formsFrom(await (await fetch(`${settingsUrl}?step=3&field=${encodeURIComponent(key)}`, { headers: { cookie } })).text())
+    .find((form) => form.includes('name="label"') && (form.includes("เพิ่มฟิลด์</button>") || form.includes("บันทึกฟิลด์</button>")));
+  const clickPanelButton = (formHtml, ariaLabelPart, values = {}) => {
+    const button = [...formHtml.matchAll(/<button[^>]*>/g)].map((match) => match[0]).find((tag) => tag.includes(`aria-label="${ariaLabelPart}`));
+    const name = button?.match(/name="([^"]+)"/)?.[1];
+    ensure(name, `Button ${ariaLabelPart} missing`);
+    return submit(settingsUrl, formHtml, { ...values, [name]: "" }, cookie);
+  };
+  const eventFields = async () => (await db.event.findUniqueOrThrow({ where: { id: eventId }, select: { fields: true, fieldsVersion: true } }));
+  const versionBefore = (await eventFields()).fieldsVersion;
+  const step3 = await (await fetch(`${settingsUrl}?step=3`, { headers: { cookie } })).text();
+  ensure(step3.includes(`เวอร์ชันฟอร์ม v${versionBefore}`) && step3.includes("หน้างาน") && !step3.includes("แก้ฟอร์มได้เฉพาะ"), "Step 3 did not show the form version / check-in badge or is still locked");
+  response = await submit(settingsUrl, await fieldPanel("__new__"), { label: "ประเภทผู้เข้าร่วม", type: "select", optionsText: "ข้าราชการ\nเอกชน" }, cookie);
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error="), `Adding a field after registrations failed: ${response.headers.get("location")}`);
+  const typeKey = (await eventFields()).fields.at(-1).key;
+  const changedAudit = () => db.auditLog.findMany({ where: { eventId, action: "EVENT_FIELDS_CHANGED" }, orderBy: { createdAt: "asc" } });
+  let audits = await changedAudit();
+  ensure(audits.length === 1 && audits[0].metadata?.fieldKey === typeKey && audits[0].metadata?.change === "added" && audits[0].target === typeKey, "Field added after publishing was not audited");
+  // Simulate an answer given under the current form.
+  await db.registrant.update({ where: { id: second.id }, data: { answers: { ...(await db.registrant.findUniqueOrThrow({ where: { id: second.id } })).answers, [typeKey]: "เอกชน" } } });
+  response = await submit(settingsUrl, await fieldPanel(typeKey), { label: "ประเภท (แก้ชื่อ)", optionsText: "ข้าราชการ\nเอกชน" }, cookie);
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error=") && (await eventFields()).fields.find((field) => field.key === typeKey)?.label === "ประเภท (แก้ชื่อ)", "Relabelling a field with answers was refused");
+  let panel = await fieldPanel(typeKey);
+  ensure(panel.includes("ตอบฟิลด์นี้ไปแล้ว") && panel.includes('name="confirmAnswers"'), "Answered-count warning / confirmation missing from the edit panel");
+  response = await submit(settingsUrl, panel, { label: "ประเภท (แก้ชื่อ)", optionsText: "ข้าราชการ\nบุคคลทั่วไป" }, cookie);
+  ensure(response.headers.get("location")?.includes("error=confirm-required") && (await eventFields()).fields.find((field) => field.key === typeKey)?.options.includes("เอกชน"), "Removing an answered option without confirmation was accepted");
+  response = await submit(settingsUrl, panel, { label: "ประเภท (แก้ชื่อ)", optionsText: "ข้าราชการ\nบุคคลทั่วไป", confirmAnswers: "on" }, cookie);
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error="), `Confirmed option change failed: ${response.headers.get("location")}`);
+  ensure((await eventFields()).fields.find((field) => field.key === typeKey)?.options.join(",") === "ข้าราชการ,บุคคลทั่วไป", "Confirmed option change was not saved");
+  ensure((await db.registrant.findUniqueOrThrow({ where: { id: second.id } })).answers[typeKey] === "เอกชน", "Stored answer was changed by an option edit");
+  audits = await changedAudit();
+  const optionAudit = audits.at(-1);
+  ensure(optionAudit.metadata?.change === "updated" && optionAudit.metadata?.optionsRemoved === 1 && !JSON.stringify(optionAudit.metadata).includes("เอกชน"), "Option change audit is missing or leaks values");
+  response = await submit(settingsUrl, await fieldPanel("__new__"), { label: "สังกัดราชการ", type: "text", conditionField: typeKey, conditionValues: ["ข้าราชการ"] }, cookie);
+  ensure(!response.headers.get("location")?.includes("error="), `Child field was not added: ${response.headers.get("location")}`);
+  const childKey = (await eventFields()).fields.at(-1).key;
+  response = await clickPanelButton(await fieldPanel(typeKey), "ลบฟิลด์", { confirmAnswers: "on" });
+  ensure(response.headers.get("location")?.includes("error=field-has-children") && (await eventFields()).fields.some((field) => field.key === typeKey), "A parent field was deleted while a child depended on it");
+  response = await clickPanelButton(await fieldPanel(childKey), "ลบฟิลด์");
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error=") && !(await eventFields()).fields.some((field) => field.key === childKey), "Deleting an unanswered child field failed");
+  response = await clickPanelButton(await fieldPanel(typeKey), "ลบฟิลด์");
+  ensure(response.headers.get("location")?.includes("error=confirm-required") && (await eventFields()).fields.some((field) => field.key === typeKey), "Deleting an answered field without confirmation was accepted");
+  response = await clickPanelButton(await fieldPanel(typeKey), "ลบฟิลด์", { confirmAnswers: "on" });
+  ensure(response.status === 303 && !(await eventFields()).fields.some((field) => field.key === typeKey), "Confirmed delete of an answered field failed");
+  ensure((await db.registrant.findUniqueOrThrow({ where: { id: second.id } })).answers[typeKey] === "เอกชน", "Deleting a field removed stored answers");
+  audits = await changedAudit();
+  ensure(audits.length === 6 && audits.at(-1).metadata?.change === "removed" && audits.at(-1).metadata?.answersKept === true, `Field removal audit missing (${audits.length})`);
+  ensure((await eventFields()).fieldsVersion === versionBefore + 6, "fieldsVersion was not bumped on every schema change");
+  const orphanDetail = await fetch(`${organizerUrl}?selected=${second.id}`, { headers: { cookie } });
+  ensure(orphanDetail.status === 200 && (await orphanDetail.text()).includes("คำตอบจากฟิลด์ที่ลบแล้ว"), "Registrant detail did not handle an orphan answer");
+  const orphanCsv = await fetch(`${organizerUrl}/export`, { headers: { cookie } });
+  ensure(orphanCsv.status === 200 && !(await orphanCsv.text()).includes("เอกชน"), "Export failed or leaked an orphan answer");
+  ensure((await fetch(`${base}/check-in/${eventId}?session=${session.id}&q=Person%202`, { headers: { cookie } })).status === 200, "Check-in page failed after form changes");
+
+  // Multi-file field (up to 3) accepting pdf + docx; the older proof field accepts pdf only.
+  response = await submit(settingsUrl, await fieldPanel("__new__"), { label: "เอกสารแนบ", type: "file", acceptedFileTypes: ["pdf", "docx"], maxFileSizeMb: "1", maxFiles: "3" }, cookie);
+  ensure(!response.headers.get("location")?.includes("error="), `Multi-file field was not added: ${response.headers.get("location")}`);
+  const docsField = (await eventFields()).fields.at(-1);
+  ensure(docsField.type === "file" && docsField.maxFiles === 3 && docsField.acceptedFileTypes.join(",") === "pdf,docx", "Multi-file settings were not saved");
+  const docx = () => new File([Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0, 0, 0]), Buffer.from("[Content_Types].xml ... word/document.xml ... PK")])], "letter.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  const pdf = (name) => new File([`%PDF-1.7\n${name}\n`], name, { type: "application/pdf" });
+  const fileIp = `smoke-files-${randomUUID()}`;
+  const register = async (values) => {
+    const page = await (await fetch(publicUrl)).text();
+    const form = formsFrom(page).find((item) => item.includes('name="consent"'));
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    const body = formDataFrom(form, { dayId: day.id, consent: "on", "answer:name": "File person" });
+    for (const [name, value] of Object.entries(values)) {
+      if (Array.isArray(value)) { body.delete(name); for (const item of value) body.append(name, item); } else body.set(name, value);
+    }
+    return fetch(publicUrl, { method: "POST", headers: { origin: base, "x-forwarded-for": fileIp }, body, redirect: "manual" });
+  };
+  response = await register({ email: `files-${suffix}@example.invalid`, [`answer:${docsField.key}`]: [pdf("one.pdf"), docx()] });
+  ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), `Multi-file registration failed: ${response.headers.get("location")}`);
+  const fileStatusUrl = new URL(response.headers.get("location"), base);
+  const filePerson = await db.registrant.findFirstOrThrow({ where: { eventId, email: `files-${suffix}@example.invalid` } });
+  const docs = filePerson.answers[docsField.key];
+  ensure(Array.isArray(docs) && docs.length === 2 && docs[0].originalName === "one.pdf" && docs[1].contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && docs[1].storageKey.endsWith(".docx"), "Multi-file answer was not stored as an array");
+  uploadedKeys.push(...docs.map((file) => file.storageKey));
+  const firstDoc = await fetch(`${organizerUrl}/${filePerson.id}/files/${docsField.key}`, { headers: { cookie } });
+  const secondDoc = await fetch(`${organizerUrl}/${filePerson.id}/files/${docsField.key}?i=1`, { headers: { cookie } });
+  ensure(firstDoc.status === 200 && (await firstDoc.text()).startsWith("%PDF-") && secondDoc.status === 200 && secondDoc.headers.get("content-type")?.includes("wordprocessingml") && (await secondDoc.arrayBuffer()).byteLength > 8, "Multi-file downloads failed");
+  ensure((await fetch(`${organizerUrl}/${filePerson.id}/files/${docsField.key}?i=2`, { headers: { cookie } })).status === 404, "Out-of-range file index did not 404");
+  const fileDetail = await (await fetch(`${organizerUrl}?selected=${filePerson.id}`, { headers: { cookie } })).text();
+  ensure(fileDetail.includes("one.pdf") && fileDetail.includes("letter.docx") && fileDetail.includes(`files/${docsField.key}?i=1`), "Registrant detail did not list every attachment");
+  const fileCsv = await (await fetch(`${organizerUrl}/export`, { headers: { cookie } })).text();
+  ensure(fileCsv.includes("one.pdf, letter.docx"), "Export did not list every attachment");
+  // Self-edit keeps multi-file answers and answers of removed fields (orphan keys) untouched.
+  await db.registrant.update({ where: { id: filePerson.id }, data: { answers: { ...filePerson.answers, [typeKey]: "เอกชน" } } });
+  const editUrl = `${fileStatusUrl.href}/edit`;
+  const editForm = formsFrom(await (await fetch(editUrl)).text()).find((form) => form.includes('name="answer:name"'));
+  ensure(editForm, "Self-edit form missing");
+  response = await fetch(editUrl, { method: "POST", headers: { origin: base, "x-forwarded-for": fileIp }, body: formDataFrom(editForm, { "answer:name": "File person edited" }), redirect: "manual" });
+  const edited = (await db.registrant.findUniqueOrThrow({ where: { id: filePerson.id } })).answers;
+  ensure(response.status === 303 && edited.name === "File person edited" && edited[typeKey] === "เอกชน" && edited[docsField.key]?.length === 2, `Self-edit dropped orphan or file answers: ${response.status} ${response.headers.get("location")}`);
+  response = await register({ email: `docx-${suffix}@example.invalid`, "answer:proof": docx() });
+  ensure(response.headers.get("location")?.includes("error=invalid") && await db.registrant.count({ where: { eventId, email: `docx-${suffix}@example.invalid` } }) === 0, "docx was accepted by a pdf-only field");
+  response = await register({ email: `many-${suffix}@example.invalid`, [`answer:${docsField.key}`]: [pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"), pdf("d.pdf")] });
+  ensure(response.headers.get("location")?.includes("error=invalid") && await db.registrant.count({ where: { eventId, email: `many-${suffix}@example.invalid` } }) === 0, "More files than maxFiles were accepted");
+  process.stdout.write("Registration, waitlist, wrong-day/concurrent check-in, undo, link rotation, role access, form edits after registration and multi-file uploads passed.\n");
 } finally {
   if (eventId) {
     await db.auditLog.deleteMany({ where: { eventId } });

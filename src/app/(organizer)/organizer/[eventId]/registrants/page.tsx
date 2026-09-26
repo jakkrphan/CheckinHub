@@ -7,7 +7,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { readRegistrationFields, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { readFileAnswers, readRegistrationFields, type RegistrationFieldConfig } from "@/features/events/registration-fields";
 import { formatDateTime, formatEventDay, formatEventDayWithWeekday } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
@@ -233,17 +233,19 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
               <dd className="border-b py-3 break-all">{person.email ?? "—"}</dd>
               {fields.map((field) => {
                 const answer = personAnswers[field.key];
-                const file = field.type === "file" && answer && typeof answer === "object" && !Array.isArray(answer) ? answer as { originalName?: unknown; size?: unknown } : null;
+                const files = field.type === "file" ? readFileAnswers(answer) : [];
                 return <div key={field.key} className="contents">
                   <dt className="border-b py-3 text-sm text-muted-foreground">{field.label}</dt>
                   <dd className="border-b py-3">{answer == null || answer === "" ? <span className="text-muted-foreground">{field.conditional ? "— (ไม่เข้าเงื่อนไข)" : "—"}</span>
                     : field.sensitive ? <Link className="inline-flex items-center gap-1.5 font-medium underline underline-offset-4" href={`/organizer/${eventId}/registrants/${person.id}/sensitive/${field.key}`}><LockIcon className="size-4" aria-hidden="true" />เปิดดูข้อมูลอ่อนไหว (บันทึก audit)</Link>
-                    : file && typeof file.originalName === "string" ? <Link className="inline-flex items-center gap-2 rounded-md bg-muted px-3 py-1.5 text-sm font-medium hover:bg-muted/70" href={`/organizer/${eventId}/registrants/${person.id}/files/${field.key}`}><FileIcon className="size-4" aria-hidden="true" />{file.originalName}{typeof file.size === "number" ? <span className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</span> : null}</Link>
+                    : files.length ? <span className="flex flex-wrap gap-2">{files.map((file, fileIndex) => <Link key={file.storageKey} className="inline-flex max-w-full items-center gap-2 rounded-md bg-muted px-3 py-1.5 text-sm font-medium break-all hover:bg-muted/70" href={`/organizer/${eventId}/registrants/${person.id}/files/${field.key}${fileIndex ? `?i=${fileIndex}` : ""}`}><FileIcon className="size-4 shrink-0" aria-hidden="true" />{file.originalName}{typeof file.size === "number" ? <span className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</span> : null}</Link>)}</span>
                     : <span className="whitespace-pre-wrap">{Array.isArray(answer) ? (answer as string[]).join(", ") : String(answer)}</span>}
                     {field.conditional && answer != null && answer !== "" && <span className="ml-1 text-xs text-muted-foreground">(ฟิลด์เงื่อนไข)</span>}
                   </dd>
                 </div>;
               })}
+              {/* Answers to fields removed from the form stay stored (never silently deleted) but are not shown. */}
+              {Object.keys(personAnswers).some((key) => !fields.some((field) => field.key === key)) && <><dt className="border-b py-3 text-sm text-muted-foreground">คำตอบจากฟิลด์ที่ลบแล้ว</dt><dd className="border-b py-3 text-sm text-muted-foreground">{Object.keys(personAnswers).filter((key) => !fields.some((field) => field.key === key)).length} รายการ · เก็บไว้ในระบบแต่ไม่แสดง เพราะฟิลด์ถูกลบออกจากฟอร์มแล้ว</dd></>}
               <dt className="py-3 text-sm text-muted-foreground">เช็คชื่อแล้ว</dt>
               <dd className="py-3">{person.checkIns.length ? <ul className="flex flex-col gap-1 text-sm">{person.checkIns.map((checkIn) => <li key={checkIn.id}>{checkIn.session.label}{checkIn.session.eventDay ? ` · ${formatEventDay(checkIn.session.eventDay.date)}` : ""} <span className="text-muted-foreground">({formatDateTime(checkIn.checkedInAt)}){checkIn.isOverride ? " · กรณีพิเศษ" : ""}</span></li>)}</ul> : <span className="text-muted-foreground">ยังไม่มี</span>}</dd>
             </dl>

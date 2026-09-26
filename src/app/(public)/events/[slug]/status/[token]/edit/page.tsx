@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { readRegistrationFields } from "@/features/events/registration-fields";
+import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { hashBearerCode } from "@/server/registrations/registration";
 import { canSelfEdit } from "@/server/registrations/self-edit";
@@ -31,7 +31,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
   for (const field of fields) {
     const value = stored[field.key];
     if (typeof value === "string" || (Array.isArray(value) && value.every((item) => typeof item === "string"))) initial[field.key] = value as string | string[];
-    else if (value && typeof value === "object" && typeof (value as { originalName?: unknown }).originalName === "string") files[field.key] = (value as { originalName: string }).originalName;
+    else if (field.type === "file" && readFileAnswers(value).length) files[field.key] = readFileAnswers(value).map((file) => file.originalName).join(", ");
   }
 
   return <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">

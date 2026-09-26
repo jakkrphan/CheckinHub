@@ -88,6 +88,7 @@ function pagesFor({ event, draft, approved, session }) {
     { name: "organizer-list", path: "/organizer", staff: true },
     { name: "organizer-new", path: "/organizer/new", staff: true },
     ...[1, 2, 3, 4, 5].map((step) => ({ name: `settings-step-${step}`, path: `/organizer/${id}?step=${step}`, staff: true })),
+    { name: "settings-step-3-file", path: `/organizer/${id}?step=3&field=doc`, staff: true },
     { name: "dashboard", path: `/organizer/${id}/dashboard`, staff: true },
     { name: "registrants", path: `/organizer/${id}/registrants`, staff: true },
     { name: "registrant-detail", path: `/organizer/${id}/registrants?selected=${approved.id}`, staff: true },

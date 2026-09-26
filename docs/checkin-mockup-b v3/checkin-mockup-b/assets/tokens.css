@@ -1,0 +1,98 @@
+/* Design tokens — direction B (warm ivory + deep teal)
+   ใช้เป็น single source of truth ของสี/ฟอนต์ ถ้าย้ายไป Tailwind/shadcn ให้ map ค่าพวกนี้เข้า theme */
+@import url('https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap');
+
+:root {
+  /* พื้นผิว / ตัวอักษร */
+  --bg: #F6F4EF;
+  --surface: #FFFFFF;
+  --surface-alt: #FAF8F4;
+  --ink: #1B1A17;
+  --ink-2: #3A3833;
+  --muted: #625E56;
+  --line: #E4E0D6;
+  --input-border: #D6D1C6;
+  --neutral-soft: #EFECE5;
+
+  /* สีหลัก */
+  --accent: #0E6B58;
+  --accent-strong: #0A5345;
+  --accent-soft: #E2F0EA;
+  --accent-bright: #5FD0B3;
+
+  /* แจ้งเตือน / อันตราย (ฝั่ง organizer) */
+  --warn: #9A4A06;
+  --warn-soft: #FBEFDD;
+  --warn-border: #EBD9B8;
+  --danger: #B42318;
+  --danger-soft: #FCE9E7;
+  --danger-border: #EFC2BD;
+
+  /* สถานะเช็คชื่อ — ชุดเดียวกับแบบ A (เขียว/เหลือง/แดง) */
+  --status-ok: #15803D;
+  --status-ok-bg: #DCFCE7;
+  --status-warn: #B45309;
+  --status-warn-bg: #FEF3C7;
+  --status-danger: #B91C1C;
+  --status-danger-bg: #FEE2E2;
+
+  /* โหมดมืดของหน้าเช็คชื่อ */
+  --dark: #0E1311;
+  --dark-2: #1A211E;
+  --dark-line: #2A332F;
+  --dark-border-2: #55524B;
+  --dark-muted: #A7B2AD;
+  --ink-on-dark-muted: #C9C5BC;
+  --amber: #F5B53F;
+
+  /* เบ็ดเตล็ด */
+  --line-green: #06C755;      /* ปุ่ม LINE Login */
+  --live: #16A34A;            /* จุดสถานะ realtime */
+  --slate: #374151;
+  --grabber: #E5E7EB;
+  --sheet-rows: #FAFAF8;
+  --admin-chip: #FFE8B0;
+  --placeholder: #D9D8CE;     /* กล่องรูปปก placeholder */
+  --placeholder-ink: #6E6A61;
+  --handle: #B9B3A6;          /* จุดจับลากเรียงฟิลด์ */
+  --switch-off: #CFC9BC;
+  --track: #ECE8DF;           /* พื้นหลัง progress bar */
+  --dash: #C9C3B6;
+  --dash-accent: #A9C6BA;
+  --chip-border: #B9D9CC;
+
+  /* ตัวอักษร */
+  --font-display: 'Anuphan', 'Sarabun', sans-serif;
+  --font-body: 'Sarabun', system-ui, sans-serif;
+
+  /* รัศมีมุมที่ใช้ซ้ำ */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-strong); }
+
+/* หน้าจอมือถือ: จัดกลางเมื่อเปิดบนจอใหญ่ */
+.screen-mobile { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+.screen-desktop { min-height: 100vh; }
+.screen-tablet { max-width: 900px; margin: 0 auto; min-height: 100vh; }
+.screen-kiosk { max-width: 1080px; margin: 0 auto; min-height: 100vh; }
+
+/* หน้าฝั่งผู้จัดออกแบบที่ 1440 — จอแคบกว่านี้ให้เลื่อนแนวนอนแทนการบีบตาราง */
+@media (max-width: 1259px) {
+  body { overflow-x: auto; }
+  .screen-desktop { min-width: 1260px; }
+}

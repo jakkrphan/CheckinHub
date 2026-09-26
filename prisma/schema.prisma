@@ -245,6 +245,8 @@ model CheckIn {
   activeKey     String?    @unique
   clientEventId String?    @unique
   method        String?    @db.VarChar(16)
+  /// Check-in station name set on the device (e.g. "จุดที่ 2 · โต๊ะหน้าห้อง"); null when the device has none.
+  station       String?    @db.VarChar(64)
   syncedAt      DateTime   @default(now())
   isOverride    Boolean    @default(false)
   overrideNote  String?    @db.VarChar(500)

@@ -7,6 +7,7 @@ import { EventOverviewPanels } from "@/components/event-overview-panels";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { auditToneClass, describeAudit } from "@/features/audit/labels";
+import { seatModeLabel } from "@/app/(organizer)/organizer/[eventId]/event-header";
 import { formatDateTime, formatEventDayList } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireAdminUser } from "@/server/authorization/session";
@@ -62,7 +63,8 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", event.deletedAt ? "bg-rose-100 text-rose-900" : event.status === "PUBLISHED" ? "bg-accent text-accent-foreground" : event.status === "DRAFT" ? "bg-amber-100 text-amber-900" : "bg-muted")}>{event.deletedAt ? "ลบแล้ว (เก็บย้อนหลัง)" : statusLabel[event.status]}</span>
               <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{typeLabel[event.eventType]}</span>
-              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{event.seatMode === "whole_course" ? "หลักสูตรต่อเนื่อง" : "แยกรายวัน"} · {event.autoApprove ? "อนุมัติอัตโนมัติ" : "อนุมัติเอง"}</span>
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{event.autoApprove ? "อนุมัติอัตโนมัติ" : "อนุมัติเอง"}</span>
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{seatModeLabel(event.seatMode)}</span>
               {event.days.length > 0 && <span className="flex items-center gap-1"><CalendarDaysIcon className="size-4" aria-hidden="true" />{formatEventDayList(event.days.map(({ date }) => date))}</span>}
               {event.location && <span className="flex items-center gap-1"><MapPinIcon className="size-4" aria-hidden="true" />{event.location}</span>}
             </div>

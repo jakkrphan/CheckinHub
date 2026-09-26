@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarDaysIcon, ChevronLeftIcon, ClipboardListIcon, ListChecksIcon, LockKeyholeIcon, QrCodeIcon, UsersIcon } from "lucide-react";
+import { CalendarDaysIcon, ChevronLeftIcon, ClipboardListIcon, LayersIcon, ListChecksIcon, LockKeyholeIcon, QrCodeIcon, UsersIcon } from "lucide-react";
 
 import { updateEvent } from "@/app/(organizer)/organizer/actions";
 import { EventInfoFields } from "@/app/(organizer)/organizer/event-info-fields";
-import { addEventDays, removeEventDay, updateEventDay } from "@/app/(organizer)/organizer/schedule-actions";
+import { addEventDays, removeEventDay, updateCourseSeats, updateEventDay } from "@/app/(organizer)/organizer/schedule-actions";
 import { DaysPlanner } from "@/app/(organizer)/organizer/[eventId]/days-planner";
 import { PublishStep, type PublishCheck } from "@/app/(organizer)/organizer/[eventId]/publish-step";
 import { SessionsPlanner, type PlannerSession } from "@/app/(organizer)/organizer/[eventId]/sessions-planner";
-import { FieldBuilder } from "@/app/(organizer)/organizer/[eventId]/field-builder";
+import { FieldBuilderStep } from "@/app/(organizer)/organizer/[eventId]/field-builder-step";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
@@ -29,6 +29,7 @@ const errorMessage: Record<string, string> = {
   invalid: "กรุณาตรวจสอบข้อมูลโครงการอีกครั้ง",
   "invalid-day": "กรุณาเลือกวันที่และจำนวนที่นั่งให้ถูกต้อง",
   "duplicate-day": "วันที่นี้อยู่ในโครงการแล้ว",
+  "seats-in-use": "ลดที่นั่งต่ำกว่าจำนวนคนที่จองแล้ว (รออนุมัติ + อนุมัติแล้ว) ไม่ได้",
   "day-in-use": "ลบวันไม่ได้: วันสุดท้ายของหลักสูตร หรือมีประวัติเช็คชื่อแล้ว (โหมดแยกรายวันต้องไม่มีผู้ลงทะเบียนหรือรอบเช็คชื่อ)",
   "invalid-session": "กรุณากรอกชื่อรอบเช็คชื่อให้ถูกต้อง",
   "session-in-use": "ลบรอบไม่ได้: รอบนี้มีประวัติเช็คชื่อ ต้องติ๊กยืนยันว่าจะลบประวัติเช็คชื่อของรอบนี้ด้วย",
@@ -108,6 +109,12 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     _count: { _all: true },
   }) : [];
   const occupiedCountByDay = new Map(occupiedByDay.map((day) => [day.eventDayId, day._count._all]));
+  const courseSeats = event.seatMode === "whole_course" && step === 2 ? {
+    maxSeats: event.maxSeats,
+    taken: await db.registrant.count({ where: { eventId, status: { in: ["PENDING", "APPROVED"] } } }),
+    waitlisted: await db.registrant.count({ where: { eventId, status: "WAITLISTED" } }),
+    update: updateCourseSeats.bind(null, eventId),
+  } : null;
   const hasRegistrationFields = registrationFields.length > 0;
   const hasValidRegistrationFields = hasRegistrationFields && validateRegistrationFields(registrationFields);
   const globalSessions = await db.session.findMany({ where: { eventId, eventDayId: null }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } });
@@ -177,21 +184,23 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         </form>
       </>}
 
-      {step === 3 && <section className="flex flex-col gap-7">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-[22px] font-bold">ฟอร์มลงทะเบียน</h2>
-          <p className="text-sm text-muted-foreground">ลากเรียงลำดับได้ · ฟิลด์ลูกจะโผล่เฉพาะเมื่อฟิลด์แม่ถูกเลือกตามเงื่อนไข</p>
-        </div>
-        <FieldBuilder key={registrationFields.map((field) => field.key).join(",")} eventId={eventId} fields={registrationFields} editable={event.status === "DRAFT" && registrantCount === 0} initialSelected={typeof selectedField === "string" ? selectedField : undefined} error={typeof error === "string" ? errorMessage[error] : undefined} />
-      </section>}
+      {step === 3 && <FieldBuilderStep eventId={eventId} fields={registrationFields} fieldsVersion={event.fieldsVersion} editable selectedField={typeof selectedField === "string" ? selectedField : undefined} errorCode={typeof error === "string" ? error : undefined} error={typeof error === "string" ? errorMessage[error] : undefined} />}
 
       {step === 2 && <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <h2 className="font-heading text-[22px] font-bold">วันที่จัดอบรม & ที่นั่ง</h2>
-          <p className="text-sm text-muted-foreground">คลิกวันในปฏิทินเพื่อเพิ่ม/เอาออก · ไม่ต้องต่อเนื่อง · {event.seatMode === "whole_course" ? "หลักสูตรต่อเนื่องใช้ที่นั่งรวมจากขั้นที่ 1" : "ที่นั่งจำกัดแยกกันแต่ละวัน"}</p>
+          <p className="text-sm text-muted-foreground">{event.seatMode === "whole_course" ? "หลักสูตรต่อเนื่อง — ผู้เข้าอบรมต้องมาครบทุกวัน ที่นั่งนับรวมเป็นก้อนเดียว" : "คลิกวันในปฏิทินเพื่อเพิ่ม/เอาออก · ไม่ต้องต่อเนื่อง · ที่นั่งจำกัดแยกกันแต่ละวัน · ผู้ลงทะเบียนเลือกเองว่าจะมาวันไหน"}</p>
         </div>
-        {typeof error === "string" && ["invalid-day", "duplicate-day", "day-in-use"].includes(error) && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage[error]}</p>}
-        <DaysPlanner addDays={addDay} today={todayInBangkok} seatMode={event.seatMode === "whole_course" ? "whole_course" : "per_day"} wholeCourseSeats={event.maxSeats}
+        {/* The seat mode is chosen in step 1; here it is shown so organizers know which layout they are looking at. */}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3">
+          <span className="text-sm text-muted-foreground">โหมดที่เลือกไว้ในขั้นที่ 1</span>
+          <span className="flex gap-1 rounded-lg bg-muted p-1 text-sm font-semibold">
+            {([["per_day", "แยกที่นั่งรายวัน", CalendarDaysIcon], ["whole_course", "รวมทั้งคอร์ส", LayersIcon]] as const).map(([value, label, Icon]) => <span key={value} aria-current={event.seatMode === value ? "true" : undefined} className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5", event.seatMode === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}><Icon className="size-4" aria-hidden="true" />{label}</span>)}
+          </span>
+          <span className="ml-auto text-xs text-muted-foreground">{event.status === "DRAFT" && registrantCount === 0 ? <Link href={`/organizer/${eventId}?step=1`} className="font-semibold text-primary underline-offset-4 hover:underline">เปลี่ยนในขั้นที่ 1</Link> : "ล็อกหลังเผยแพร่ / มีผู้ลงทะเบียนแล้ว"}</span>
+        </div>
+        {typeof error === "string" && ["invalid-day", "duplicate-day", "day-in-use", "seats-in-use"].includes(error) && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage[error]}</p>}
+        <DaysPlanner addDays={addDay} today={todayInBangkok} seatMode={event.seatMode === "whole_course" ? "whole_course" : "per_day"} course={courseSeats}
           days={days.map((day, index) => ({
             id: day.id, date: day.date.toISOString().slice(0, 10), number: index + 1, maxSeats: day.maxSeats, isClosed: day.isClosed,
             approved: approvedCountByDay.get(day.id) ?? 0, occupied: occupiedCountByDay.get(day.id) ?? 0, registrants: day._count.registrantDays,

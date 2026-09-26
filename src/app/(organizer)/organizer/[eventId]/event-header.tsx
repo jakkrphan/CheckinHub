@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 
 const typeLabel = { INTERNAL: "ภายใน", EXTERNAL: "ภายนอก", MIXED: "ผสม" } as const;
+export const seatModeLabel = (seatMode: string) => seatMode === "whole_course" ? "นับที่นั่งรวมทั้งคอร์ส" : "นับที่นั่งรายวัน";
 const tabs = [
   { value: "overview", label: "ภาพรวม", href: (id: string) => `/organizer/${id}/dashboard` },
   { value: "registrants", label: "ผู้ลงทะเบียน", href: (id: string) => `/organizer/${id}/registrants` },
@@ -18,6 +19,7 @@ type EventHeaderData = {
   status: "DRAFT" | "PUBLISHED" | "CLOSED";
   eventType: keyof typeof typeLabel;
   autoApprove: boolean;
+  seatMode: string;
   location: string | null;
   registrationDeadline: Date | null;
 };
@@ -45,6 +47,7 @@ export async function OrganizerEventHeader({ event, activeTab, actions }: { even
               <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", chip.className)}>{chip.text}</span>
               <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{typeLabel[event.eventType]}</span>
               <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{event.autoApprove ? "อนุมัติอัตโนมัติ" : "อนุมัติเอง"}</span>
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{seatModeLabel(event.seatMode)}</span>
               {days.length > 0 && <span className="flex items-center gap-1"><CalendarDaysIcon className="size-4" aria-hidden="true" />{formatEventDayList(days.map(({ date }) => date))}</span>}
               {event.location && <span className="flex items-center gap-1"><MapPinIcon className="size-4" aria-hidden="true" />{event.location}</span>}
             </div>
