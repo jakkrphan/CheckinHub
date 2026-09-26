@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Anuphan, Sarabun } from "next/font/google";
 import "./globals.css";
 
@@ -13,6 +13,10 @@ export const metadata: Metadata = {
   },
   description: "ระบบลงทะเบียนและเช็คชื่อผู้เข้าร่วมอบรม",
 };
+
+// viewport-fit=cover lets sticky footers pad themselves with env(safe-area-inset-*) on notched phones.
+// Zoom stays enabled (no maximumScale) for accessibility.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

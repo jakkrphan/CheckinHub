@@ -66,7 +66,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
             <form action={addEventMember.bind(null, event.id)}>
               <input type="hidden" name="email" value={member.user.email} />
               <label htmlFor={`member-role-${member.id}`} className="sr-only">สิทธิ์ของ {member.user.name}</label>
-              <AutoSubmitSelect key={member.role} id={`member-role-${member.id}`} name="role" defaultValue={member.role} className="h-10 rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"><option value="FULL">เต็มสิทธิ์</option><option value="CHECKIN_ONLY">เช็คชื่ออย่างเดียว</option></AutoSubmitSelect>
+              <AutoSubmitSelect key={member.role} id={`member-role-${member.id}`} name="role" defaultValue={member.role} className="h-10 rounded-md border bg-background px-2.5 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-sm"><option value="FULL">เต็มสิทธิ์</option><option value="CHECKIN_ONLY">เช็คชื่ออย่างเดียว</option></AutoSubmitSelect>
             </form>
             <form action={removeEventMember.bind(null, event.id, member.userId)}><Button type="submit" variant="outline" size="icon-lg" aria-label={`นำ ${member.user.name} ออกจากโครงการ`} className="text-destructive hover:bg-destructive/10 hover:text-destructive"><XIcon aria-hidden="true" /></Button></form>
           </> : <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold">{member.role === "FULL" ? "เต็มสิทธิ์" : "เช็คชื่ออย่างเดียว"}</span>}

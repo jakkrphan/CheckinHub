@@ -46,7 +46,7 @@ export default async function PublicEventPage({
 
   if (event.status === "DRAFT") {
     return (
-      <main className="mx-auto flex min-h-svh w-full max-w-lg bg-background">
+      <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl bg-background">
         <Empty className="rounded-none border-0 px-6 py-8">
           <EmptyHeader>
             <EmptyMedia variant="hero"><LockKeyholeIcon aria-hidden="true" /></EmptyMedia>
@@ -97,7 +97,7 @@ export default async function PublicEventPage({
 
   if (available) {
     return (
-      <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background shadow-sm">
+      <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
         {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
         <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} attendanceThreshold={event.attendanceThreshold} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
@@ -105,7 +105,7 @@ export default async function PublicEventPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background shadow-sm">
+    <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
       {cover}
       <div className="flex flex-col gap-3 border-b bg-card px-5 py-5">
         <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">โครงการอบรม</p><Badge variant="secondary" className="rounded-md bg-muted font-semibold">{typeLabel}</Badge></div>

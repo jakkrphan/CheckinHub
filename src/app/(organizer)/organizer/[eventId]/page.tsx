@@ -227,7 +227,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
           error={typeof error === "string" ? error : undefined} saved={typeof saved === "string" ? saved : undefined} />
       </section>}
     </main>
-    <footer className="sticky bottom-0 mt-auto flex flex-wrap items-center justify-between gap-3 border-t bg-card px-4 py-3 shadow-[0_-4px_16px_rgb(0_0_0/0.04)] sm:px-6 sm:py-4 lg:px-12">
+    <footer className="sticky bottom-0 pb-[max(1rem,env(safe-area-inset-bottom))] mt-auto flex flex-wrap items-center justify-between gap-3 border-t bg-card px-4 py-3 shadow-[0_-4px_16px_rgb(0_0_0/0.04)] sm:px-6 sm:py-4 lg:px-12">
       <Button asChild variant="outline" size="lg"><Link href={step > 1 ? `/organizer/${eventId}?step=${step - 1}` : "/organizer"}><ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />{step > 1 ? "ย้อนกลับ" : "โครงการของฉัน"}</Link></Button>
       <div className="flex items-center gap-3">
         <span className="hidden text-sm text-muted-foreground sm:inline">ขั้นที่ {step} จาก 5</span>

@@ -172,7 +172,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
       </section>
 
       {wizardError && <p role="alert" className="px-5 pb-4 text-sm text-destructive">{wizardError}</p>}
-      <footer className="sticky bottom-0 mt-auto flex flex-col gap-2 border-t bg-card px-5 pt-3.5 pb-5">
+      <footer className="sticky bottom-0 pb-[max(1rem,env(safe-area-inset-bottom))] mt-auto flex flex-col gap-2 border-t bg-card px-5 pt-3.5 pb-5">
         <div className="flex items-center gap-3">
           {/* Distinct keys: reusing one DOM button would flip it to type=submit mid-click and submit step 3 immediately. */}
           {step === 3 && <Button type="button" variant="outline" className="h-13 px-4" onClick={() => goTo(2)}>ย้อนกลับ</Button>}

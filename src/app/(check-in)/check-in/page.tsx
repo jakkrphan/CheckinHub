@@ -36,13 +36,13 @@ export default async function CheckInPage() {
     await signOut({ redirectTo: "/login" });
   }
 
-  return <main className="checkin-screen min-h-svh bg-background text-foreground">
+  return <main className="flex-1">
     <div className="mx-auto flex w-full max-w-lg flex-col gap-5 px-4 py-5">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><QrCodeIcon className="size-5" aria-hidden="true" /></span><div className="flex flex-col leading-tight"><h1 className="font-heading text-lg font-bold">เช็คชื่อหน้างาน</h1><span className="text-xs text-muted-foreground">{user.name}</span></div></div>
         <div className="flex items-center gap-2">
-          {user.role !== "STAFF" && <Button asChild variant="secondary" size="icon-lg"><Link href="/organizer" aria-label="ไปหน้าจัดการโครงการ"><SettingsIcon aria-hidden="true" /></Link></Button>}
-          <form action={logout}><Button type="submit" variant="secondary" size="sm"><LogOutIcon data-icon="inline-start" aria-hidden="true" />ออกจากระบบ</Button></form>
+          {user.role !== "STAFF" && <Button asChild variant="secondary" size="icon-lg" className="size-11"><Link href="/organizer" aria-label="ไปหน้าจัดการโครงการ"><SettingsIcon aria-hidden="true" /></Link></Button>}
+          <form action={logout}><Button type="submit" variant="secondary" className="h-11"><LogOutIcon data-icon="inline-start" aria-hidden="true" />ออกจากระบบ</Button></form>
         </div>
       </header>
       <p className="text-sm text-muted-foreground">เลือกโครงการที่จะเช็คชื่อ · โครงการที่จัดวันนี้แสดงก่อน</p>

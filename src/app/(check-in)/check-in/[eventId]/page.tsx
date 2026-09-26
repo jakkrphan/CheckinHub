@@ -41,12 +41,12 @@ export default async function EventCheckInPage({ params, searchParams }: PagePro
     const first = checkinFields.map((field) => answers[field.key]).find((value) => typeof value === "string" && value.trim());
     return typeof first === "string" ? first : mask(person.email);
   };
-  return <main className="checkin-screen mx-auto flex min-h-svh w-full max-w-lg flex-col gap-4 bg-background px-4 py-4 text-foreground">
+  return <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 px-4 py-4 md:max-w-4xl md:px-6 [@media(orientation:landscape)_and_(max-height:540px)]:max-w-4xl">
     {session ? <LiveRefresh url={`/check-in/${eventId}/state?session=${session.id}`} /> : <AutoRefresh />}
     <header className="flex items-center gap-3">
-      <Button asChild variant="secondary" size="icon-lg" aria-label="กลับไปโครงการทั้งหมด"><Link href="/check-in"><ChevronLeftIcon aria-hidden="true" /></Link></Button>
+      <Button asChild variant="secondary" size="icon-lg" className="size-11" aria-label="กลับไปโครงการทั้งหมด"><Link href="/check-in"><ChevronLeftIcon aria-hidden="true" /></Link></Button>
       <div className="min-w-0 flex-1"><h1 className="truncate font-heading text-base font-bold">{event.title}</h1><p className="flex items-center gap-1.5 text-xs text-primary"><span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />อัปเดตสด · {sessions.length} รอบ</p></div>
-      {session && <Button asChild variant="secondary" size="sm"><Link href={`/check-in/${eventId}/kiosk?session=${session.id}`}><MonitorSmartphoneIcon data-icon="inline-start" aria-hidden="true" />kiosk</Link></Button>}
+      {session && <Button asChild variant="secondary" className="h-11"><Link href={`/check-in/${eventId}/kiosk?session=${session.id}`}><MonitorSmartphoneIcon data-icon="inline-start" aria-hidden="true" />kiosk</Link></Button>}
     </header>
     {session ? <>
       <button type="button" popoverTarget="session-picker" className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-left">
@@ -83,7 +83,7 @@ export default async function EventCheckInPage({ params, searchParams }: PagePro
                   const id = `correct-${person.id}-${field.key}`;
                   return <div key={field.key} className="flex flex-col gap-1">
                     <label htmlFor={id} className="text-xs font-medium">{field.label}{field.required ? " *" : ""}</label>
-                    {field.type === "select" ? <select id={id} name={name} defaultValue={typeof current === "string" ? current : ""} className="h-10 rounded-md border bg-background px-2"><option value="">—</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                    {field.type === "select" ? <select id={id} name={name} defaultValue={typeof current === "string" ? current : ""} className="h-11 rounded-md border bg-background px-2 text-base"><option value="">—</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                       : field.type === "checkbox" ? <div id={id} className="flex flex-wrap gap-3">{field.options?.map((option) => <label key={option} className="flex items-center gap-1 text-xs"><input type="checkbox" name={name} value={option} defaultChecked={Array.isArray(current) && current.includes(option)} />{option}</label>)}</div>
                       : <Input id={id} name={name} type={field.type === "textarea" ? "text" : field.type} defaultValue={typeof current === "string" ? current : ""} maxLength={3000} className="h-10" />}
                   </div>;

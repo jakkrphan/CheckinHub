@@ -94,7 +94,7 @@ export function WalkInForm({ eventId, fields, days, seatMode, courseRemaining, b
         </label>}
       </div>
 
-      <label className="flex items-start gap-2.5 text-sm"><input type="checkbox" name="consent" required className="mt-0.5 size-4 shrink-0 accent-primary" /><span>ยืนยันว่าได้รับความยินยอมจากผู้เข้าร่วมให้บันทึกข้อมูลเพื่อการลงทะเบียนและเช็คชื่อแล้ว <span className="text-destructive">*</span></span></label>
+      <label className="flex items-start gap-2.5 py-1 text-sm"><input type="checkbox" name="consent" required className="mt-0.5 size-4 shrink-0 accent-primary" /><span>ยืนยันว่าได้รับความยินยอมจากผู้เข้าร่วมให้บันทึกข้อมูลเพื่อการลงทะเบียนและเช็คชื่อแล้ว <span className="text-destructive">*</span></span></label>
     </div>
 
     <div className="flex flex-wrap items-center justify-end gap-2.5 border-t bg-muted/40 px-6 py-4">

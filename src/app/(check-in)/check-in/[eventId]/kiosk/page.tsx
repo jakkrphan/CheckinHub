@@ -17,7 +17,7 @@ export default async function KioskPage({ params, searchParams }: PageProps<"/ch
   if (!session) redirect(`/check-in/${eventId}`);
   const day = session.eventDay ? new Intl.DateTimeFormat("th-TH", { dateStyle: "long", timeZone: "UTC" }).format(session.eventDay.date) : "ใช้ได้ทุกวัน";
 
-  return <main className="checkin-screen mx-auto flex min-h-svh w-full max-w-xl flex-col gap-6 bg-background px-5 py-8 text-foreground">
+  return <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-5 py-8 md:max-w-4xl [@media(orientation:landscape)_and_(max-height:540px)]:max-w-4xl [@media(orientation:landscape)_and_(max-height:540px)]:gap-3 [@media(orientation:landscape)_and_(max-height:540px)]:py-4">
     <header className="flex flex-col items-center gap-1 text-center">
       <p className="text-sm text-muted-foreground">{event.title}</p>
       <h1 className="font-heading text-3xl font-bold">{session.label}</h1>

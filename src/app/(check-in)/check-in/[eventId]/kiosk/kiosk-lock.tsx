@@ -69,18 +69,18 @@ export function KioskLock({ eventId, exitHref, children }: { eventId: string; ex
   if (phase === "setup") return <form onSubmit={start} className="mx-auto flex w-full max-w-sm flex-col gap-4 rounded-2xl border bg-card p-6">
     <div className="flex items-center gap-3"><LockKeyholeIcon className="size-6 text-primary" aria-hidden="true" /><h2 className="font-heading text-xl font-bold">ตั้ง PIN ก่อนเปิดโหมด kiosk</h2></div>
     <p className="text-sm text-muted-foreground">ผู้เข้าอบรมจะสแกน QR ของตัวเองได้เท่านั้น ต้องใช้ PIN นี้เพื่อออกจากโหมด kiosk หรือเปลี่ยนรอบ</p>
-    <label className="flex flex-col gap-1 text-sm font-medium">PIN (ตัวเลข 4–8 หลัก)<Input type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} maxLength={8} required /></label>
-    <label className="flex flex-col gap-1 text-sm font-medium">ยืนยัน PIN<Input type="password" inputMode="numeric" autoComplete="off" value={confirm} onChange={(event) => setConfirm(event.target.value)} maxLength={8} required /></label>
+    <label className="flex flex-col gap-1 text-sm font-medium">PIN (ตัวเลข 4–8 หลัก)<Input type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} maxLength={8} required className="h-12 text-lg" /></label>
+    <label className="flex flex-col gap-1 text-sm font-medium">ยืนยัน PIN<Input type="password" inputMode="numeric" autoComplete="off" value={confirm} onChange={(event) => setConfirm(event.target.value)} maxLength={8} required className="h-12 text-lg" /></label>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <Button type="submit" size="lg">เริ่มโหมด kiosk</Button>
+    <Button type="submit" size="lg" className="h-12 text-base">เริ่มโหมด kiosk</Button>
   </form>;
 
   return <>
     {children}
     {phase === "exit" ? <form onSubmit={exit} className="mx-auto flex w-full max-w-sm flex-col gap-3 rounded-2xl border bg-card p-5">
-      <label className="flex flex-col gap-1 text-sm font-medium">PIN เจ้าหน้าที่<Input type="password" inputMode="numeric" autoComplete="off" autoFocus value={pin} onChange={(event) => setPin(event.target.value)} maxLength={8} required /></label>
+      <label className="flex flex-col gap-1 text-sm font-medium">PIN เจ้าหน้าที่<Input type="password" inputMode="numeric" autoComplete="off" autoFocus value={pin} onChange={(event) => setPin(event.target.value)} maxLength={8} required className="h-12 text-lg" /></label>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { setPhase("running"); setPin(""); setError(""); }}>ยกเลิก</Button><Button type="submit" variant="outline">ออกจากโหมด kiosk</Button></div>
-    </form> : <button type="button" onClick={() => setPhase("exit")} className="mx-auto text-xs text-muted-foreground underline-offset-4 hover:underline">สำหรับเจ้าหน้าที่</button>}
+      <div className="flex gap-2"><Button type="button" variant="ghost" className="h-12 flex-1" onClick={() => { setPhase("running"); setPin(""); setError(""); }}>ยกเลิก</Button><Button type="submit" variant="outline" className="h-12 flex-1">ออกจากโหมด kiosk</Button></div>
+    </form> : <button type="button" onClick={() => setPhase("exit")} className="mx-auto min-h-11 px-3 text-xs text-muted-foreground underline-offset-4 hover:underline">สำหรับเจ้าหน้าที่</button>}
   </>;
 }

@@ -124,7 +124,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   return <>
     <OrganizerEventHeader event={event} activeTab="registrants" actions={<>
       <form method="get" action={`/organizer/${eventId}/registrants/export`} className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" name="includeSensitive" className="size-4 accent-primary" />รวมข้อมูลอ่อนไหว</label>
+        <label className="flex min-h-8 items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" name="includeSensitive" className="size-4 accent-primary" />รวมข้อมูลอ่อนไหว</label>
         <Button type="submit" variant="outline"><DownloadIcon data-icon="inline-start" aria-hidden="true" />Export CSV</Button>
         <Button type="submit" name="format" value="xlsx" variant="outline">Excel</Button>
       </form>
@@ -132,11 +132,11 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
     <AutoRefresh intervalMs={5000} />
     {event.anonymizedAt && <p role="status" className="mx-auto mt-4 w-full max-w-7xl rounded-xl border bg-card px-5 py-3 text-sm text-muted-foreground lg:px-10">ข้อมูลส่วนบุคคลของโครงการนี้ถูกปกปิดแล้วเมื่อครบระยะเก็บข้อมูล {formatEventDay(event.anonymizedAt)} เหลือเฉพาะสถานะและสถิติ</p>}
 
-    <div className="grid flex-1 lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
+    <div className="grid flex-1 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
       {/* Master list */}
       <section aria-label="รายชื่อผู้ลงทะเบียน" className={cn("flex min-w-0 flex-col border-r bg-card lg:sticky lg:top-0 lg:h-[calc(100svh-15rem)] lg:min-h-[28rem] lg:overflow-hidden", person && requestedSelection && "hidden lg:flex")}>
         <div className="flex flex-col gap-3 border-b p-4">
-          <nav aria-label="กรองตามสถานะ" className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+          <nav aria-label="กรองตามสถานะ" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
             {[{ key: undefined, label: "ทั้งหมด", count: allCount }, ...statusOrder.map((key) => ({ key, label: labels[key], count: countOf(key) }))].map((tab) => (
               <Link key={tab.label} href={makeHref({ status: tab.key, page: undefined, selected: undefined })} aria-current={selectedStatus === tab.key ? "page" : undefined}
                 className={cn("shrink-0 rounded-md px-2.5 py-1.5 text-sm", selectedStatus === tab.key ? "bg-card font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>{tab.label} <span className="tabular-nums">{tab.count}</span></Link>
@@ -177,7 +177,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
             const active = item.id === person?.id;
             const name = displayName(fields, asAnswers(item.answers), item.email);
             return <li key={item.id} className={cn("relative flex items-start gap-3 px-4 py-3 hover:bg-muted/50", active && "bg-accent/60 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary")}>
-              {canEdit && item.status === "PENDING" ? <input type="checkbox" name="registrantId" value={item.id} aria-label={`เลือก ${name}`} className="relative z-10 mt-1 size-5 shrink-0 accent-primary" /> : <span className="w-5 shrink-0" aria-hidden="true" />}
+              {canEdit && item.status === "PENDING" ? <input type="checkbox" name="registrantId" value={item.id} aria-label={`เลือก ${name}`} className="relative z-10 mt-0.5 size-6 shrink-0 accent-primary" /> : <span className="w-6 shrink-0" aria-hidden="true" />}
               <Link href={makeHref({ selected: item.id })} aria-current={active ? "true" : undefined} className="flex min-w-0 flex-1 flex-col gap-1 outline-none after:absolute after:inset-0 focus-visible:underline">
                 <span className="flex items-baseline justify-between gap-2"><span className="truncate font-semibold">{name}</span><span className="shrink-0 text-xs text-muted-foreground">{formatEventDay(item.registeredAt)}</span></span>
                 <span className="truncate text-xs text-muted-foreground">{item.email ?? "—"}</span>
@@ -209,7 +209,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
         {!person ? <div className="flex flex-1 items-center justify-center p-10 text-center text-sm text-muted-foreground">เลือกผู้ลงทะเบียนจากรายชื่อเพื่อดูรายละเอียดและอนุมัติ</div> : <>
           <article className="flex flex-1 flex-col gap-5 px-5 py-6 lg:px-8">
             <header className="flex flex-col gap-2">
-              <h2 className="font-heading text-2xl font-bold">{displayName(fields, personAnswers, person.email)}</h2>
+              <h2 className="font-heading text-2xl font-bold [overflow-wrap:anywhere]">{displayName(fields, personAnswers, person.email)}</h2>
               <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold", chipTone[person.status])}>{labels[person.status]}{person.status === "WAITLISTED" && queuePositions.size ? ` · ลำดับ ${Math.min(...queuePositions.values())}` : ""}</span>
                 ลงทะเบียน {formatDateTime(person.registeredAt)}{person.anonymizedAt ? " · ข้อมูลถูกปกปิดแล้ว" : ""}
@@ -249,7 +249,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
             </dl>
           </article>
 
-          <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t bg-card px-5 py-3">
+          <footer className="sticky bottom-0 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-wrap items-center justify-between gap-3 border-t bg-card px-5 py-3">
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               {previous ? <Button asChild variant="ghost" size="icon" aria-label="คนก่อนหน้า"><Link href={makeHref({ selected: previous.id })}><ChevronLeftIcon aria-hidden="true" /></Link></Button> : <span className="size-9" />}
               <span className="tabular-nums">{positionInList >= 0 ? `${(currentPage - 1) * pageSize + positionInList + 1} จาก ${total}` : ""}</span>
@@ -261,7 +261,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                 <form action={reissueStatusLink.bind(null, eventId, person.id)} className="absolute bottom-11 right-0 z-20 flex w-72 flex-col gap-2 rounded-xl border bg-card p-4 shadow-lg">
                   <input type="hidden" name="returnTo" value={returnTo} />
                   <p className="text-sm">ออกลิงก์สถานะใหม่เพื่อส่งให้ผู้สมัครเอง (ระหว่างยังไม่มีระบบส่งอีเมล)</p>
-                  <label className="flex items-start gap-2 text-xs"><input type="checkbox" name="confirm" required className="mt-0.5" />ยืนยันว่าลิงก์เดิมจะใช้ไม่ได้อีก</label>
+                  <label className="flex items-start gap-2 py-1 text-xs"><input type="checkbox" name="confirm" required className="mt-0.5 size-4" />ยืนยันว่าลิงก์เดิมจะใช้ไม่ได้อีก</label>
                   <Button type="submit" size="sm" variant="outline">ออกลิงก์สถานะใหม่</Button>
                 </form>
               </details>

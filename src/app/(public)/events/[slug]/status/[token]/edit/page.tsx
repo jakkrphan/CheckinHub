@@ -34,7 +34,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
     else if (value && typeof value === "object" && typeof (value as { originalName?: unknown }).originalName === "string") files[field.key] = (value as { originalName: string }).originalName;
   }
 
-  return <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background">
+  return <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">
     <header className="flex flex-col gap-2 bg-sidebar px-5 py-5 text-sidebar-foreground">
       <Link href={statusUrl} className="-my-3 w-fit py-3 text-xs text-sidebar-foreground/70 hover:underline">← กลับไปหน้าสถานะ</Link>
       <p className="text-xs text-sidebar-foreground/70">แก้ไขข้อมูลการลงทะเบียน</p>

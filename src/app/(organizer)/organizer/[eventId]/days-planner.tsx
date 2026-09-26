@@ -85,7 +85,8 @@ export function DaysPlanner({ days, today, seatMode, addDays, wholeCourseSeats }
         <span className="text-sm text-muted-foreground">{perDay ? `ที่นั่งรวม ${totalSeats.toLocaleString("th-TH")}${hasUnlimited ? " + ไม่จำกัด" : ""}` : `ที่นั่งทั้งหลักสูตร ${wholeCourseSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"} (ตั้งในขั้นที่ 1)`}</span>
       </div>
       {days.length === 0 ? <p className="px-5 py-10 text-center text-sm text-muted-foreground">ยังไม่มีวันจัด · คลิกวันในปฏิทินเพื่อเพิ่ม</p>
-        : <ul className="divide-y">{days.map((day) => <DayRow key={`${day.id}-${day.maxSeats}-${day.isClosed}-${day.date}`} day={day} perDay={perDay} lastDay={days.length === 1} />)}</ul>}
+        // Rows follow this card's width (container queries): beside the calendar on xl it is narrower than on a tablet.
+        : <ul className="@container divide-y">{days.map((day) => <DayRow key={`${day.id}-${day.maxSeats}-${day.isClosed}-${day.date}`} day={day} perDay={perDay} lastDay={days.length === 1} />)}</ul>}
       <p className="border-t bg-muted/50 px-5 py-3 text-xs text-muted-foreground">ขั้นที่ 4 (รอบเช็คชื่อ) จะผูกรอบกับวันเหล่านี้ได้ เช่น “วันที่ 1 · เช้า”</p>
     </section>
   </div>;
@@ -152,25 +153,25 @@ function DayRow({ day, perDay, lastDay }: { day: PlannerDay; perDay: boolean; la
     save(next);
   }
 
-  return <li id={`day-${day.date}`} tabIndex={-1} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-3 px-4 py-4 sm:gap-x-4 sm:px-5 outline-none focus:bg-accent/40 sm:grid-cols-[110px_minmax(0,1fr)_auto_auto]">
+  return <li id={`day-${day.date}`} tabIndex={-1} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center @max-sm:grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-3 px-4 py-4 @lg:gap-x-4 @lg:px-5 outline-none focus:bg-accent/40 @lg:grid-cols-[110px_minmax(0,1fr)_auto_auto]">
     <div className="flex flex-col">
-      <span className="text-xs text-muted-foreground">วันที่ {day.number}</span>
+      <span className="whitespace-nowrap text-xs text-muted-foreground">วันที่ {day.number}</span>
       <span className="whitespace-nowrap font-heading font-bold">{dayShort.format(asDate(day.date))}</span>
       {day.isClosed && <span className="mt-1 w-fit rounded bg-destructive/10 px-1.5 text-[11px] font-semibold text-destructive">ปิดรับวันนี้</span>}
     </div>
-    <div className="order-last col-span-3 flex flex-col gap-1.5 sm:order-none sm:col-span-1">
+    <div className="order-last col-span-3 flex flex-col gap-1.5 @max-sm:col-span-2 @lg:order-none @lg:col-span-1">
       {perDay ? <>
         <span className="h-1.5 overflow-hidden rounded-full bg-muted"><span className={cn("block h-full rounded-full", full ? "bg-destructive" : "bg-primary")} style={{ width: day.maxSeats ? `${Math.min(100, (day.approved / day.maxSeats) * 100)}%` : day.approved ? "100%" : "0%", opacity: day.maxSeats ? 1 : 0.25 }} /></span>
         <span className={cn("text-xs", full ? "font-semibold text-destructive" : "text-muted-foreground")}>{full ? "เต็มแล้ว " : "อนุมัติ "}{day.approved.toLocaleString("th-TH")} / {day.maxSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"} ที่{day.registrants > day.approved ? ` · สมัครทั้งหมด ${day.registrants.toLocaleString("th-TH")}` : ""}</span>
       </> : <span className="text-xs text-muted-foreground">ผู้สมัครที่ผูกกับวันนี้ {day.registrants.toLocaleString("th-TH")} คน</span>}
     </div>
-    {perDay ? <div className="flex flex-col items-end gap-1">
+    {perDay ? <div className="flex flex-col items-end gap-1 @max-sm:col-span-2 @max-sm:row-start-2 @max-sm:items-start">
       <div className={cn("flex h-10 items-center rounded-lg border bg-background", invalid && "border-destructive")}>
         <button type="button" onClick={() => step(-1)} disabled={value === null || value <= minimum} aria-label={`ลดที่นั่งวันที่ ${day.number}`} className="flex size-10 items-center justify-center rounded-l-lg hover:bg-muted disabled:opacity-40"><MinusIcon className="size-4" aria-hidden="true" /></button>
         <label htmlFor={`seats-${day.id}`} className="sr-only">ที่นั่งวันที่ {day.number} (เว้นว่าง = ไม่จำกัด)</label>
         <input id={`seats-${day.id}`} inputMode="numeric" value={seats} placeholder="ไม่จำกัด" aria-invalid={invalid || undefined}
           onChange={(event) => { const next = event.target.value.replace(/[^0-9]/g, ""); setSeats(next); save(next, 1200); }}
-          onBlur={() => save(seats, 0)} className="h-full w-16 border-x sm:w-20 bg-transparent text-center font-semibold outline-none placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground focus-visible:bg-accent/50" />
+          onBlur={() => save(seats, 0)} className="h-full w-16 border-x @lg:w-20 bg-transparent text-center font-semibold outline-none placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground focus-visible:bg-accent/50" />
         <button type="button" onClick={() => step(1)} aria-label={`เพิ่มที่นั่งวันที่ ${day.number}`} className="flex size-10 items-center justify-center rounded-r-lg hover:bg-muted"><PlusIcon className="size-4" aria-hidden="true" /></button>
       </div>
       <span className="min-h-4 text-[11px] text-muted-foreground" aria-live="polite">{pending ? "กำลังบันทึก…" : invalid ? <span className="text-destructive">ต่ำสุด {minimum.toLocaleString("th-TH")} (มีคนจองแล้ว)</span> : ""}</span>
@@ -182,7 +183,7 @@ function DayRow({ day, perDay, lastDay }: { day: PlannerDay; perDay: boolean; la
 function DayMenu({ day, perDay, lastDay }: { day: PlannerDay; perDay: boolean; lastDay: boolean }) {
   const id = `day-menu-${day.id}`;
   const canRemove = perDay ? day.removable : !lastDay;
-  return <div className="flex items-center gap-1">
+  return <div className="flex items-center gap-1 @max-sm:col-start-2 @max-sm:row-start-1">
     <Button type="button" variant="ghost" size="icon-lg" popoverTarget={id} aria-label={`ตัวเลือกวันที่ ${day.number}`}><EllipsisIcon aria-hidden="true" /></Button>
     <div id={id} popover="auto" className="m-auto w-[min(92vw,340px)] rounded-xl border bg-card p-5 shadow-xl backdrop:bg-black/20">
       <h4 className="mb-3 font-heading font-bold">วันที่ {day.number} · {dayShort.format(asDate(day.date))}</h4>

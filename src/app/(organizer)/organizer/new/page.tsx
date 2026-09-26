@@ -53,7 +53,7 @@ export default async function NewEventPage({ searchParams }: PageProps<"/organiz
           {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error === "invalid-cover" ? "รูปปกไม่ถูกต้อง: ใช้ JPG, PNG หรือ WebP ที่มีขนาดไม่เกิน 3 MB" : "กรุณาตรวจสอบข้อมูลโครงการอีกครั้ง"}</p>}
         </main>
 
-        <footer className="sticky bottom-0 flex items-center justify-between gap-4 border-t bg-card px-5 py-4 shadow-[0_-4px_16px_rgb(0_0_0/0.04)] lg:px-10">
+        <footer className="sticky bottom-0 pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-between gap-4 border-t bg-card px-5 py-4 shadow-[0_-4px_16px_rgb(0_0_0/0.04)] lg:px-10">
           <Button variant="outline" size="lg" asChild><Link href="/organizer">ยกเลิก</Link></Button>
           <div className="flex items-center gap-4"><span className="hidden text-sm text-muted-foreground sm:inline">ขั้นที่ 1 จาก 5</span><Button type="submit" size="lg">ถัดไป: วันที่จัด</Button></div>
         </footer>

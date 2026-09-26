@@ -172,8 +172,10 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     codeInput.current?.focus();
   }
 
-  return <section aria-label="สแกนเช็คชื่อ" className="flex flex-col gap-3">
-    <div className={cn("relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-black", kiosk ? "aspect-square" : "aspect-[4/3]")}>
+  // Tablets and short landscape phones put the camera and the controls side by side so the code input stays on screen.
+  return <section aria-label="สแกนเช็คชื่อ" className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 [@media(orientation:landscape)_and_(max-height:540px)]:grid-cols-2">
+    <div className="flex min-w-0 flex-col gap-3">
+    <div className={cn("relative flex w-full items-center justify-center overflow-hidden rounded-2xl bg-black [@media(orientation:landscape)_and_(max-height:540px)]:aspect-auto [@media(orientation:landscape)_and_(max-height:540px)]:h-[55svh]", kiosk ? "aspect-square" : "aspect-[4/3]")}>
       {camera ? <video ref={video} muted playsInline className="absolute inset-0 size-full object-cover" />
         : <Button type="button" variant="secondary" size="lg" className="relative z-10 h-12" onClick={() => { setCameraError(""); setCamera(true); }}><CameraIcon data-icon="inline-start" aria-hidden="true" />เปิดกล้องเพื่อสแกน</Button>}
       <span aria-hidden="true" className="pointer-events-none absolute inset-[16%]">
@@ -191,6 +193,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     </div>
     <p className="text-center text-sm text-muted-foreground">{kiosk ? "ส่อง QR จากหน้าสถานะของคุณให้อยู่ในกรอบ" : "ส่อง QR ให้อยู่ในกรอบ · หรือยิงด้วยเครื่องสแกน"}</p>
     {cameraError && <p role="alert" className="rounded-lg border border-red-400/60 bg-red-500/15 px-3 py-2 text-sm text-red-200">{cameraError}</p>}
+    </div>
 
     <div className="flex flex-col gap-3 rounded-2xl bg-card p-4">
       {!kiosk && <div className="flex gap-2">
@@ -263,7 +266,7 @@ function ResultSheet({ result, kiosk, sessionTitle, onClose, children }: { resul
 
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
     <div role="alertdialog" aria-modal="true" aria-labelledby="scan-result-title" aria-describedby="scan-result-subtitle" onClick={(event) => event.stopPropagation()}
-      className="flex max-h-[90svh] w-full max-w-lg flex-col items-center gap-3 overflow-y-auto rounded-t-3xl bg-white px-5 pb-6 pt-3 text-center text-slate-900 shadow-2xl">
+      className="flex max-h-[90svh] w-full max-w-lg flex-col items-center gap-3 overflow-y-auto rounded-t-3xl bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 text-center text-slate-900 shadow-2xl">
       <span aria-hidden="true" className="h-1.5 w-12 rounded-full bg-slate-200" />
       <span className={cn("mt-2 flex size-20 items-center justify-center rounded-full", tone.ring)}><Icon className="size-10" aria-hidden="true" /></span>
       <h2 id="scan-result-title" className={cn("font-heading font-bold", kiosk ? "text-3xl" : "text-2xl", tone.title)}>{title}</h2>

@@ -22,7 +22,13 @@ const statusLabel = { DRAFT: "ฉบับร่าง", PUBLISHED: "เผย�
 const dateFormatter = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" });
 const relativeFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
 const AUDIT_PAGE_SIZE = 200;
-const selectClass = "h-9 rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+// Below md, rows of read-only tables become cards; cells with data-label show that label in front of the value.
+const stackedTable = "max-md:block [&_thead]:max-md:hidden [&_tbody]:max-md:block";
+const stackedRow = "max-md:flex max-md:flex-col max-md:gap-1.5 max-md:px-4 max-md:py-3.5 [&>td]:max-md:max-w-none [&>td]:max-md:p-0 [&>td]:max-md:whitespace-normal [&>td[data-label]]:max-md:flex [&>td[data-label]]:max-md:items-baseline [&>td[data-label]]:max-md:gap-3 [&>td[data-label]]:max-md:before:w-24 [&>td[data-label]]:max-md:before:shrink-0 [&>td[data-label]]:max-md:before:text-xs [&>td[data-label]]:max-md:before:text-muted-foreground [&>td[data-label]]:max-md:before:content-[attr(data-label)]";
+// The events table has six columns and needs ~1100px, so it stays stacked up to xl.
+const stackedTableXl = "max-xl:block [&_thead]:max-xl:hidden [&_tbody]:max-xl:block";
+const stackedRowXl = "max-xl:flex max-xl:flex-col max-xl:gap-1.5 max-xl:px-4 max-xl:py-3.5 [&>td]:max-xl:max-w-none [&>td]:max-xl:p-0 [&>td]:max-xl:whitespace-normal [&>td[data-label]]:max-xl:flex [&>td[data-label]]:max-xl:items-baseline [&>td[data-label]]:max-xl:gap-3 [&>td[data-label]]:max-xl:before:w-24 [&>td[data-label]]:max-xl:before:shrink-0 [&>td[data-label]]:max-xl:before:text-xs [&>td[data-label]]:max-xl:before:text-muted-foreground [&>td[data-label]]:max-xl:before:content-[attr(data-label)]";
+const selectClass = "h-10 rounded-md border bg-background px-2.5 text-base outline-none md:h-9 md:text-sm focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 /** Parses a yyyy-mm-dd filter as a Bangkok calendar day boundary. */
 function bangkokDay(value: unknown, endOfDay: boolean) {
@@ -99,10 +105,10 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
       <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 lg:max-w-md"><ShieldIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />ทุกครั้งที่ admin เปิด/แก้โครงการที่ไม่ได้เป็นเจ้าของ หรือเปลี่ยนบัญชีผู้ใช้ ระบบบันทึก audit log อัตโนมัติ</p>
     </header>
 
-    <nav aria-label="ส่วนผู้ดูแลระบบ" className="flex gap-1 overflow-x-auto border-b">
+    <nav aria-label="ส่วนผู้ดูแลระบบ" className="grid grid-cols-3 gap-1 border-b sm:flex">
       {tabs.map(({ value, label, count, icon: Icon }) => <Link key={value} href={`/admin?view=${value}`} aria-current={view === value ? "page" : undefined}
-        className={cn("flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm", view === value ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
-        <Icon className="size-4" aria-hidden="true" />{label}<span className="text-xs text-muted-foreground">{count.toLocaleString("th-TH")}</span>
+        className={cn("flex min-h-11 shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 border-b-2 px-2 py-2.5 text-center text-sm sm:flex-nowrap sm:px-3", view === value ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+        <Icon className="size-4 max-sm:hidden" aria-hidden="true" />{label}<span className="text-xs text-muted-foreground">{count.toLocaleString("th-TH")}</span>
       </Link>)}
     </nav>
 
@@ -219,13 +225,13 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
         <Button type="submit" variant="outline">ค้นหา</Button>
       </form>
       <section className="overflow-x-auto rounded-xl border bg-card" aria-label="โครงการทั้งหมด">
-        <Table><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-72 px-5">โครงการ</TableHead><TableHead>เจ้าของ</TableHead><TableHead>ผู้ลงทะเบียน</TableHead><TableHead>ผู้ร่วมจัด</TableHead><TableHead>สถานะ</TableHead><TableHead>อัปเดตล่าสุด</TableHead></TableRow></TableHeader>
-          <TableBody>{events.map((event) => <TableRow key={event.id}>
-            <TableCell className="px-5"><Link className="font-semibold hover:underline" href={`/admin/events/${event.id}`} prefetch={false}>{event.title}</Link><div className="text-xs text-muted-foreground">{event.slug}</div></TableCell>
-            <TableCell>{event.owner.name}<div className="text-xs text-muted-foreground">{event.owner.email}</div></TableCell>
-            <TableCell>{event._count.registrants.toLocaleString("th-TH")}</TableCell><TableCell>{event._count.organizers.toLocaleString("th-TH")}</TableCell>
-            <TableCell><Badge variant="secondary" className={event.deletedAt ? "bg-rose-100 text-rose-900" : event.status === "PUBLISHED" ? "bg-emerald-100 text-emerald-900" : event.status === "DRAFT" ? "bg-amber-100 text-amber-900" : ""}>{event.deletedAt ? "ลบแล้ว (เก็บย้อนหลัง)" : statusLabel[event.status]}</Badge></TableCell>
-            <TableCell className="text-sm text-muted-foreground">{dateFormatter.format(event.updatedAt)}</TableCell>
+        <Table className={stackedTableXl}><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-72 px-5">โครงการ</TableHead><TableHead>เจ้าของ</TableHead><TableHead>ผู้ลงทะเบียน</TableHead><TableHead>ผู้ร่วมจัด</TableHead><TableHead>สถานะ</TableHead><TableHead>อัปเดตล่าสุด</TableHead></TableRow></TableHeader>
+          <TableBody>{events.map((event) => <TableRow key={event.id} className={stackedRowXl}>
+            <TableCell className="max-w-md px-5 whitespace-normal [overflow-wrap:anywhere]"><Link className="inline-block py-1 font-semibold hover:underline" href={`/admin/events/${event.id}`} prefetch={false}>{event.title}</Link><div className="text-xs text-muted-foreground">{event.slug}</div></TableCell>
+            <TableCell data-label="เจ้าของ"><span>{event.owner.name}<span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{event.owner.email}</span></span></TableCell>
+            <TableCell data-label="ผู้ลงทะเบียน">{event._count.registrants.toLocaleString("th-TH")}</TableCell><TableCell data-label="ผู้ร่วมจัด">{event._count.organizers.toLocaleString("th-TH")}</TableCell>
+            <TableCell data-label="สถานะ"><Badge variant="secondary" className={event.deletedAt ? "bg-rose-100 text-rose-900" : event.status === "PUBLISHED" ? "bg-emerald-100 text-emerald-900" : event.status === "DRAFT" ? "bg-amber-100 text-amber-900" : ""}>{event.deletedAt ? "ลบแล้ว (เก็บย้อนหลัง)" : statusLabel[event.status]}</Badge></TableCell>
+            <TableCell data-label="อัปเดตล่าสุด" className="text-sm text-muted-foreground">{dateFormatter.format(event.updatedAt)}</TableCell>
           </TableRow>)}</TableBody>
         </Table>
         {events.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">ไม่พบโครงการที่ตรงกับคำค้น</p>}
@@ -241,19 +247,19 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
         <Field><FieldLabel htmlFor="audit-from">ตั้งแต่วันที่</FieldLabel><Input id="audit-from" name="from" type="date" defaultValue={typeof params.from === "string" ? params.from : ""} /></Field>
         <Field><FieldLabel htmlFor="audit-to">ถึงวันที่</FieldLabel><Input id="audit-to" name="to" type="date" defaultValue={typeof params.to === "string" ? params.to : ""} /></Field>
       </FieldGroup>
-      <div className="flex flex-wrap items-center gap-2"><Button type="submit" size="sm" variant="outline">กรอง</Button><Link href="/admin?view=audit" className="text-sm text-muted-foreground underline-offset-4 hover:underline">ล้างตัวกรอง</Link><span className="text-xs text-muted-foreground">พบ {counts[2].toLocaleString("th-TH")} รายการ{counts[2] > AUDIT_PAGE_SIZE ? ` · แสดงล่าสุด ${AUDIT_PAGE_SIZE} รายการ` : ""} · เวลาเป็น Asia/Bangkok</span></div>
+      <div className="flex flex-wrap items-center gap-2"><Button type="submit" size="sm" variant="outline">กรอง</Button><Link href="/admin?view=audit" className="inline-block py-1.5 text-sm text-muted-foreground underline-offset-4 hover:underline">ล้างตัวกรอง</Link><span className="text-xs text-muted-foreground">พบ {counts[2].toLocaleString("th-TH")} รายการ{counts[2] > AUDIT_PAGE_SIZE ? ` · แสดงล่าสุด ${AUDIT_PAGE_SIZE} รายการ` : ""} · เวลาเป็น Asia/Bangkok</span></div>
     </form>}
     {view === "audit" && <section className="overflow-x-auto rounded-xl border bg-card" aria-label="Audit log">
-      <Table><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>การกระทำ</TableHead><TableHead>โครงการ</TableHead><TableHead>รายละเอียด</TableHead></TableRow></TableHeader>
+      <Table className={stackedTable}><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>การกระทำ</TableHead><TableHead>โครงการ</TableHead><TableHead>รายละเอียด</TableHead></TableRow></TableHeader>
         <TableBody>{logs.map((log) => {
           const { label, tone } = describeAudit(log.action);
-          return <TableRow key={log.id}>
-            <TableCell className="px-5 text-sm">{dateFormatter.format(log.createdAt)}</TableCell>
-            <TableCell>{log.actor?.name ?? "ผู้ลงทะเบียน/ระบบ"}<div className="text-xs text-muted-foreground">{log.actor?.email ?? "ไม่ใช่บัญชีเจ้าหน้าที่"}</div></TableCell>
-            <TableCell><span className={cn("inline-flex rounded-md px-2 py-0.5 text-xs font-semibold", auditToneClass[tone])}>{label}</span><div className="mt-1 font-mono text-[11px] text-muted-foreground">{log.action}</div></TableCell>
-            <TableCell className="max-w-56 whitespace-normal">{log.event ? <Link href={`/admin/events/${log.event.id}`} prefetch={false} className="hover:underline">{log.event.title}</Link> : <span className="text-muted-foreground">ระบบ</span>}</TableCell>
-            <TableCell className="max-w-80 whitespace-normal">
-              {log.metadata || log.target ? <details><summary className="cursor-pointer text-xs text-muted-foreground">ดูรายละเอียด</summary><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px]">{JSON.stringify({ target: log.target, ...(log.metadata && typeof log.metadata === "object" ? log.metadata : {}) }, null, 1)}</pre></details> : "—"}
+          return <TableRow key={log.id} className={stackedRow}>
+            <TableCell data-label="เวลา" className="px-5 text-sm">{dateFormatter.format(log.createdAt)}</TableCell>
+            <TableCell data-label="ผู้ดำเนินการ"><span className="[overflow-wrap:anywhere]">{log.actor?.name ?? "ผู้ลงทะเบียน/ระบบ"}<span className="block text-xs text-muted-foreground">{log.actor?.email ?? "ไม่ใช่บัญชีเจ้าหน้าที่"}</span></span></TableCell>
+            <TableCell data-label="การกระทำ"><span><span className={cn("inline-flex rounded-md px-2 py-0.5 text-xs font-semibold", auditToneClass[tone])}>{label}</span><span className="mt-1 block font-mono text-[11px] text-muted-foreground [overflow-wrap:anywhere]">{log.action}</span></span></TableCell>
+            <TableCell data-label="โครงการ" className="max-w-56 whitespace-normal">{log.event ? <Link href={`/admin/events/${log.event.id}`} prefetch={false} className="inline-block py-1 hover:underline">{log.event.title}</Link> : <span className="text-muted-foreground">ระบบ</span>}</TableCell>
+            <TableCell data-label="รายละเอียด" className="max-w-80 whitespace-normal [&>details]:min-w-0 [&>details]:flex-1">
+              {log.metadata || log.target ? <details><summary className="cursor-pointer py-1 text-xs text-muted-foreground">ดูรายละเอียด</summary><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-[11px]">{JSON.stringify({ target: log.target, ...(log.metadata && typeof log.metadata === "object" ? log.metadata : {}) }, null, 1)}</pre></details> : "—"}
             </TableCell>
           </TableRow>;
         })}</TableBody>

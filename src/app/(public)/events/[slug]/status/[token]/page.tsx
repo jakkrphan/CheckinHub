@@ -77,7 +77,7 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
   const notice = "rounded-xl border bg-card p-4 text-sm";
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background">
+    <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">
       <header className="flex flex-col gap-2 bg-sidebar px-5 py-5 text-sidebar-foreground"><Link href={`/events/${slug}`} className="-my-3 w-fit py-3 text-xs text-sidebar-foreground/70 hover:underline">← กลับไปหน้าโครงการ</Link><p className="text-xs text-sidebar-foreground/70">เช็คสถานะการลงทะเบียน</p><h1 className="font-heading text-lg font-bold leading-snug">{registrant.event.title}</h1></header>
       <div className="flex flex-col gap-4 px-5 py-6">
         {updated === "1" && <p role="status" className={notice}>บันทึกการแก้ไขข้อมูลแล้ว</p>}
