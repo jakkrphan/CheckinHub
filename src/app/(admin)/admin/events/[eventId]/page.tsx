@@ -55,7 +55,7 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
     </div>}
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-8 lg:px-10">
       <header className="flex flex-col gap-3">
-        <Link href="/admin?view=events" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการทั้งหมด</Link>
+        <Link href="/admin?view=events" className="-my-2.5 flex w-fit items-center gap-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการทั้งหมด</Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-2.5">
             <h1 className="font-heading text-2xl font-bold leading-snug">{event.title}</h1>
@@ -78,7 +78,7 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
 
       <EventOverviewPanels overview={overview} seatMode={event.seatMode} />
 
-      <div className="grid items-start gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-2">
         <section className="flex flex-col gap-3" aria-labelledby="organizers-heading">
           <h2 id="organizers-heading" className="font-heading text-lg font-bold">ผู้ร่วมจัด</h2>
           <div className="overflow-x-auto rounded-xl border bg-card"><Table><TableHeader className="bg-secondary"><TableRow><TableHead className="px-5">ชื่อ</TableHead><TableHead>สิทธิ์ในโครงการ</TableHead></TableRow></TableHeader><TableBody>
@@ -87,7 +87,7 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
           </TableBody></Table></div>
         </section>
         <section className="flex flex-col gap-3" aria-labelledby="event-audit-heading">
-          <div className="flex items-center justify-between"><h2 id="event-audit-heading" className="font-heading text-lg font-bold">Audit log ล่าสุดของโครงการ</h2><Link href={auditHref} className="text-sm font-semibold text-primary underline-offset-4 hover:underline">ดูทั้งหมด</Link></div>
+          <div className="flex items-center justify-between"><h2 id="event-audit-heading" className="font-heading text-lg font-bold">Audit log ล่าสุดของโครงการ</h2><Link href={auditHref} className="-my-2.5 py-2.5 text-sm font-semibold text-primary underline-offset-4 hover:underline">ดูทั้งหมด</Link></div>
           <ol className="flex flex-col rounded-xl border bg-card px-5">{auditLogs.map((log) => {
             const { label, tone } = describeAudit(log.action);
             return <li key={log.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-3 first:border-t-0">

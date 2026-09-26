@@ -187,6 +187,10 @@ try {
   ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), "Manual registration failed");
   const manual = await db.registrant.findFirstOrThrow({ where: { eventId, email: `manual-${suffix}@example.invalid` } });
   ensure(manual.status === "WAITLISTED" && !!manual.consentedAt && await db.auditLog.count({ where: { eventId, action: "MANUAL_REGISTRATION_CREATED", target: manual.id } }) === 1, "Manual registration did not respect capacity or audit consent");
+  // Walk-ins without email are allowed (QR printed by the organizer) and have no dedupe key.
+  const walkInsBefore = await db.registrant.count({ where: { eventId, email: null } });
+  response = await submit(manualUrl, manualForm, { email: "", dayId: day.id, "answer:name": `No email ${suffix}`, consent: "on" }, cookie);
+  ensure(response.status === 303 && response.headers.get("location")?.includes("/status/") && await db.registrant.count({ where: { eventId, email: null, dedupeKey: null } }) === walkInsBefore + 1, "Walk-in without email failed");
 
   response = await submit(publicUrl, registrationForm, { email: `mixed-${suffix}@example.invalid`, dayId: [day.id, otherDay.id], "answer:name": "Mixed days", consent: "on" });
   ensure(response.status === 303, "Mixed-day registration failed");

@@ -148,8 +148,9 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
         </Empty>
       ) : (
         <section aria-label="รายการโครงการ" className="overflow-x-auto rounded-xl border bg-card">
-          <Table>
-            <TableHeader className="bg-secondary">
+          {/* Below md each row is laid out as a card (grid), so nothing hides behind a horizontal scroll on phones. */}
+          <Table className="max-md:block">
+            <TableHeader className="bg-secondary max-md:hidden">
               <TableRow>
                 <TableHead className="w-28 px-6">ปก</TableHead>
                 <TableHead className="min-w-72">โครงการ</TableHead>
@@ -160,7 +161,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                 <TableHead className="w-12"><span className="sr-only">เมนู</span></TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className="max-md:block">
               {filteredEvents.map((event) => {
                 const owner = event.ownerId === user.id;
                 const canAdminister = owner || user.role === "ADMIN";
@@ -170,9 +171,9 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                 const openHref = event.status === "DRAFT" ? `/organizer/${event.id}?step=${setup?.step ?? 1}` : `/organizer/${event.id}/dashboard`;
                 const publicUrl = `${origin}/events/${event.slug}`;
                 const menuId = `event-menu-${event.id}`;
-                return <TableRow key={event.id} className={cn(event.status === "CLOSED" && "opacity-75")}>
-                  <TableCell className="px-6 py-4"><div className="relative flex h-14 w-24 items-center justify-center overflow-hidden rounded-lg bg-[#d9d8ce] text-[#6e6a61]">{event.coverImageUrl ? <Image src={event.coverImageUrl} alt="" fill unoptimized sizes="96px" className="object-cover" /> : <div className="flex flex-col items-center gap-1"><ImageIcon className="size-5" aria-hidden="true" /><span className="text-[10px] font-semibold">รูปปก</span></div>}</div></TableCell>
-                  <TableCell className="py-4">
+                return <TableRow key={event.id} className={cn("max-md:grid max-md:grid-cols-[80px_minmax(0,1fr)_auto] max-md:items-start max-md:gap-x-3 max-md:gap-y-3 max-md:px-4 max-md:py-4 [&>td]:max-md:p-0 [&>td]:max-md:whitespace-normal", event.status === "CLOSED" && "opacity-75")}>
+                  <TableCell className="px-6 py-4 max-md:col-start-1 max-md:row-start-1"><div className="relative flex h-14 w-24 max-md:h-12 max-md:w-20 items-center justify-center overflow-hidden rounded-lg bg-[#d9d8ce] text-[#4a463f]">{event.coverImageUrl ? <Image src={event.coverImageUrl} alt="" fill unoptimized sizes="96px" className="object-cover" /> : <div className="flex flex-col items-center gap-1"><ImageIcon className="size-5" aria-hidden="true" /><span className="text-[10px] font-semibold">รูปปก</span></div>}</div></TableCell>
+                  <TableCell className="py-4 max-md:col-start-2 max-md:row-start-1">
                     <div className="flex flex-col gap-2">
                       <Link href={openHref} className="font-heading text-base font-semibold leading-snug whitespace-normal hover:underline">{event.title}</Link>
                       <span className="flex flex-wrap gap-1.5">
@@ -183,21 +184,21 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell>{event.days.length ? <div className="flex items-center gap-1.5">
+                  <TableCell className="max-md:col-span-3 max-md:row-start-2">{event.days.length ? <div className="flex items-center gap-1.5">
                     {event.days.slice(0, 3).map((day) => <span key={day.id} className="flex h-11 w-10.5 flex-col items-center justify-center rounded-lg border bg-background"><span className="font-heading text-[15px] font-bold leading-tight">{formatDayNumber(day.date)}</span><span className="text-[11px] text-muted-foreground">{formatMonth(day.date)}</span></span>)}
                     {event.days.length > 3 && <span className="text-xs text-muted-foreground">+{event.days.length - 3} วัน</span>}
                   </div> : <span className="text-sm text-muted-foreground">ยังไม่กำหนดวัน</span>}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{owner ? "เจ้าของ" : user.role === "ADMIN" ? "ผู้ดูแลระบบ" : "ผู้ร่วมจัด"}</TableCell>
-                  <TableCell><RegistrationSummary status={event.status} total={event._count.registrants} days={event.days} occupiedSeatsByDay={occupiedSeatsByDay} /></TableCell>
-                  <TableCell>
-                    {setup ? <Link href={`/organizer/${event.id}?step=${setup.step}`} className={cn(chip, "hover:opacity-80", setup.ready ? "bg-accent text-accent-foreground" : "bg-amber-100 text-amber-900")}>{setup.label}</Link>
+                  <TableCell className="text-sm text-muted-foreground max-md:hidden">{owner ? "เจ้าของ" : user.role === "ADMIN" ? "ผู้ดูแลระบบ" : "ผู้ร่วมจัด"}</TableCell>
+                  <TableCell className="max-md:col-span-3 max-md:row-start-3"><RegistrationSummary status={event.status} total={event._count.registrants} days={event.days} occupiedSeatsByDay={occupiedSeatsByDay} /></TableCell>
+                  <TableCell className="max-md:col-span-3 max-md:row-start-4 max-md:empty:hidden">
+                    {setup ? <Link href={`/organizer/${event.id}?step=${setup.step}`} className={cn(chip, "min-h-7 hover:opacity-80", setup.ready ? "bg-accent text-accent-foreground" : "bg-amber-100 text-amber-900")}>{setup.label}</Link>
                       : pending || waitlisted ? <div className="flex max-w-40 flex-wrap gap-1">
-                        {pending > 0 && <Link href={`/organizer/${event.id}/registrants?status=PENDING`} className={cn(chip, "bg-amber-100 text-amber-900 hover:opacity-80")}>รออนุมัติ {pending.toLocaleString("th-TH")}</Link>}
-                        {waitlisted > 0 && <Link href={`/organizer/${event.id}/registrants?status=WAITLISTED`} className={cn(chip, "bg-muted text-foreground hover:opacity-80")}>รอคิว {waitlisted.toLocaleString("th-TH")}</Link>}
+                        {pending > 0 && <Link href={`/organizer/${event.id}/registrants?status=PENDING`} className={cn(chip, "min-h-7 bg-amber-100 text-amber-900 hover:opacity-80")}>รออนุมัติ {pending.toLocaleString("th-TH")}</Link>}
+                        {waitlisted > 0 && <Link href={`/organizer/${event.id}/registrants?status=WAITLISTED`} className={cn(chip, "min-h-7 bg-muted text-foreground hover:opacity-80")}>รอคิว {waitlisted.toLocaleString("th-TH")}</Link>}
                       </div> : <span className="text-sm text-muted-foreground">—</span>}
                   </TableCell>
-                  <TableCell className="pr-4">
-                    <Button type="button" variant="ghost" size="icon" popoverTarget={menuId} aria-label={`เมนูของ ${event.title}`}><MoreVerticalIcon aria-hidden="true" /></Button>
+                  <TableCell className="pr-4 max-md:col-start-3 max-md:row-start-1 max-md:-mr-2 max-md:-mt-1">
+                    <Button type="button" variant="ghost" size="icon-lg" popoverTarget={menuId} aria-label={`เมนูของ ${event.title}`}><MoreVerticalIcon aria-hidden="true" /></Button>
                     {/* Native popover: rendered in the top layer, so the table's horizontal scroll never clips it. */}
                     <div id={menuId} popover="auto" className="m-auto w-[min(92vw,340px)] rounded-xl border bg-card p-2 shadow-xl backdrop:bg-black/20">
                       <div className="flex items-start justify-between gap-2 px-3 pb-2 pt-1.5"><p className="line-clamp-2 font-heading font-bold">{event.title}</p><Badge variant="secondary" className={statusTone[event.status]}>{statusLabel[event.status]}</Badge></div>

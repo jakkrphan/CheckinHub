@@ -36,7 +36,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
 
   return <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background">
     <header className="flex flex-col gap-2 bg-sidebar px-5 py-5 text-sidebar-foreground">
-      <Link href={statusUrl} className="text-xs text-sidebar-foreground/70 hover:underline">← กลับไปหน้าสถานะ</Link>
+      <Link href={statusUrl} className="-my-3 w-fit py-3 text-xs text-sidebar-foreground/70 hover:underline">← กลับไปหน้าสถานะ</Link>
       <p className="text-xs text-sidebar-foreground/70">แก้ไขข้อมูลการลงทะเบียน</p>
       <h1 className="font-heading text-lg font-bold leading-snug">{registrant.event.title}</h1>
     </header>

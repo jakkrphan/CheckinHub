@@ -1,21 +1,16 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
-import { CalendarDaysIcon, ChevronLeftIcon, ClipboardListIcon, ListChecksIcon, QrCodeIcon, UsersIcon } from "lucide-react";
+import { CalendarDaysIcon, ChevronLeftIcon, ClipboardListIcon, ListChecksIcon, LockKeyholeIcon, QrCodeIcon, UsersIcon } from "lucide-react";
 
 import { updateEvent } from "@/app/(organizer)/organizer/actions";
-import { SeatModeFields } from "@/app/(organizer)/organizer/seat-mode-fields";
+import { EventInfoFields } from "@/app/(organizer)/organizer/event-info-fields";
 import { addEventDays, removeEventDay, updateEventDay } from "@/app/(organizer)/organizer/schedule-actions";
-import { EventDayCalendar } from "@/app/(organizer)/organizer/[eventId]/event-day-calendar";
+import { DaysPlanner } from "@/app/(organizer)/organizer/[eventId]/days-planner";
 import { PublishStep, type PublishCheck } from "@/app/(organizer)/organizer/[eventId]/publish-step";
 import { SessionsPlanner, type PlannerSession } from "@/app/(organizer)/organizer/[eventId]/sessions-planner";
 import { FieldBuilder } from "@/app/(organizer)/organizer/[eventId]/field-builder";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
-import { Textarea } from "@/components/ui/textarea";
 import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
@@ -28,13 +23,6 @@ const statusLabel = {
   PUBLISHED: "เผยแพร่แล้ว",
   CLOSED: "ปิดรับแล้ว",
 } as const;
-
-const dateFormatter = new Intl.DateTimeFormat("th-TH", {
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  timeZone: "UTC",
-});
 
 const errorMessage: Record<string, string> = {
   "invalid-cover": "รูปปกไม่ถูกต้อง: ใช้ JPG, PNG หรือ WebP ที่มีขนาดไม่เกิน 3 MB",
@@ -114,9 +102,15 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     _count: { _all: true },
   }) : [];
   const approvedCountByDay = new Map(approvedByDay.map((day) => [day.eventDayId, day._count._all]));
+  const occupiedByDay = days.length ? await db.registrantEventDay.groupBy({
+    by: ["eventDayId"],
+    where: { eventDayId: { in: days.map((day) => day.id) }, status: { in: ["PENDING", "APPROVED"] } },
+    _count: { _all: true },
+  }) : [];
+  const occupiedCountByDay = new Map(occupiedByDay.map((day) => [day.eventDayId, day._count._all]));
   const hasRegistrationFields = registrationFields.length > 0;
   const hasValidRegistrationFields = hasRegistrationFields && validateRegistrationFields(registrationFields);
-  const globalSessions = step === 4 || step === 5 ? await db.session.findMany({ where: { eventId, eventDayId: null }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } }) : [];
+  const globalSessions = await db.session.findMany({ where: { eventId, eventDayId: null }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }], include: { _count: { select: { checkIns: { where: { voidedAt: null } } } } } });
   const hasSessions = days.length > 0 && (globalSessions.length > 0 || days.every((day) => day.sessions.length > 0));
   const hasFutureDeadline = !!event.registrationDeadline && event.registrationDeadline > new Date();
   const hasFileFields = registrationFields.some((field) => field.type === "file");
@@ -142,7 +136,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <aside className="flex w-full shrink-0 flex-col gap-5 border-b bg-card px-4 py-5 sm:px-6 lg:min-h-[calc(100svh-60px)] lg:w-[300px] lg:gap-6 lg:border-b-0 lg:border-r lg:px-8 lg:py-9">
         <div className="flex flex-col gap-1">
-          <Link href="/organizer" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการของฉัน</Link>
+          <Link href="/organizer" className="-my-2.5 flex w-fit items-center gap-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการของฉัน</Link>
           <h2 className="font-heading text-xl font-bold leading-snug">{event.title}</h2>
           <span className="flex items-center gap-2 text-xs text-muted-foreground"><Badge variant="secondary" className={event.status === "PUBLISHED" ? "bg-accent text-accent-foreground" : event.status === "DRAFT" ? "bg-amber-100 text-amber-900" : ""}>{statusLabel[event.status]}</Badge>ตั้งค่าโครงการ</span>
         </div>
@@ -169,59 +163,18 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     <div className="flex min-w-0 flex-1 flex-col">
     <main className="flex w-full max-w-[1320px] flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:gap-7 lg:px-12 lg:py-9">
       {step === 1 && <>
-      <form action={save} encType="multipart/form-data" className="flex flex-col gap-6 rounded-xl border bg-card p-6">
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="title">ชื่อโครงการ</FieldLabel>
-            <Input id="title" name="title" defaultValue={event.title} maxLength={191} required />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="description">รายละเอียด</FieldLabel>
-            <Textarea id="description" name="description" defaultValue={event.description ?? ""} maxLength={10000} rows={4} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="location">สถานที่</FieldLabel>
-            <Input id="location" name="location" defaultValue={event.location ?? ""} maxLength={191} />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="eventType">ประเภทโครงการ</FieldLabel>
-            <NativeSelect id="eventType" name="eventType" defaultValue={event.eventType} required>
-              <option value="INTERNAL">ภายใน</option>
-              <option value="EXTERNAL">ภายนอก</option>
-              <option value="MIXED">ผสม</option>
-            </NativeSelect>
-            {registrantCount > 0 && <FieldDescription>มีผู้ลงทะเบียนแล้ว {registrantCount.toLocaleString("th-TH")} คน การเปลี่ยนประเภทโครงการไม่กระทบผู้ที่ลงทะเบียนไปแล้ว</FieldDescription>}
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="deadlineDate">วันปิดรับลงทะเบียน</FieldLabel>
-            <Input id="deadlineDate" name="deadlineDate" type="date" defaultValue={deadlineDate} />
-            <FieldDescription>ปิดรับเวลา 23:59 น. ตามเวลาไทยในวันที่เลือก</FieldDescription>
-          </Field>
-          <SeatModeFields initialMode={event.seatMode} maxSeats={event.maxSeats} attendanceThreshold={event.attendanceThreshold} locked={event.status !== "DRAFT"} />
-        </FieldGroup>
-        <div className="flex flex-col gap-5">
-          <Field className="rounded-xl border p-4 sm:p-5">
-            <FieldLabel htmlFor="coverImage">รูปปก (JPG, PNG, WebP ไม่เกิน 3 MB)</FieldLabel>
-            {event.coverImageUrl && <Image src={event.coverImageUrl} alt="รูปปกโครงการปัจจุบัน" width={640} height={360} unoptimized className="mb-2 aspect-video w-full rounded-lg object-cover" />}
-            <Input id="coverImage" name="coverImage" type="file" accept="image/jpeg,image/png,image/webp" />
-            <FieldDescription>เก็บแบบ local ใน development; production ต้องใช้ private object storage</FieldDescription>
-            {event.coverImageKey && <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="removeCover" className="size-4 accent-primary" />ลบรูปปกปัจจุบัน</label>}
-          </Field>
-          <Field orientation="horizontal" className="rounded-xl border p-4 sm:p-5">
-            <input id="autoApprove" name="autoApprove" type="checkbox" defaultChecked={event.autoApprove} className="size-4 accent-primary" />
-            <FieldLabel htmlFor="autoApprove">อนุมัติผู้ลงทะเบียนอัตโนมัติ</FieldLabel>
-          </Field>
-          <Field><FieldLabel htmlFor="pendingHoldHours">เวลาจองที่นั่งระหว่างรออนุมัติ</FieldLabel><Input id="pendingHoldHours" name="pendingHoldHours" type="number" min={1} max={720} defaultValue={event.pendingHoldHours ?? ""} placeholder="ไม่หมดอายุ" /><FieldDescription>ระบุจำนวนชั่วโมง หรือเว้นว่างไว้</FieldDescription></Field>
-          <Field><FieldLabel htmlFor="retentionDays">ระยะเก็บข้อมูลส่วนบุคคล (วัน)</FieldLabel><Input id="retentionDays" name="retentionDays" type="number" min={30} max={3650} defaultValue={event.retentionDays} disabled={!!event.anonymizedAt} /><FieldDescription>{event.anonymizedAt ? "ข้อมูลส่วนบุคคลของโครงการนี้ถูกปกปิดแล้ว เหลือเฉพาะสถิติ" : "นับหลังวันจัดสุดท้าย เมื่อครบกำหนดระบบจะลบข้อมูลที่ระบุตัวตนและไฟล์แนบ เหลือเฉพาะสถิติ"}</FieldDescription></Field>
-          <Field><FieldLabel htmlFor="waitlistPromotion">เลื่อนคิวเมื่อมีที่นั่งว่าง</FieldLabel><NativeSelect id="waitlistPromotion" name="waitlistPromotion" defaultValue={event.waitlistPromotion}><option value="MANUAL">ให้ผู้จัดเลือกเอง</option><option value="AUTO">อัตโนมัติ ตามลำดับคิว</option></NativeSelect></Field>
+        {event.status === "DRAFT" && <div role="status" className="flex items-start gap-3 rounded-lg bg-[var(--status-warning-background)] px-4 py-3 text-sm"><LockKeyholeIcon className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" aria-hidden="true" /><p><strong>สถานะ: ฉบับร่าง</strong> — ลิงก์ลงทะเบียนยังเปิดไม่ได้จนกว่าจะกด “เผยแพร่” ในขั้นที่ 5</p></div>}
+        <div className="flex flex-col gap-1">
+          <h2 className="font-heading text-[22px] font-bold">ข้อมูลโครงการ</h2>
+          <p className="text-sm text-muted-foreground">ข้อมูลนี้แสดงบนหน้าลงทะเบียนสาธารณะ</p>
         </div>
-        </div>
-        {error === "invalid" && <p role="alert" className="text-sm text-destructive">{errorMessage.invalid}</p>}
-        <div className="flex justify-end">
-          <Button type="submit">บันทึกข้อมูล</Button>
-        </div>
-      </form>
+        {(error === "invalid" || error === "invalid-cover") && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage[error]}{error === "invalid" && event.status !== "DRAFT" ? " · เปลี่ยนรูปแบบที่นั่งหรือลดที่นั่งทั้งหลักสูตรต่ำกว่าจำนวนที่จองแล้วไม่ได้" : ""}</p>}
+        {saved === "1" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">บันทึกข้อมูลโครงการแล้ว</p>}
+        {saved === "cloned" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">ทำสำเนาโครงการแล้ว — คัดลอกข้อมูล ฟอร์ม รูปปก และรอบเช็คชื่อ (แบบไม่ผูกวัน) มาให้ ต้องกำหนดวันที่จัด ที่นั่ง วันปิดรับ และผู้ร่วมจัดใหม่</p>}
+        <form id="event-info" action={save} encType="multipart/form-data" className="flex flex-col gap-6">
+          <EventInfoFields event={event} deadlineDate={deadlineDate} seatModeLocked={event.status !== "DRAFT" || registrantCount > 0} registrantCount={registrantCount} />
+          <div className="flex justify-end"><Button type="submit" variant="outline" size="lg">บันทึก</Button></div>
+        </form>
       </>}
 
       {step === 3 && <section className="flex flex-col gap-7">
@@ -234,41 +187,17 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
 
       {step === 2 && <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-2xl font-bold">วันที่จัดอบรม & ที่นั่ง</h2>
-          <p className="text-sm text-muted-foreground">คลิกเลือกหลายวันในปฏิทินได้ ไม่จำเป็นต้องต่อเนื่อง กำหนดที่นั่งเริ่มต้นพร้อมกันแล้วแก้แยกแต่ละวันได้</p>
+          <h2 className="font-heading text-[22px] font-bold">วันที่จัดอบรม & ที่นั่ง</h2>
+          <p className="text-sm text-muted-foreground">คลิกวันในปฏิทินเพื่อเพิ่ม/เอาออก · ไม่ต้องต่อเนื่อง · {event.seatMode === "whole_course" ? "หลักสูตรต่อเนื่องใช้ที่นั่งรวมจากขั้นที่ 1" : "ที่นั่งจำกัดแยกกันแต่ละวัน"}</p>
         </div>
-        <div className={cn("grid items-start gap-6", step === 2 && "xl:grid-cols-[minmax(320px,400px)_minmax(0,1fr)]")}>
-        {step === 2 && <EventDayCalendar action={addDay} selectedDays={days.map((day) => day.date.toISOString().slice(0, 10))} today={todayInBangkok} seatMode={event.seatMode} />}
-        <div className="flex flex-col gap-4">
-        {step === 2 && <div className="flex items-center justify-between rounded-xl border bg-card px-5 py-4"><h3 className="font-heading text-lg font-bold">เลือกแล้ว {days.length} วัน</h3><span className="text-sm text-muted-foreground">{event.seatMode === "whole_course" ? `ที่นั่งทั้งหลักสูตร ${event.maxSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"}` : `ที่นั่งรวม ${days.reduce((sum, day) => sum + (day.maxSeats ?? 0), 0).toLocaleString("th-TH")}${days.some((day) => day.maxSeats === null) ? " + ไม่จำกัด" : ""}`}</span></div>}
-        {days.length === 0 && <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">ยังไม่มีวันที่จัด เพิ่มอย่างน้อย 1 วันก่อนเผยแพร่โครงการ</p>}
-
-        {days.map((day, index) => (
-          <section key={day.id} id={`day-${day.date.toISOString().slice(0, 10)}`} className="flex flex-col gap-4 rounded-xl border bg-card p-6">
-            {step === 2 && <form action={updateEventDay.bind(null, eventId, day.id)} className="flex flex-wrap items-end gap-2">
-              <Field className="max-w-48"><FieldLabel htmlFor={`day-date-${day.id}`}>แก้วันที่จัด</FieldLabel><Input id={`day-date-${day.id}`} name="date" type="date" defaultValue={day.date.toISOString().slice(0, 10)} required /></Field>
-              <Field className={event.seatMode === "whole_course" ? "hidden" : "max-w-36"}><FieldLabel htmlFor={`day-seats-${day.id}`}>ที่นั่ง</FieldLabel><Input id={`day-seats-${day.id}`} name="maxSeats" type="number" min={1} defaultValue={day.maxSeats ?? ""} disabled={event.seatMode === "whole_course"} placeholder="ไม่จำกัด" /><FieldDescription>เว้นว่างไว้เพื่อไม่จำกัด</FieldDescription></Field>
-               {event.seatMode === "per_day" && <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" name="isClosed" defaultChecked={day.isClosed} className="size-4 accent-primary" />ปิดรับวันนี้</label>}
-              <Button type="submit" variant="outline">บันทึก</Button>
-            </form>}
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex flex-col gap-1">
-                <Badge variant={day.isClosed ? "destructive" : "secondary"} className="w-fit">วันที่ {index + 1}{day.isClosed ? " · ปิดรับ" : ""}</Badge>
-                <h3 className="font-heading text-lg font-semibold">{dateFormatter.format(day.date)}</h3>
-                 <p className="text-sm text-muted-foreground">{event.seatMode === "whole_course" ? `ผู้สมัครที่ผูกกับวันนี้ ${day._count.registrantDays} คน` : `อนุมัติแล้ว ${approvedCountByDay.get(day.id) ?? 0} / ${day.maxSeats?.toLocaleString("th-TH") ?? "ไม่จำกัด"} ที่นั่ง · ${day._count.registrantDays} คนเลือกวันนี้`}</p>
-              </div>
-              {step === 2 && (event.seatMode === "whole_course" ? days.length > 1 : day._count.registrantDays === 0 && day.sessions.length === 0) && (
-                <form action={removeEventDay.bind(null, eventId, day.id)} className="flex flex-col items-end gap-2">
-                  {event.seatMode === "whole_course" && <label className="max-w-72 text-right text-xs text-muted-foreground"><input type="checkbox" name="confirm" required className="mr-1" />ยืนยันลบวันนี้จากผู้สมัครทุกคนและลบรอบเช็คชื่อของวันนี้ · แจ้งผู้เข้าอบรมหลังบันทึก</label>}
-                  <Button type="submit" variant="destructive" size="sm">ลบวัน</Button>
-                </form>
-              )}
-            </div>
-            {step === 2 && day.maxSeats && <div className="flex flex-col gap-2" aria-label={`ที่นั่งอนุมัติแล้ว ${approvedCountByDay.get(day.id) ?? 0} จาก ${day.maxSeats}`}><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (approvedCountByDay.get(day.id) ?? 0) / day.maxSeats * 100)}%` }} /></div><p className="text-xs text-muted-foreground">เหลือ {Math.max(0, day.maxSeats - (approvedCountByDay.get(day.id) ?? 0)).toLocaleString("th-TH")} ที่นั่ง</p></div>}
-          </section>
-        ))}
-        </div>
-        </div>
+        {typeof error === "string" && ["invalid-day", "duplicate-day", "day-in-use"].includes(error) && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage[error]}</p>}
+        <DaysPlanner addDays={addDay} today={todayInBangkok} seatMode={event.seatMode === "whole_course" ? "whole_course" : "per_day"} wholeCourseSeats={event.maxSeats}
+          days={days.map((day, index) => ({
+            id: day.id, date: day.date.toISOString().slice(0, 10), number: index + 1, maxSeats: day.maxSeats, isClosed: day.isClosed,
+            approved: approvedCountByDay.get(day.id) ?? 0, occupied: occupiedCountByDay.get(day.id) ?? 0, registrants: day._count.registrantDays,
+            removable: day._count.registrantDays === 0 && day.sessions.length === 0,
+            update: updateEventDay.bind(null, eventId, day.id), remove: removeEventDay.bind(null, eventId, day.id),
+          }))} />
       </section>}
 
       {step === 4 && <section className="flex flex-col gap-6">
@@ -289,12 +218,6 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         />
       </section>}
 
-      {step !== 3 && step !== 4 && step !== 5 && typeof error === "string" && error !== "invalid" && errorMessage[error] && (
-        <p role="alert" className="text-sm text-destructive">{errorMessage[error]}</p>
-      )}
-      {saved === "cloned" ? <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">ทำสำเนาโครงการแล้ว — คัดลอกข้อมูล ฟอร์ม รูปปก และรอบเช็คชื่อ (แบบไม่ผูกวัน) มาให้ ต้องกำหนดวันที่จัด ที่นั่ง วันปิดรับ และผู้ร่วมจัดใหม่</p>
-        : saved && step !== 4 && step !== 5 && <p role="status" className="text-sm text-muted-foreground">บันทึกข้อมูลแล้ว</p>}
-
       {step === 5 && <section className="flex flex-col gap-6">
         <div className="flex flex-col gap-1">
           <h2 className="font-heading text-[22px] font-bold">ผู้ร่วมจัด & เผยแพร่</h2>
@@ -308,7 +231,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
       <Button asChild variant="outline" size="lg"><Link href={step > 1 ? `/organizer/${eventId}?step=${step - 1}` : "/organizer"}><ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />{step > 1 ? "ย้อนกลับ" : "โครงการของฉัน"}</Link></Button>
       <div className="flex items-center gap-3">
         <span className="hidden text-sm text-muted-foreground sm:inline">ขั้นที่ {step} จาก 5</span>
-        {step < 5 ? <Button asChild size="lg"><Link href={`/organizer/${eventId}?step=${step + 1}`}>ถัดไป: {wizardSteps[step].label}</Link></Button> : <Button asChild size="lg"><Link href={event.status === "DRAFT" ? "/organizer" : `/organizer/${eventId}/dashboard`}>เสร็จสิ้น</Link></Button>}
+        {step === 1 ? <Button type="submit" form="event-info" name="next" value="2" size="lg">บันทึกและถัดไป: {wizardSteps[1].label}</Button> : step < 5 ? <Button asChild size="lg"><Link href={`/organizer/${eventId}?step=${step + 1}`}>ถัดไป: {wizardSteps[step].label}</Link></Button> : <Button asChild size="lg"><Link href={event.status === "DRAFT" ? "/organizer" : `/organizer/${eventId}/dashboard`}>เสร็จสิ้น</Link></Button>}
       </div>
     </footer>
     </div>

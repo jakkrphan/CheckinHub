@@ -10,16 +10,17 @@
 
 ### B. ทำต่อได้ทันที (ไม่ต้องรอข้อมูลภายนอก)
 
-- [ ] ผู้ลงทะเบียนเปลี่ยนวันที่เลือกเองจากหน้าสถานะ (เพิ่ม/สลับวันในโหมด `per_day` ถ้าที่นั่งพอ ใช้ตรรกะที่นั่ง/คิวเดียวกับตอนสมัคร และบันทึก audit)
-- [ ] ไล่เทียบ UI กับ mockup แบบ B หน้าที่เหลือ:
-  - [ ] หน้าลงทะเบียนสาธารณะ 3 ขั้น + หน้าสถานะ/QR
-  - [ ] หน้าเช็คชื่อหน้างาน + โหมด kiosk
+- [x] ผู้ลงทะเบียนเปลี่ยนวันที่เลือกเองจากหน้าสถานะ (เพิ่ม/สลับวันในโหมด `per_day` ถ้าที่นั่งพอ ใช้ตรรกะที่นั่ง/คิวเดียวกับตอนสมัคร และบันทึก audit)
+- [x] ไล่เทียบ UI กับ mockup แบบ B หน้าที่เหลือ:
+  - [x] หน้าลงทะเบียนสาธารณะ 3 ขั้น + หน้าสถานะ/QR — 26 ก.ย.
+  - [x] หน้าเช็คชื่อหน้างาน + โหมด kiosk — 26 ก.ย.
   - [x] หน้า admin (ผู้ใช้ / โครงการ / audit log) — 26 ก.ย.
   - [x] หน้ารายชื่อผู้ลงทะเบียน (master-detail) + แดชบอร์ด — 26 ก.ย.
-  - [ ] ตรวจทุกหน้าที่ความกว้างมือถือ (ไม่มี scroll แนวนอน, ปุ่มกดง่าย)
-- [ ] ตรวจสถานะ UI ให้ครบทุกหน้าตามสเปก: loading, empty, error, 403, 404, 429 (ฝั่ง admin/organizer/login ทำแล้ว 26 ก.ย. · เหลือหน้า public/เช็คชื่อ และ loading state ของหน้าที่โหลดช้า)
-- [ ] ตรวจ accessibility ขั้นต่ำ: label ครบ, โฟกัสมองเห็นได้, contrast WCAG AA, ใช้คีย์บอร์ดได้ทั้งหมด
-- [ ] รัน seed ใหม่กับฐาน local (200 ผู้ลงทะเบียน 2 โหมด) แล้วดูความเร็วหน้ารายชื่อ/แดชบอร์ด
+  - [x] ตั้งค่าโครงการขั้น 1–5 + หน้ารายการโครงการ + เพิ่มผู้ลงทะเบียนเอง (walk-in) + พิมพ์ QR — 26 ก.ย.
+  - [x] ตรวจทุกหน้าที่ความกว้างมือถือ (ไม่มี scroll แนวนอน, ปุ่มกดง่าย) — 26 ก.ย. (ตารางอ่านอย่างเดียวในหน้า admin ยังเลื่อนแนวนอนได้)
+- [x] ตรวจสถานะ UI ให้ครบทุกหน้าตามสเปก: empty, error, 403, 404, 429 — 26 ก.ย. (ไม่ใช้ loading.tsx เพราะทำให้ 404 กลายเป็น 200; ทุกหน้าตอบ < 100 ms ใน production)
+- [x] ตรวจ accessibility ขั้นต่ำด้วย axe-core (WCAG 2.1 AA) ทุกหน้า: 0 violation — 26 ก.ย. (ยังควรลองกับ screen reader จริง)
+- [x] รัน seed ใหม่กับฐาน local แล้วดูความเร็วหน้ารายชื่อ/แดชบอร์ด — 26 ก.ย. (production build: 2,000 คนในโครงการเดียว ทุกหน้า < 100 ms, export xlsx ~0.8 วินาที)
 
 ### C. ทดสอบกับคน/อุปกรณ์จริง
 
@@ -105,8 +106,46 @@
   - `/organizer/[eventId]/poster` is an A4 poster: title, dates, location, a large QR, the link and the deadline. Print CSS hides the sidebar and header.
   - `/organizer/[eventId]/qr` serves a 1024px PNG with error-correction level H.
   - Both routes require `manage`, so check-in-only staff cannot open them.
+- **Settings step 1 (project info, mockup B):**
+  - `/organizer/new` and step 1 share one form (`event-info-fields.tsx`). Left: title, description, location + deadline, project-type cards and seat-mode cards. Right: cover card with a 16:9 live preview and change/remove, an approval card (auto-approve switch, pending hold, waitlist policy), and a retention card (edit only).
+  - The footer "บันทึกและถัดไป" saves and opens step 2 (`next=2`). A draft banner shows on drafts.
+  - The seat mode is locked once published or when anyone has registered, with a note explaining why.
+- **Settings step 2 (days & seats, mockup B):**
+  - `days-planner.tsx`: the calendar is a real form, so each free date is a submit button that adds the day. New days copy the latest day's seat limit. Clicking an added day removes it when nothing depends on it; otherwise it jumps to that day's row.
+  - Day rows: date, seat bar ("เต็มแล้ว" in red when full), a −/+ seat stepper that saves itself (never below seats already taken), a ⋯ popover to move the date or close the day, and remove (whole-course days ask for confirmation).
+  - Thai day/month names come from fixed tables rather than `Intl`, because Node's and Chrome's ICU data differ and broke hydration.
+  - Every-day sessions are now always loaded, so the step 4 tick in the sidebar is correct on every step.
+- **Walk-in registration (mockup B):** a modal-style card showing day chips with remaining seats, the event's own fields in two columns (conditional fields say why they appeared), an optional "อีเมลสำหรับส่ง QR", an "อนุมัติทันที + ออก QR" switch (on by default) with the capacity override highlighted when a picked day is full, and consent.
+  - Email is now optional for walk-ins. Without it, `dedupeKey` stays null, as the spec allows.
+  - The old shared `registration-form.tsx` has been removed.
 - **Permission fix:** publishing and closing are now owner/admin only (`changeEventStatus` uses `administer`, as the spec requires). Before, full collaborators could publish.
 - **Tests:** `registration`, `whole-course` and `admin` were updated for the new UI. `admin` now also covers the 403, `next=` and the off-site `next` block. All nine MySQL suites, lint and build pass.
+
+## Registrant, check-in and polish pass (2026-09-26, later)
+
+- **Self-service day change:** per-day events get `/events/[slug]/status/[token]/days`.
+  - The registrant ticks the days they want and the server works out what to add and drop in one locked transaction (`server/registrations/day-change.ts`).
+  - Added days follow the registration seat rules: full → waitlist, otherwise the event's approval mode. Dropped days free the seat and promote the queue.
+  - Checked-in days cannot be dropped, organizer-rejected days cannot be re-added, and at least one day must remain.
+  - Audited as `REGISTRANT_DAYS_CHANGED` with day ids only. Covered in `local-features`.
+- **Public pages (mockup B):**
+  - The wizard shows the compact header on steps 2–3, a chosen-days chip with "แก้ไขวัน", grouped conditional fields, and a styled file drop zone.
+  - Fixed a hydration mismatch (Thai weekday from ICU) and a bug where the step 2 next button submitted step 3.
+  - The status page is ticket-style for approved people and shows a queue-number card for the waitlist.
+  - Fixed two bugs: days were numbered by the person's own list instead of the event's order, and the .ics button text was invisible.
+  - Public file uploads are enabled in development (they were disabled before). Production still refuses file-field events until object storage exists.
+- **Check-in (mockup B):**
+  - A session picker popover with "checked/expected", a camera frame with corner brackets, and an offline banner.
+  - A "scanner ready" indicator and a per-device sound on/off switch.
+  - Results appear as a bottom sheet with the person's check-in name, registered days and running count. Success closes itself after 2 seconds; duplicate, wrong-day and denied results wait for "ปิด". The wrong-day override lives in the sheet.
+  - A quick "เอาออก" undo for the last person.
+  - Recent check-ins show the check-in name instead of the masked email.
+  - `ScanResult` now carries `person`, `count` and `time`, using only non-sensitive check-in fields.
+  - `/check-in` is a dark project list (today's events first) with a logout button, since staff had none.
+- **Mobile:** the project list and the admin users table turn into cards below md.
+  - Grids now use `grid-cols-[minmax(0,1fr)]` so long content cannot widen the page; this fixed a horizontal scroll on step 5.
+  - Back links and link chips have ≥ 24 px tap targets.
+- **Accessibility:** axe-core (WCAG 2.1 AA) finds 0 violations on every page after fixing the cover-placeholder contrast.
 
 ## Remaining local items (2026-09-26)
 

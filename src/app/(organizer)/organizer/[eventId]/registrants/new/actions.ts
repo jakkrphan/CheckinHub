@@ -20,11 +20,14 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
   if (event.status === "DRAFT") redirect(errorUrl(eventId, "not-open"));
   if (formData.get("consent") !== "on") redirect(errorUrl(eventId, "consent"));
 
-  const parsedEmail = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
+  // Walk-ins may have no email (the organizer prints the QR); then there is no dedupe key, as the spec allows.
+  const rawEmail = formData.get("email")?.toString().trim().toLowerCase() ?? "";
+  const parsedEmail = z.union([z.literal(""), z.email().max(191)]).safeParse(rawEmail);
   const requestedDays = formData.getAll("dayId");
   if (!parsedEmail.success || (event.seatMode !== "whole_course" && !requestedDays.length) || requestedDays.length > 60 || requestedDays.some((id) => typeof id !== "string" || !id)) {
     redirect(errorUrl(eventId, "invalid"));
   }
+  const email = parsedEmail.data || null;
   const dayIds = [...new Set(requestedDays as string[])].sort();
   if (dayIds.length !== requestedDays.length) redirect(errorUrl(eventId, "invalid"));
   const fields = readRegistrationFields(event.fields);
@@ -54,7 +57,7 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
           await tx.$queryRaw(Prisma.sql`SELECT id FROM EventDay WHERE eventId = ${eventId} AND id IN (${Prisma.join(dayIds)}) ORDER BY id FOR UPDATE`);
           if (days.some((day) => day.isClosed)) { failure = "not-open"; return; }
         }
-        const existing = await tx.registrant.findUnique({ where: { eventId_dedupeKey: { eventId, dedupeKey: parsedEmail.data } }, select: { id: true } });
+        const existing = email ? await tx.registrant.findUnique({ where: { eventId_dedupeKey: { eventId, dedupeKey: email } }, select: { id: true } }) : null;
         if (existing) { failure = "duplicate"; return; }
         const availability = await getSeatAvailability(tx, currentEvent, days.map((day) => day.id));
         overriddenDays = 0;
@@ -71,7 +74,7 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
         const status = summarizeDayStatuses(dayStatuses.map((day) => day.status));
         token = newBearerCode();
         const person = await tx.registrant.create({ data: {
-          eventId, email: parsedEmail.data, dedupeKey: parsedEmail.data, answers, fieldsVersion: currentEvent.fieldsVersion, status,
+          eventId, email, dedupeKey: email, answers, fieldsVersion: currentEvent.fieldsVersion, status,
           autoApproveAtRegistration: approved, notifyVia: "EMAIL", consentedAt: new Date(), consentVersion: CURRENT_CONSENT_VERSION,
           approvedAt: status === "APPROVED" ? new Date() : null,
           approvedById: status === "APPROVED" ? user.id : null,

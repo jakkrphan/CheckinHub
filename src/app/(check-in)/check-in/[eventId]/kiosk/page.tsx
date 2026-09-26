@@ -25,7 +25,7 @@ export default async function KioskPage({ params, searchParams }: PageProps<"/ch
     </header>
     <KioskLock eventId={eventId} exitHref={`/check-in/${eventId}?session=${session.id}`}>
       <p className="text-center text-lg">สแกน QR จากหน้าสถานะของคุณเพื่อเช็คชื่อ</p>
-      <Scanner eventId={eventId} sessionId={session.id} operatorId={user.id} sessionLabels={{ [session.id]: session.label }} mode="kiosk" />
+      <Scanner eventId={eventId} sessionId={session.id} operatorId={user.id} sessionLabels={{ [session.id]: session.label }} sessionTitle={session.label} mode="kiosk" />
     </KioskLock>
   </main>;
 }

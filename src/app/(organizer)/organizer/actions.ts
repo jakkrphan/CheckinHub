@@ -181,7 +181,8 @@ export async function updateEvent(eventId: string, formData: FormData) {
 
   revalidatePath("/organizer");
   revalidatePath(`/organizer/${eventId}`);
-  redirect(`/organizer/${eventId}?saved=1`);
+  // The wizard footer saves step 1 and moves on; the in-page save stays on step 1.
+  redirect(formData.get("next") === "2" ? `/organizer/${eventId}?step=2` : `/organizer/${eventId}?step=1&saved=1`);
 }
 
 /**

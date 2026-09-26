@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -84,6 +84,48 @@ try {
   ensure(selfAudit && selfAudit.actorId === null && selfAudit.metadata.changedFields.includes("name") && !JSON.stringify(selfAudit.metadata).includes("Somchai"), "Self-edit audit missing or leaked values");
   response = await post(editUrl, editForm, { "answer:name": "", "answer:kind": "ทั่วไป" });
   ensure(location(response).includes("error=invalid"), "Self-edit accepted a missing required answer");
+
+  // Self-service day change (per-day): adding a full day queues, a checked-in day stays, dropping frees the seat.
+  const dcEvent = await db.event.create({ data: {
+    slug: `local-days-${suffix}`, title: "Day change smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true, waitlistPromotion: "AUTO",
+    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
+    days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }, { date: new Date("2031-10-02T00:00:00.000Z"), maxSeats: 1 }] },
+  } });
+  eventIds.push(dcEvent.id);
+  const [dayA, dayB] = await db.eventDay.findMany({ where: { eventId: dcEvent.id }, orderBy: { date: "asc" } });
+  const sessionA = await db.session.create({ data: { eventId: dcEvent.id, eventDayId: dayA.id, label: "เช้า", sortOrder: 1 } });
+  const dcToken = `day-change-${suffix}`;
+  const makePerson = (email, dayId, token) => db.registrant.create({ data: {
+    eventId: dcEvent.id, email, dedupeKey: email, answers: { name: email }, status: "APPROVED", autoApproveAtRegistration: true, qrCode: randomUUID(), approvedAt: new Date(),
+    statusTokenHash: createHash("sha256").update(token).digest("hex"), days: { create: [{ eventDayId: dayId, status: "APPROVED" }] },
+  } });
+  const mover = await makePerson(`mover-${suffix}@example.invalid`, dayA.id, dcToken);
+  const holder = await makePerson(`holder-${suffix}@example.invalid`, dayB.id, `holder-${suffix}`);
+  const daysUrl = `${base}/events/${dcEvent.slug}/status/${dcToken}/days`;
+  ensure((await (await fetch(`${base}/events/${dcEvent.slug}/status/${dcToken}`)).text()).includes("เปลี่ยนวันที่เข้าร่วม"), "Status page lacks the change-days link");
+  html = await (await fetch(daysUrl)).text();
+  const daysForm = formsFrom(html).find((part) => part.includes("บันทึกการเปลี่ยนวัน"));
+  ensure(daysForm && html.includes("เต็มแล้ว"), "Change-days form missing or does not show the full day");
+  response = await post(daysUrl, daysForm, { dayId: [dayA.id, dayB.id] });
+  ensure(location(response).includes("days=1"), `Adding a day failed: ${location(response)}`);
+  let moverDays = await db.registrantEventDay.findMany({ where: { registrantId: mover.id } });
+  ensure(moverDays.find((row) => row.eventDayId === dayB.id)?.status === "WAITLISTED" && moverDays.find((row) => row.eventDayId === dayA.id)?.status === "APPROVED", "Added full day was not waitlisted");
+  const checkIn = await db.checkIn.create({ data: { sessionId: sessionA.id, registrantId: mover.id, checkedInAt: new Date(), clientEventId: randomUUID() } });
+  response = await post(daysUrl, daysForm, { dayId: [dayB.id] });
+  ensure(location(response).includes("error=checked-in"), "A checked-in day could be dropped");
+  await db.checkIn.delete({ where: { id: checkIn.id } });
+  // The holder drops day B, so the mover's queued day B is promoted automatically.
+  const holderUrl = `${base}/events/${dcEvent.slug}/status/holder-${suffix}/days`;
+  const holderForm = formsFrom(await (await fetch(holderUrl)).text()).find((part) => part.includes("บันทึกการเปลี่ยนวัน"));
+  response = await post(holderUrl, holderForm, { dayId: [dayA.id] });
+  ensure(location(response).includes("days=1"), `Swapping days failed: ${location(response)}`);
+  moverDays = await db.registrantEventDay.findMany({ where: { registrantId: mover.id } });
+  const holderDays = await db.registrantEventDay.findMany({ where: { registrantId: holder.id } });
+  ensure(moverDays.find((row) => row.eventDayId === dayB.id)?.status === "APPROVED" && holderDays.find((row) => row.eventDayId === dayB.id)?.status === "CANCELLED" && holderDays.find((row) => row.eventDayId === dayA.id)?.status === "APPROVED", `Swap did not free the seat for the queue: ${JSON.stringify({ mover: moverDays.map((row) => [row.eventDayId === dayA.id ? "A" : "B", row.status]), holder: holderDays.map((row) => [row.eventDayId === dayA.id ? "A" : "B", row.status]) })}`);
+  response = await post(daysUrl, daysForm, { dayId: [] });
+  ensure(location(response).includes("error=invalid"), "Dropping every day through day change was accepted");
+  const dayAudit = await db.auditLog.count({ where: { eventId: dcEvent.id, action: "REGISTRANT_DAYS_CHANGED", actorId: null } });
+  ensure(dayAudit === 2, `Expected 2 day-change audit entries, got ${dayAudit}`);
 
   // Check-in staff may correct only fields shown on the check-in screen.
   const staffEmail = `lf-staff-${suffix}@example.invalid`;
@@ -200,7 +242,7 @@ try {
   response = await post(editUrl, editForm, { "answer:name": "Too late", "answer:kind": "ทั่วไป" });
   ensure(!location(response).includes("updated=1") && (await db.registrant.findUniqueOrThrow({ where: { id: person.id } })).answers.name !== "Too late", "Self-edit accepted after the deadline");
 
-  process.stdout.write("Local features: self-edit, check-in corrections, ETag delta polling, check-in method, kiosk page, session order, xlsx export and retention anonymization passed.\n");
+  process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method, kiosk page, session order, xlsx export and retention anonymization passed.\n");
 } finally {
   for (const id of eventIds) await db.event.deleteMany({ where: { id } });
   if (staffId) { await db.auditLog.deleteMany({ where: { actorId: staffId } }); await db.user.deleteMany({ where: { id: staffId } }); }

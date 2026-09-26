@@ -3,6 +3,23 @@
 export type FeedbackTone = "success" | "warning" | "error";
 
 let context: AudioContext | null = null;
+const MUTE_KEY = "checkin-sound-muted";
+const listeners = new Set<() => void>();
+
+/** Sound preference is per device; vibration always stays on. */
+export function isMuted() {
+  try { return localStorage.getItem(MUTE_KEY) === "1"; } catch { return false; }
+}
+
+export function setMuted(muted: boolean) {
+  try { if (muted) localStorage.setItem(MUTE_KEY, "1"); else localStorage.removeItem(MUTE_KEY); } catch { /* storage may be blocked */ }
+  for (const listener of listeners) listener();
+}
+
+export function subscribeMuted(listener: () => void) {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 /** Browsers block audio until a user gesture; call this from the first tap or key press. */
 export function unlockAudio() {
@@ -24,7 +41,7 @@ const patterns: Record<FeedbackTone, { tones: [number, number][]; vibrate: numbe
 export function signalResult(tone: FeedbackTone) {
   const pattern = patterns[tone];
   try { navigator.vibrate?.(pattern.vibrate); } catch { /* vibration is optional */ }
-  if (!context || context.state !== "running") return;
+  if (!context || context.state !== "running" || isMuted()) return;
   let at = context.currentTime;
   for (const [frequency, duration] of pattern.tones) {
     const oscillator = context.createOscillator();

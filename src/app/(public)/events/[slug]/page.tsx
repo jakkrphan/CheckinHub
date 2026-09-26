@@ -90,25 +90,31 @@ export default async function PublicEventPage({
     expired: "หน้าฟอร์มเปิดค้างไว้นานเกินไป กรุณากรอกและส่งใหม่อีกครั้ง",
   };
 
+  const typeLabel = event.eventType === "INTERNAL" ? "ภายใน" : event.eventType === "EXTERNAL" ? "ภายนอก" : "ผสม";
+  const cover = event.coverImageUrl ? <div className="relative aspect-[16/6] min-h-44 bg-muted"><Image src={event.coverImageUrl} alt={`รูปปก ${event.title}`} fill priority unoptimized className="object-cover" sizes="(max-width: 480px) 100vw, 480px" /></div> : <div role="img" aria-label="พื้นที่รูปปกโครงการ" className="flex aspect-[16/6] min-h-44 flex-col items-center justify-center gap-2 bg-muted text-muted-foreground"><ImageIcon className="size-8" aria-hidden="true" /><span className="text-sm">รูปปกโครงการ</span></div>;
+  const details = (event.description || event.location) ? <div className="flex flex-col gap-2">{event.description && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{event.description}</p>}{event.location && <p className="flex items-center gap-2 text-xs text-muted-foreground"><MapPinIcon className="size-4 shrink-0" aria-hidden="true" />{event.location}</p>}</div> : null;
+  const notice = typeof error === "string" && errorMessage[error] ? errorMessage[error] : null;
+
+  if (available) {
+    return (
+      <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background shadow-sm">
+        {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} attendanceThreshold={event.attendanceThreshold} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col bg-background shadow-sm">
-      {event.coverImageUrl ? <div className="relative aspect-[16/6] min-h-44 bg-muted"><Image src={event.coverImageUrl} alt={`รูปปก ${event.title}`} fill priority unoptimized className="object-cover" sizes="(max-width: 480px) 100vw, 480px" /></div> : <div role="img" aria-label="พื้นที่รูปปกโครงการ" className="flex aspect-[16/6] min-h-44 flex-col items-center justify-center gap-2 bg-muted text-muted-foreground"><ImageIcon className="size-8" aria-hidden="true" /><span className="text-sm">รูปปกโครงการ</span></div>}
+      {cover}
       <div className="flex flex-col gap-3 border-b bg-card px-5 py-5">
-        <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">โครงการอบรม</p><Badge variant="secondary">{event.eventType === "INTERNAL" ? "ภายใน" : event.eventType === "EXTERNAL" ? "ภายนอก" : "ผสม"}</Badge></div>
+        <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">โครงการอบรม</p><Badge variant="secondary" className="rounded-md bg-muted font-semibold">{typeLabel}</Badge></div>
         <h1 className="font-heading text-xl font-bold leading-snug">{event.title}</h1>
-        {event.description && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{event.description}</p>}
-        {event.location && <p className="flex items-center gap-2 text-xs text-muted-foreground"><MapPinIcon className="size-4" aria-hidden="true" />{event.location}</p>}
+        {details}
       </div>
       {closed ? (
         <p role="status" className="m-5 rounded-xl border bg-card p-5 font-medium">ปิดรับลงทะเบียนแล้ว</p>
-      ) : !available ? <p role="status" className="m-5 rounded-xl border bg-card p-5 text-sm">{event.days.length > 0 && event.days.every((day) => day.isClosed) ? "ปิดรับลงทะเบียนทุกวันแล้ว" : "ยังไม่พร้อมรับลงทะเบียนออนไลน์"}</p> : null}
-      {available && (
-        <>
-          {typeof error === "string" && errorMessage[error] && <p role="alert" className="mx-5 mt-5 rounded-lg border border-destructive p-4 text-sm text-destructive">{errorMessage[error]}</p>}
-          {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-          <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} attendanceThreshold={event.attendanceThreshold} />
-        </>
-      )}
+      ) : <p role="status" className="m-5 rounded-xl border bg-card p-5 text-sm">{event.days.length > 0 && event.days.every((day) => day.isClosed) ? "ปิดรับลงทะเบียนทุกวันแล้ว" : "ยังไม่พร้อมรับลงทะเบียนออนไลน์"}</p>}
     </main>
   );
 }

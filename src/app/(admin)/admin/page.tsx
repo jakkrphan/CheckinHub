@@ -108,7 +108,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
 
     <Flash params={params} />
 
-    {view === "users" && <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+    {view === "users" && <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <section className="flex flex-col overflow-hidden rounded-xl border bg-card" aria-label="ผู้ใช้ในระบบ">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center">
           <form method="get" className="flex flex-1 flex-wrap items-center gap-2" role="search">
@@ -137,18 +137,19 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-secondary"><TableRow>
+          {/* Below md each user row becomes a card: user | actions, then role | status. */}
+          <Table className="max-md:block">
+            <TableHeader className="bg-secondary max-md:hidden"><TableRow>
               <TableHead className="min-w-56 px-5">ผู้ใช้</TableHead><TableHead>สิทธิ์ระดับระบบ</TableHead><TableHead>สถานะบัญชี</TableHead><TableHead className="w-0"><span className="sr-only">จัดการ</span></TableHead>
             </TableRow></TableHeader>
-            <TableBody>{users.map((user) => {
+            <TableBody className="max-md:block">{users.map((user) => {
               const self = user.id === actor.id;
-              return <TableRow key={user.id} className={cn(!user.isActive && "bg-muted/40")}>
-                <TableCell className="px-5"><div className="flex items-center gap-3">
+              return <TableRow key={user.id} className={cn("max-md:grid max-md:grid-cols-[minmax(0,1fr)_auto] max-md:items-center max-md:gap-x-3 max-md:gap-y-2.5 max-md:px-4 max-md:py-3.5 [&>td]:max-md:p-0 [&>td]:max-md:whitespace-normal", !user.isActive && "bg-muted/40")}>
+                <TableCell className="px-5 max-md:col-start-1 max-md:row-start-1"><div className="flex items-center gap-3">
                   <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">{initials(user.name)}</span>
                   <span className="flex min-w-0 max-w-[16rem] flex-col"><span className="truncate font-semibold">{user.name}{self && <span className="ml-1 text-xs font-normal text-muted-foreground">(คุณ)</span>}</span><span className="truncate text-xs text-muted-foreground">{user.email}</span><span className="text-xs text-muted-foreground">{user._count.ownedEvents || user._count.organizerOf ? [user._count.ownedEvents ? `เจ้าของ ${user._count.ownedEvents} โครงการ` : "", user._count.organizerOf ? `ร่วมจัด ${user._count.organizerOf}` : ""].filter(Boolean).join(" · ") : "ยังไม่มีโครงการ"}</span></span>
                 </div></TableCell>
-                <TableCell>
+                <TableCell className="max-md:col-start-1 max-md:row-start-2">
                   <form action={updateUserRole} className="flex items-center gap-1">
                     <input type="hidden" name="userId" value={user.id} />
                     <label htmlFor={`role-${user.id}`} className="sr-only">สิทธิ์ของ {user.name}</label>
@@ -158,11 +159,11 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
                     <noscript><Button type="submit" size="sm" variant="outline">บันทึก</Button></noscript>
                   </form>
                 </TableCell>
-                <TableCell><div className="flex flex-wrap gap-1">
+                <TableCell className="max-md:col-start-2 max-md:row-start-2 max-md:justify-self-end"><div className="flex flex-wrap gap-1">
                   <Badge variant="secondary" className={user.isActive ? "bg-emerald-100 text-emerald-900" : ""}>{user.isActive ? "ใช้งานอยู่" : "ปิดการใช้งาน"}</Badge>
                   {!user.passwordHash && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">รอตั้งรหัสผ่าน</Badge>}
                 </div></TableCell>
-                <TableCell className="pr-4"><div className="flex items-center justify-end gap-1.5">
+                <TableCell className="pr-4 max-md:col-start-2 max-md:row-start-1"><div className="flex items-center justify-end gap-1.5">
                   <form action={toggleUserActive}>
                     <input type="hidden" name="userId" value={user.id} /><input type="hidden" name="active" value={String(!user.isActive)} />
                     <Button type="submit" size="sm" variant="outline" disabled={self} title={self ? "ปิดบัญชีของตัวเองไม่ได้" : undefined} className={cn(user.isActive && "border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive")}>{user.isActive ? "ปิดบัญชี" : "เปิดใช้งาน"}</Button>
@@ -197,7 +198,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
       </section>
 
       <aside className="flex flex-col gap-4 rounded-xl border bg-card p-5" aria-label="Audit log ล่าสุด">
-        <div className="flex items-center justify-between"><h2 className="font-heading text-lg font-bold">Audit log ล่าสุด</h2><Link href="/admin?view=audit" className="text-sm font-semibold text-primary underline-offset-4 hover:underline">ดูทั้งหมด</Link></div>
+        <div className="flex items-center justify-between"><h2 className="font-heading text-lg font-bold">Audit log ล่าสุด</h2><Link href="/admin?view=audit" className="-my-2.5 py-2.5 text-sm font-semibold text-primary underline-offset-4 hover:underline">ดูทั้งหมด</Link></div>
         {recentLogs.length === 0 && <p className="text-sm text-muted-foreground">ยังไม่มีบันทึก</p>}
         <ol className="flex flex-col">{recentLogs.map((log) => {
           const { label, tone } = describeAudit(log.action);

@@ -39,7 +39,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
   const missing = checks.filter((check) => !check.ready);
   const [statusText, statusClass] = statusChip[event.status];
 
-  return <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+  return <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
     <section aria-label="ผู้ร่วมจัด" className="flex flex-col gap-4 rounded-xl border bg-card p-5">
       {canAdminister ? <form action={addEventMember.bind(null, event.id)} className="flex flex-wrap gap-2">
         <div className="relative min-w-52 flex-1">
@@ -124,7 +124,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
           </>}
         </div>
         {canAdminister && <details className="rounded-lg border border-destructive/30 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-semibold text-destructive">ลบโครงการ…</summary>
+          <summary className="-my-2 cursor-pointer py-2 text-sm font-semibold text-destructive">ลบโครงการ…</summary>
           <form action={deleteOwnedEvent.bind(null, event.id)} className="mt-3 flex flex-col gap-2">
             <p className="text-xs text-muted-foreground">ถ้ามีผู้ลงทะเบียนแล้ว ระบบจะเก็บข้อมูลเดิมไว้ตรวจสอบย้อนหลัง และปิดหน้าโครงการจากผู้ใช้งาน</p>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="confirm" required className="size-4 accent-destructive" />ยืนยันลบโครงการนี้</label>

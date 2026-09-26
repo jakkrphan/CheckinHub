@@ -10,14 +10,48 @@ import { readRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { mergeAnswers } from "@/server/registrations/self-edit";
 
+export type ScanPerson = {
+  id: string;
+  /** First non-sensitive check-in field (usually the name), or a masked email. */
+  name: string;
+  /** Second check-in field, e.g. department. */
+  detail: string | null;
+  /** The person's approved days, e.g. "วันที่ 1, 3". */
+  days: string;
+};
+
 export type ScanResult = {
   kind: "success" | "duplicate" | "invalid" | "wrong-day" | "session-missing" | "error";
   message: string;
   /** Set on wrong-day results when the operator may admit the person as a special case. */
   canOverride?: boolean;
+  person?: ScanPerson;
+  /** Active check-ins in this session / people expected (approved for the session's day). */
+  count?: { checked: number; expected: number };
+  time?: string;
 };
 
 const timeFormatter = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
+const maskEmail = (email: string | null) => email ? `${email.slice(0, 2)}***${email.slice(email.indexOf("@"))}` : "ผู้เข้าร่วม";
+const answerText = (value: unknown) => Array.isArray(value) ? value.join(", ") : typeof value === "string" ? value : "";
+
+/** What the check-in screen may show about a person: only fields marked for check-in and never sensitive ones. */
+async function describePerson(tx: Prisma.TransactionClient, event: { id: string; fields: Prisma.JsonValue }, person: { id: string; email: string | null; answers: Prisma.JsonValue; days: { eventDayId: string; status: string }[] }): Promise<ScanPerson> {
+  const visible = readRegistrationFields(event.fields).filter((field) => field.showOnCheckin && !field.sensitive && field.type !== "file");
+  const answers = person.answers && typeof person.answers === "object" && !Array.isArray(person.answers) ? person.answers as Record<string, unknown> : {};
+  const values = visible.map((field) => answerText(answers[field.key]).trim()).filter(Boolean);
+  const order = (await tx.eventDay.findMany({ where: { eventId: event.id }, orderBy: { date: "asc" }, select: { id: true } })).map((day) => day.id);
+  const approved = person.days.filter((day) => day.status === "APPROVED").map((day) => order.indexOf(day.eventDayId) + 1).filter((number) => number > 0).sort((a, b) => a - b);
+  return { id: person.id, name: values[0] ?? maskEmail(person.email), detail: values[1] ?? null, days: approved.length ? `วันที่ ${approved.join(", ")}` : "—" };
+}
+
+async function sessionCount(tx: Prisma.TransactionClient, eventId: string, session: { id: string; eventDayId: string | null }) {
+  const [checked, expected] = await Promise.all([
+    tx.checkIn.count({ where: { sessionId: session.id, voidedAt: null } }),
+    tx.registrant.count({ where: { eventId, status: "APPROVED", ...(session.eventDayId ? { days: { some: { eventDayId: session.eventDayId, status: "APPROVED" } } } : {}) } }),
+  ]);
+  return { checked, expected };
+}
 
 function validClientEventId(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) || /^[0-9a-f]{64}$/i.test(value);
@@ -39,22 +73,23 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
   try {
     const result = await db.$transaction(async (tx): Promise<ScanResult> => {
       if (clientEventId && await tx.checkIn.findUnique({ where: { clientEventId }, select: { id: true } })) return { kind: "duplicate", message: "รายการสแกนนี้บันทึกแล้ว" };
-      const session = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { eventDayId: true } });
+      const session = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { id: true, eventDayId: true } });
       if (!session) return { kind: "session-missing", message: "รอบเช็คชื่อนี้ถูกลบแล้ว ไม่ได้บันทึก กรุณาแจ้งผู้จัด" };
       const person = await tx.registrant.findFirst({ where: { eventId, qrCode: code.trim() }, select: { id: true } });
       if (!person) return { kind: "invalid", message: "ไม่พบรหัสที่อนุมัติแล้ว (อาจยังไม่อนุมัติหรือถูกยกเลิกแล้ว)" };
       await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${person.id} FOR UPDATE`;
-      const current = await tx.registrant.findUnique({ where: { id: person.id }, select: { status: true, qrCode: true, days: { select: { eventDayId: true, status: true } } } });
+      const current = await tx.registrant.findUnique({ where: { id: person.id }, select: { id: true, email: true, answers: true, status: true, qrCode: true, days: { select: { eventDayId: true, status: true } } } });
       if (current?.status !== "APPROVED" || current.qrCode !== code.trim()) return { kind: "invalid", message: "ไม่พบรหัสที่อนุมัติแล้ว (อาจยังไม่อนุมัติหรือถูกยกเลิกแล้ว)" };
+      const who = await describePerson(tx, event, current);
       const existing = await tx.checkIn.findUnique({ where: { activeKey: `${person.id}:${sessionId}` }, select: { checkedInAt: true } });
-      if (existing) return { kind: "duplicate", message: `${fromQueue ? "มีการเช็คชื่อจากเครื่องอื่นแล้ว" : "เช็คชื่อรอบนี้ไปแล้ว"} เมื่อ ${timeFormatter.format(existing.checkedInAt)}` };
+      if (existing) return { kind: "duplicate", message: `${fromQueue ? "มีการเช็คชื่อจากเครื่องอื่นแล้ว" : "เช็คชื่อรอบนี้ไปแล้ว"} เมื่อ ${timeFormatter.format(existing.checkedInAt)}`, person: who, time: timeFormatter.format(existing.checkedInAt), count: await sessionCount(tx, eventId, session) };
       const dayRow = session.eventDayId ? current.days.find((day) => day.eventDayId === session.eventDayId) : undefined;
       const outsideDay = !!session.eventDayId && dayRow?.status !== "APPROVED";
       if (outsideDay && !options.override) {
         const message = !dayRow
           ? event.seatMode === "whole_course" ? "ไม่พบวันนี้ในรายการของผู้เข้าอบรม (ข้อมูลหลักสูตรไม่ครบ กรุณาแจ้งผู้จัดตรวจสอบ)" : "ไม่ได้ลงทะเบียนวันนี้ไว้"
           : dayRow.status === "WAITLISTED" ? "วันนี้ยังอยู่ในคิวรอ" : "ยังไม่ได้รับอนุมัติสำหรับวันที่ของรอบนี้";
-        return { kind: "wrong-day", message, canOverride: mayOverride };
+        return { kind: "wrong-day", message, canOverride: mayOverride, person: who };
       }
       const checkIn = await tx.checkIn.create({ data: {
         registrantId: person.id, sessionId, checkedInById: user.id, checkedInAt: scannedDate, clientEventId, activeKey: `${person.id}:${sessionId}`,
@@ -65,12 +100,13 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
         await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "CHECKIN_OVERRIDE", target: checkIn.id, metadata: { sessionId, registrantId: person.id, dayStatus: dayRow?.status ?? "NOT_REGISTERED", note: options.override.note } } });
       }
       const prefix = outsideDay ? "อนุญาตเป็นกรณีพิเศษและเช็คชื่อแล้ว" : "เช็คชื่อสำเร็จ";
+      const details = { person: who, time: timeFormatter.format(scannedDate), count: await sessionCount(tx, eventId, session) };
       if (event.seatMode === "whole_course") {
         const allSessions = await tx.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }], select: { id: true } });
         const checked = await tx.checkIn.count({ where: { registrantId: person.id, session: { eventId }, voidedAt: null } });
-        return { kind: "success", message: `${prefix} · รอบนี้เป็นรอบที่ ${allSessions.findIndex((item) => item.id === sessionId) + 1} จาก ${allSessions.length} · เข้าแล้ว ${checked} รอบ` };
+        return { kind: "success", message: `${prefix} · รอบนี้เป็นรอบที่ ${allSessions.findIndex((item) => item.id === sessionId) + 1} จาก ${allSessions.length} · เข้าแล้ว ${checked} รอบ`, ...details };
       }
-      return { kind: "success", message: prefix };
+      return { kind: "success", message: prefix, ...details };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     if (result.kind === "success") {
       revalidatePath(`/check-in/${eventId}`);

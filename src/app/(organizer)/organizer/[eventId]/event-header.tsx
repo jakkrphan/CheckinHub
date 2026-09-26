@@ -37,7 +37,7 @@ export async function OrganizerEventHeader({ event, activeTab, actions }: { even
   return (
     <section className="border-b bg-card">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-5 pt-6 lg:px-10">
-        <Link href="/organizer" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการของฉัน</Link>
+        <Link href="/organizer" className="-my-2.5 flex w-fit items-center gap-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการของฉัน</Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-2.5">
             <h1 className="font-heading text-2xl font-bold leading-snug">{event.title}</h1>

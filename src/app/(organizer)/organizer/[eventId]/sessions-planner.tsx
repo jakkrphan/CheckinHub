@@ -68,7 +68,7 @@ export function SessionsPlanner({ eventId, days, everyDay, initialSession, notic
 
   const scopeDefault = current ? current.dayId ?? "EVENT" : selection.kind === "new" ? selection.scope : "EVENT";
 
-  return <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+  return <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
     <div className="flex flex-col gap-4">
       {days.length === 0 && <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">ยังไม่มีวันจัด กรุณาเพิ่มวันที่จัดในขั้นที่ 2 ก่อน</p>}
       {days.map((day) => <section key={day.id} aria-label={`รอบของวันที่ ${day.number}`} className="flex flex-col gap-3 rounded-xl border bg-card p-4">

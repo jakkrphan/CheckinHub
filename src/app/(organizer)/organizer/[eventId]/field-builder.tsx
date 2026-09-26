@@ -170,7 +170,7 @@ export function FieldBuilder({ eventId, fields: initialFields, editable, initial
   const action = creating ? addRegistrationField.bind(null, eventId) : current ? updateRegistrationField.bind(null, eventId, current.key) : undefined;
 
   return (
-    <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1.25fr)_420px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-7 xl:grid-cols-[minmax(0,1.25fr)_420px]">
       <section className="flex flex-col gap-2.5" aria-label="ฟิลด์ลงทะเบียน">
         {message && <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{message}</p>}
         {fields.length === 0 && <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">ยังไม่มีฟิลด์ลงทะเบียน เริ่มจากปุ่ม “เพิ่มฟิลด์”</p>}

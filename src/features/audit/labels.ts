@@ -24,6 +24,7 @@ const labels: Record<string, string> = {
   MANUAL_REGISTRATION_CREATED: "เพิ่มผู้สมัครเอง",
   STATUS_LINK_REISSUED: "ออกลิงก์สถานะใหม่",
   REGISTRANT_SELF_EDITED: "ผู้สมัครแก้ข้อมูลเอง",
+  REGISTRANT_DAYS_CHANGED: "ผู้สมัครเปลี่ยนวันเอง",
   EXPORT_CSV: "ส่งออก CSV",
   EXPORT_XLSX: "ส่งออก Excel",
   FILE_DOWNLOADED: "เปิดไฟล์แนบ",
