@@ -1,11 +1,14 @@
 import { Prisma } from "@prisma/client";
 
-import { parseRegistrationAnswers, readFileAnswers, readRegistrationFields, type RegistrationFieldConfig, type RegistrationFileAnswer } from "@/features/events/registration-fields";
+import { checkRegistrationAnswers, readFileAnswers, readRegistrationFields, type AnswerProblem, type RegistrationFieldConfig, type RegistrationFileAnswer } from "@/features/events/registration-fields";
+import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { hashBearerCode } from "@/server/registrations/registration";
 
-export type SelfEditResult = "saved" | "unchanged" | "invalid" | "closed" | "not-found";
+export type SelfEditResult =
+  | { status: "saved" | "unchanged" | "closed" | "not-found" }
+  | { status: "invalid"; problem: AnswerProblem; formChanged: boolean };
 
 /**
  * Validates an answer change against the full form (required fields, conditions, formats).
@@ -20,7 +23,11 @@ export function mergeAnswers(currentFields: RegistrationFieldConfig[], stored: u
     if (editable.has(field.key)) return field;
     const stale = ([] as unknown[]).concat(previous[field.key] ?? []).filter((value): value is string => typeof value === "string" && !!value && !!field.options && !field.options.includes(value));
     return { ...field, required: false, ...(stale.length ? { options: [...field.options!, ...new Set(stale)] } : {}) };
-  }) : currentFields;
+  }) : currentFields.map((field) => {
+    // Registrants cannot upload on the self-edit page, so a file field added later cannot be required there.
+    if (field.type === "file" && field.required && !readFileAnswers(previous[field.key]).length) return { ...field, required: false };
+    return field;
+  });
   const existingFiles: Record<string, RegistrationFileAnswer[]> = {};
   for (const field of fields) if (field.type === "file" && readFileAnswers(previous[field.key]).length) existingFiles[field.key] = readFileAnswers(previous[field.key]);
   let source = formData;
@@ -33,14 +40,15 @@ export function mergeAnswers(currentFields: RegistrationFieldConfig[], stored: u
       for (const value of values) if (typeof value === "string") source.append(name, value);
     }
   }
-  const parsed = parseRegistrationAnswers(fields, source, existingFiles);
-  if (!parsed) return null;
+  const checked = checkRegistrationAnswers(fields, source, existingFiles);
+  if ("problem" in checked) return checked;
+  const parsed = checked.answers;
   const known = new Set(fields.map((field) => field.key));
   const orphans = Object.fromEntries(Object.entries(previous).filter(([key]) => !known.has(key)));
   const answers = { ...orphans, ...parsed };
   const changed = [...new Set([...Object.keys(previous), ...Object.keys(answers)])]
     .filter((key) => JSON.stringify(previous[key] ?? null) !== JSON.stringify(answers[key] ?? null));
-  if (editable && changed.some((key) => !editable.has(key))) return null;
+  if (editable && changed.some((key) => !editable.has(key))) return { problem: { fieldKey: null, reason: "invalid" } as AnswerProblem };
   const kept = new Set(Object.values(answers).flatMap((value) => readFileAnswers(value)).map((file) => file.storageKey));
   const orphanedFiles = Object.values(existingFiles).flat().map((file) => file.storageKey).filter((key) => !kept.has(key));
   return { answers, changed, orphanedFiles };
@@ -64,19 +72,20 @@ export async function updateOwnAnswers(slug: string, token: string, formData: Fo
       event: { select: { slug: true, status: true, registrationDeadline: true, deletedAt: true, fields: true, fieldsVersion: true } },
     },
   });
-  if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found";
-  if (!canSelfEdit(registrant, registrant.event)) return "closed";
+  if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return { status: "not-found" };
+  if (!canSelfEdit(registrant, registrant.event)) return { status: "closed" };
 
   const merged = mergeAnswers(readRegistrationFields(registrant.event.fields), registrant.answers, formData);
-  if (!merged) return "invalid";
+  // The form version the page was rendered with tells a real mistake apart from "the organizer changed the form".
+  if ("problem" in merged) return { status: "invalid", problem: merged.problem, formChanged: formData.get("fieldsVersion") !== String(registrant.event.fieldsVersion) };
   const { answers, changed, orphanedFiles } = merged;
-  if (!changed.length) return "unchanged";
+  if (!changed.length) return { status: "unchanged" };
 
   await db.$transaction([
-    db.registrant.update({ where: { id: registrant.id }, data: { answers: answers as Prisma.InputJsonValue, fieldsVersion: registrant.event.fieldsVersion } }),
+    db.registrant.update({ where: { id: registrant.id }, data: { answers: answers as Prisma.InputJsonValue, displayName: registrantDisplayName(readRegistrationFields(registrant.event.fields), answers), fieldsVersion: registrant.event.fieldsVersion } }),
     db.auditLog.create({ data: { eventId: registrant.eventId, actorId: null, action: "REGISTRANT_SELF_EDITED", target: registrant.id, metadata: { changedFields: changed } } }),
   ]);
   // A file answer can drop out when its condition no longer applies; remove the orphaned upload.
   await deleteLocalRegistrationFiles(orphanedFiles);
-  return "saved";
+  return { status: "saved" };
 }

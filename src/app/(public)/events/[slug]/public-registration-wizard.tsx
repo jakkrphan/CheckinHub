@@ -29,9 +29,11 @@ const shortDate = (date: string) => { const value = utcDate(date); return `${wee
 const controlClass = "h-12 rounded-lg bg-card px-3.5 text-base md:text-base";
 const stepTitle = (step: Step, seatMode: string) => step === 1 ? seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่จะเข้าร่วม" : step === 2 ? "ข้อมูลผู้ลงทะเบียน" : "ยืนยันการลงทะเบียน";
 
-export function PublicRegistrationWizard({ slug, formTicket, fields, days, captchaSiteKey, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
+export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, days, captchaSiteKey, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
   slug: string;
   formTicket: string;
+  /** Lets the server recognise a submission made from a page opened before the organizer changed the form. */
+  fieldsVersion: number;
   fields: RegistrationFieldConfig[];
   days: DayOption[];
   captchaSiteKey: string;
@@ -120,6 +122,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fields, days, captc
   return (
     <form action={registerPublicEvent.bind(null, slug)} noValidate onSubmit={handleSubmit} className="flex flex-1 flex-col">
       <input type="hidden" name="formTicket" value={formTicket} />
+      <input type="hidden" name="fieldsVersion" value={fieldsVersion} />
       <div aria-hidden="true" className="absolute -left-[9999px] size-px overflow-hidden"><label htmlFor="public-website">เว็บไซต์</label><input id="public-website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" /></div>
       {step === 1 && cover}
       <header className="flex flex-col gap-3 border-b bg-card px-5 pt-5 pb-4">

@@ -14,6 +14,8 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values) {
   const data = new FormData();
+  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
+  data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   for (const [key, value] of Object.entries(values)) data.set(key, value);
   return data;
@@ -118,7 +120,7 @@ try {
   const nextHead = await db.registrantEventDay.findFirstOrThrow({ where: { status: "WAITLISTED", eventDay: { eventId } }, orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }], select: { registrantId: true } });
   const statusUrl = statusUrls.get(selfCancel.email);
   const statusHtml = await (await fetch(statusUrl)).text();
-  const cancelForms = formsFrom(statusHtml).filter((part) => part.includes('name="confirm"'));
+  const cancelForms = formsFrom(statusHtml).filter((part) => part.includes('name="confirm"') && !part.includes("ส่งคำขอลบข้อมูล"));
   ensure(cancelForms.length === 1 && !cancelForms[0].includes('name="eventDayId"'), "Whole-course status page offered per-day cancellation");
   response = await post(statusUrl.toString(), cancelForms[0], { confirm: "on" });
   ensure(response.status === 303, `Self-cancellation failed: ${response.status}`);

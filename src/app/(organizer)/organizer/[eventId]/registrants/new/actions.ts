@@ -6,17 +6,20 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { parseRegistrationAnswers, readRegistrationFields } from "@/features/events/registration-fields";
+import { registrantDisplayName } from "@/features/registrations/display-name";
 import { CURRENT_CONSENT_VERSION } from "@/features/registrations/consent";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { getSeatAvailability, summarizeDayStatuses } from "@/server/registrations/day-status";
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 const errorUrl = (eventId: string, reason: string) => `/organizer/${eventId}/registrants/new?error=${reason}`;
 
 export async function addManualRegistrant(eventId: string, formData: FormData) {
   const { event, user } = await requireEventAccess(eventId, "manage");
+  if (!(await isFeatureEnabled("walkIn"))) redirect(`/organizer/${eventId}/registrants?error=walk-in-disabled`);
   if (event.status === "DRAFT") redirect(errorUrl(eventId, "not-open"));
   if (formData.get("consent") !== "on") redirect(errorUrl(eventId, "consent"));
 
@@ -74,7 +77,7 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
         const status = summarizeDayStatuses(dayStatuses.map((day) => day.status));
         token = newBearerCode();
         const person = await tx.registrant.create({ data: {
-          eventId, email, dedupeKey: email, answers, fieldsVersion: currentEvent.fieldsVersion, status,
+          eventId, email, dedupeKey: email, answers, displayName: registrantDisplayName(fields, answers), fieldsVersion: currentEvent.fieldsVersion, status,
           autoApproveAtRegistration: approved, notifyVia: "EMAIL", consentedAt: new Date(), consentVersion: CURRENT_CONSENT_VERSION,
           approvedAt: status === "APPROVED" ? new Date() : null,
           approvedById: status === "APPROVED" ? user.id : null,

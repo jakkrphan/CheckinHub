@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { hashBearerCode } from "@/server/registrations/registration";
 import { db } from "@/server/db";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 function escapeIcs(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
@@ -31,6 +32,7 @@ function nextDay(date: Date) {
 }
 
 export async function GET(_request: Request, { params }: RouteContext<"/events/[slug]/status/[token]/calendar">) {
+  if (!(await isFeatureEnabled("calendarDownload"))) notFound();
   const { slug, token } = await params;
   const registrant = await db.registrant.findUnique({
     where: { statusTokenHash: hashBearerCode(token) },

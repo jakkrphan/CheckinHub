@@ -69,9 +69,10 @@ const reviewTime =new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "sho
 
 /**
  * `kiosk` mode is for attendees scanning their own QR: no override, no staff tools, and the result clears itself
- * so the next person never sees the previous one.
+ * so the next person never sees the previous one. `allowCamera` false (admin switch) keeps every device on the
+ * scanner/typed-code input and hides the mode choice.
  */
-export function Scanner({ eventId, sessionId, operatorId, sessionLabels, sessionTitle, station = null, mode = "staff" }: { eventId: string; sessionId: string; operatorId: string; sessionLabels: Record<string, string>; sessionTitle: string; station?: string | null; mode?: "staff" | "kiosk" }) {
+export function Scanner({ eventId, sessionId, operatorId, sessionLabels, sessionTitle, station = null, mode = "staff", allowCamera = true }: { eventId: string; sessionId: string; operatorId: string; sessionLabels: Record<string, string>; sessionTitle: string; station?: string | null; mode?: "staff" | "kiosk"; allowCamera?: boolean }) {
   const kiosk = mode === "kiosk";
   const video = useRef<HTMLVideoElement>(null);
   const busy = useRef(false);
@@ -80,7 +81,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   const autoSubmit = useRef<number | undefined>(undefined);
   const last = useRef({ code: "", at: 0 });
   const inputMode = useSyncExternalStore(subscribeMode, readMode, () => "scanner" as InputMode);
-  const camera = inputMode === "camera";
+  const camera = allowCamera && inputMode === "camera";
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, () => false);
   const [cameraAttempt, setCameraAttempt] = useState(0);
   const [code, setCode] = useState("");
@@ -245,7 +246,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     codeInput.current?.focus();
   }
 
-  const offline = (!online || pending > 0) && <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 max-md:border-amber-400/60 max-md:bg-amber-950/85 max-md:text-amber-200">
+  const offline = (!online || pending > 0) && <div role="status" className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
     <WifiOffIcon className="size-4 shrink-0" aria-hidden="true" /><span className="flex-1">{online ? "" : "เน็ตหลุด · "}เก็บไว้ในเครื่อง {pending} รายการ รอ sync</span>
     {!kiosk && pending > 0 && <button type="button" disabled={!online} onClick={() => void sync(true)} className="min-h-8 underline underline-offset-2 disabled:opacity-50">ลองใหม่</button>}
   </div>;
@@ -257,7 +258,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
 
   return <section aria-label="สแกนเช็คชื่อ" className="flex flex-col gap-3">
     {result && desktop && !kiosk && <ResultCard result={result} sessionTitle={station ? `${sessionTitle} · ${station}` : sessionTitle} onClose={closeResult} onUndo={undoFromResult} undoing={undoing}>{overrideForm}</ResultCard>}
-    {!kiosk && <div role="radiogroup" aria-label="วิธีสแกน QR" className="grid grid-cols-2 gap-1 rounded-2xl bg-card p-1">
+    {!kiosk && allowCamera && <div role="radiogroup" aria-label="วิธีสแกน QR" className="grid grid-cols-2 gap-1 rounded-2xl bg-card p-1">
       {([["scanner", "เครื่องยิง QR", ScanBarcodeIcon], ["camera", "กล้อง", CameraIcon]] as const).map(([value, label, Icon]) => <button key={value} type="button" role="radio" aria-checked={inputMode === value} onClick={() => chooseMode(value)}
         className={cn("flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors", inputMode === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground")}>
         <Icon className="size-4" aria-hidden="true" />{label}
@@ -279,15 +280,15 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
         </span>
       </div>
       <p className="text-center text-sm text-muted-foreground">{kiosk ? "ส่อง QR จากหน้าสถานะของคุณให้อยู่ในกรอบ" : "ส่อง QR ให้อยู่ในกรอบ"}</p>
-      {cameraError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 max-md:border-red-400/60 max-md:bg-red-500/15 max-md:text-red-200"><span className="flex-1">{cameraError}</span><Button type="button" variant="secondary" size="sm" className="h-9" onClick={() => { setCameraError(""); setCameraAttempt((attempt) => attempt + 1); }}><RefreshCwIcon data-icon="inline-start" aria-hidden="true" />ลองอีกครั้ง</Button></div>}
+      {cameraError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="flex-1">{cameraError}</span><Button type="button" variant="secondary" size="sm" className="h-9" onClick={() => { setCameraError(""); setCameraAttempt((attempt) => attempt + 1); }}><RefreshCwIcon data-icon="inline-start" aria-hidden="true" />ลองอีกครั้ง</Button></div>}
     </div>}
 
     <div className="flex flex-col gap-3 rounded-2xl bg-card p-4">
       {!camera && <button type="button" onClick={() => codeInput.current?.focus()} aria-live="polite"
-        className={cn("flex min-h-24 w-full items-center gap-4 rounded-xl border-2 px-4 py-4 text-left transition-colors", inputFocused ? "border-primary bg-primary/10" : "border-amber-400 bg-amber-50 max-md:border-amber-400/70 max-md:bg-amber-500/10")}>
-        <ScanBarcodeIcon className={cn("size-10 shrink-0", inputFocused ? "text-primary" : "text-amber-700 max-md:text-amber-300")} aria-hidden="true" />
+        className={cn("flex min-h-24 w-full items-center gap-4 rounded-xl border-2 px-4 py-4 text-left transition-colors", inputFocused ? "border-primary bg-primary/10" : "border-amber-400 bg-amber-50")}>
+        <ScanBarcodeIcon className={cn("size-10 shrink-0", inputFocused ? "text-primary" : "text-amber-700")} aria-hidden="true" />
         <span className="flex flex-col gap-0.5">
-          <span className={cn("font-heading text-lg font-bold", inputFocused ? "text-primary" : "text-amber-900 max-md:text-amber-200")}>{inputFocused ? "พร้อมรับจากเครื่องยิง" : "แตะที่นี่ให้เครื่องยิงพร้อม"}</span>
+          <span className={cn("font-heading text-lg font-bold", inputFocused ? "text-primary" : "text-amber-900")}>{inputFocused ? "พร้อมรับจากเครื่องยิง" : "แตะที่นี่ให้เครื่องยิงพร้อม"}</span>
           <span className="text-sm text-muted-foreground">{inputFocused ? "ยิง QR ได้เลย ระบบเช็คชื่อให้ทันที" : "ช่องรับรหัสไม่ได้เลือกอยู่ เครื่องยิงจะพิมพ์ไม่เข้า"}</span>
         </span>
       </button>}
@@ -310,7 +311,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
       </div>}
       {kiosk && (!online || pending > 0) && <p className="text-sm text-muted-foreground">{online ? "" : "ออฟไลน์ · "}รอส่งข้อมูล {pending} รายการ กรุณาแจ้งเจ้าหน้าที่</p>}
       {!kiosk && reviewItems.length > 0 && <section aria-label="รายการที่ต้องตรวจสอบ" className="rounded-lg border border-red-400/60 p-3 text-sm">
-        <h3 className="font-semibold text-red-700 max-md:text-red-200">ต้องตรวจสอบ — ยังไม่ได้เช็คชื่อ</h3>
+        <h3 className="font-semibold text-red-700">ต้องตรวจสอบ — ยังไม่ได้เช็คชื่อ</h3>
         <ul className="mt-2 flex flex-col gap-1">{reviewItems.map((item) => <li key={item.id} className="flex flex-col border-t pt-1 first:border-t-0 first:pt-0"><span>{reviewTime.format(item.queuedAt)} · {sessionLabels[item.sessionId] ?? "รอบที่ถูกลบแล้ว"}</span><span className="text-xs text-muted-foreground">{item.message}</span></li>)}</ul>
       </section>}
     </div>

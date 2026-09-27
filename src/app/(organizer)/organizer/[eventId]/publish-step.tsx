@@ -25,11 +25,12 @@ function Avatar({ name }: { name: string }) {
 }
 
 /** Step 5: collaborators (owner-managed) and the publish checklist, laid out as in mockup B. */
-export async function PublishStep({ event, owner, members, checks, canAdminister, error, saved }: {
+export async function PublishStep({ event, owner, members, checks, canAdminister, canClone, error, saved }: {
   event: { id: string; slug: string; status: "DRAFT" | "PUBLISHED" | "CLOSED" };
   owner: { name: string; email: string };
   members: Member[];
   checks: PublishCheck[];
+  canClone: boolean;
   canAdminister: boolean;
   error?: string;
   saved?: string;
@@ -116,7 +117,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
       <section aria-label="การจัดการอื่น" className="flex flex-col gap-3 rounded-xl border bg-card p-5">
         <h3 className="font-heading font-bold">การจัดการอื่น</h3>
         <div className="flex flex-wrap gap-2">
-          <form action={cloneEvent.bind(null, event.id)}><Button type="submit" variant="outline" size="sm">ทำสำเนาโครงการ</Button></form>
+          {canClone && <form action={cloneEvent.bind(null, event.id)}><Button type="submit" variant="outline" size="sm">ทำสำเนาโครงการ</Button></form>}
           {event.status !== "DRAFT" && <>
             <Button asChild variant="outline" size="sm"><Link href={`/organizer/${event.id}/registrants`}>ผู้ลงทะเบียน</Link></Button>
             <Button asChild variant="outline" size="sm"><Link href={`/organizer/${event.id}/dashboard`}>แดชบอร์ด</Link></Button>

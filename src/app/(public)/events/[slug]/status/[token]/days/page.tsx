@@ -7,6 +7,7 @@ import { todayInBangkok } from "@/server/registrations/day-change";
 import { getSeatAvailability } from "@/server/registrations/day-status";
 import { hashBearerCode } from "@/server/registrations/registration";
 import { canSelfEdit } from "@/server/registrations/self-edit";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 import { changeOwnDaysAction } from "../actions";
 import { ChangeDaysForm } from "./change-days-form";
@@ -38,7 +39,8 @@ export default async function ChangeDaysPage({ params, searchParams }: PageProps
   });
   if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) notFound();
   const statusUrl = `/events/${slug}/status/${token}`;
-  const editable = registrant.event.seatMode === "per_day" && canSelfEdit(registrant, registrant.event);
+  const featureOn = await isFeatureEnabled("selfDayChange");
+  const editable = featureOn && registrant.event.seatMode === "per_day" && canSelfEdit(registrant, registrant.event);
   const availability = await getSeatAvailability(db, registrant.event, registrant.event.days.map((day) => day.id));
   const rows = new Map(registrant.days.map((row) => [row.eventDayId, row.status]));
   const checkedDays = new Set(registrant.checkIns.map((checkIn) => checkIn.session.eventDayId));
@@ -59,7 +61,7 @@ export default async function ChangeDaysPage({ params, searchParams }: PageProps
       <h1 className="font-heading text-lg font-bold leading-snug">{registrant.event.title}</h1>
     </header>
     <div className="flex flex-col gap-4 px-5 py-6">
-      {!editable ? <p role="status" className="rounded-xl border bg-card p-5 text-sm">{registrant.event.seatMode !== "per_day" ? "โครงการนี้เป็นหลักสูตรต่อเนื่อง ต้องเข้าร่วมครบทุกวัน จึงเปลี่ยนวันไม่ได้" : errors.closed} หากจำเป็นกรุณาติดต่อผู้จัด</p> : <>
+      {!editable ? <p role="status" className="rounded-xl border bg-card p-5 text-sm">{!featureOn ? "ขณะนี้ปิดการเปลี่ยนวันด้วยตนเอง" : registrant.event.seatMode !== "per_day" ? "โครงการนี้เป็นหลักสูตรต่อเนื่อง ต้องเข้าร่วมครบทุกวัน จึงเปลี่ยนวันไม่ได้" : errors.closed} หากจำเป็นกรุณาติดต่อผู้จัด</p> : <>
         <p className="text-sm text-muted-foreground">เพิ่มหรือยกเลิกบางวันได้จนถึง {deadlineFormatter.format(registrant.event.registrationDeadline!)} · QR เดิมใช้ต่อได้</p>
         {typeof error === "string" && errors[error] && <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{errors[error]}</p>}
         <ChangeDaysForm action={changeOwnDaysAction.bind(null, slug, token)} days={days} autoApprove={registrant.event.autoApprove} />

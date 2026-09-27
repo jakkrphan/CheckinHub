@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { readRegistrationFields, registrationFieldSchema, registrationFileTypes, validateRegistrationFields, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { displayNameRulesKey, registrantDisplayName } from "@/features/registrations/display-name";
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
@@ -72,11 +73,29 @@ async function loadForm(tx: Tx, eventId: string) {
 
 async function saveForm(tx: Tx, access: Access, eventId: string, form: Awaited<ReturnType<typeof loadForm>>, fields: RegistrationFieldConfig[], fieldKey: string, change: FieldChange, adminAction: string, details: Record<string, string | number | boolean> = {}) {
   await tx.event.update({ where: { id: eventId }, data: { fields, fieldsVersion: { increment: 1 } } });
+  if (form._count.registrants && displayNameRulesKey(form.fields) !== displayNameRulesKey(fields)) await refreshDisplayNames(tx, eventId, fields);
   if (requiresAdminAudit(access.membership)) await tx.auditLog.create({ data: { eventId, actorId: access.user.id, action: adminAction, target: fieldKey } });
   if (form.audited) {
     await tx.auditLog.create({ data: { eventId, actorId: access.user.id, action: "EVENT_FIELDS_CHANGED", target: fieldKey, metadata: { fieldKey, change, fieldsVersion: form.fieldsVersion + 1, ...details } } });
   }
 }
+
+/** Re-derives stored registrant names after a form change that affects them (e.g. the name field was relabelled). */
+async function refreshDisplayNames(tx: Tx, eventId: string, fields: RegistrationFieldConfig[]) {
+  let cursor: string | undefined;
+  for (;;) {
+    const rows = await tx.registrant.findMany({ where: { eventId, anonymizedAt: null }, select: { id: true, answers: true, displayName: true }, orderBy: { id: "asc" }, take: 500, ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}) });
+    if (!rows.length) return;
+    for (const row of rows) {
+      const next = registrantDisplayName(fields, row.answers);
+      if (next !== row.displayName) await tx.registrant.update({ where: { id: row.id }, data: { displayName: next } });
+    }
+    cursor = rows.at(-1)!.id;
+  }
+}
+
+// Room for refreshDisplayNames on large events (Prisma interactive transactions default to 5 s).
+const FORM_TX = { timeout: 30_000 };
 
 const confirmed = (formData?: FormData) => formData?.get("confirmAnswers") === "on";
 
@@ -143,7 +162,7 @@ export async function addRegistrationField(eventId: string, formData: FormData) 
     if (form.fields.length >= 50 || !validateRegistrationFields(next) || !conditionDepthValid(next)) return false;
     await saveForm(tx, access, eventId, form, next, field.key, "added", "EVENT_FIELD_ADDED_BY_ADMIN", { type: field.type });
     return true;
-  });
+  }, FORM_TX);
 
   if (!updated) redirect(`${back}&error=invalid-field&step=3`);
   revalidatePath(`/organizer/${eventId}`);
@@ -163,7 +182,7 @@ export async function removeRegistrationField(eventId: string, fieldKey: string,
     if (answered > 0 && !confirmed(formData)) return "confirm" as const;
     await saveForm(tx, access, eventId, form, form.fields.filter((field) => field.key !== fieldKey), fieldKey, "removed", "EVENT_FIELD_REMOVED_BY_ADMIN", { answered, answersKept: answered > 0 });
     return "ok" as const;
-  });
+  }, FORM_TX);
 
   if (removed === "children") redirect(`${back}&error=field-has-children&step=3`);
   if (removed === "confirm") redirect(`${back}&error=confirm-required&step=3`);
@@ -223,7 +242,7 @@ export async function updateRegistrationField(eventId: string, fieldKey: string,
       ...(removedOptions.length ? { optionsRemoved: removedOptions.length, answered } : {}),
     });
     return "ok" as const;
-  });
+  }, FORM_TX);
   if (updated === "confirm") redirect(`${back}&error=confirm-required&step=3`);
   if (updated === "type") redirect(`${back}&error=type-locked&step=3`);
   if (updated === "options") redirect(`${back}&error=invalid-options&step=3`);
@@ -241,7 +260,7 @@ async function moveField(eventId: string, fieldKey: string, reorder: (fields: Re
     if (!next || !validateRegistrationFields(next)) return false;
     await saveForm(tx, access, eventId, form, next, fieldKey, "moved", "EVENT_FIELD_MOVED_BY_ADMIN");
     return true;
-  });
+  }, FORM_TX);
   if (!moved) redirect(`/organizer/${eventId}?field=${encodeURIComponent(fieldKey)}&error=invalid-field&step=3`);
   revalidatePath(`/organizer/${eventId}`);
   redirect(`/organizer/${eventId}?saved=field&field=${encodeURIComponent(fieldKey)}`);

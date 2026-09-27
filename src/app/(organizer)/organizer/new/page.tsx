@@ -8,6 +8,7 @@ import { EventInfoFields } from "@/app/(organizer)/organizer/event-info-fields";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { requireActiveUser } from "@/server/authorization/session";
+import { mayCreateEvents } from "@/server/settings/features";
 
 export const metadata: Metadata = { title: "สร้างโครงการ" };
 
@@ -15,7 +16,8 @@ const steps = ["ข้อมูลโครงการ", "วันที่จ
 
 export default async function NewEventPage({ searchParams }: PageProps<"/organizer/new">) {
   const user = await requireActiveUser();
-  if (user.role === "STAFF") redirect("/check-in");
+  if (user.role === "STAFF") redirect("/check-in?notice=no-organizer-access");
+  if (!(await mayCreateEvents(user.role))) redirect("/organizer?error=create-disabled");
   const { error } = await searchParams;
 
   return (

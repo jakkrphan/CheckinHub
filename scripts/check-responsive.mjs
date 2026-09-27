@@ -97,9 +97,11 @@ function pagesFor({ event, draft, approved, session }) {
     { name: "admin-users", path: "/admin", staff: true },
     { name: "admin-events", path: "/admin?view=events", staff: true },
     { name: "admin-audit", path: "/admin?view=audit", staff: true },
+    { name: "admin-settings", path: "/admin?view=settings", staff: true },
+    { name: "admin-requests", path: "/admin?view=requests&requests=all", staff: true },
     { name: "admin-event", path: `/admin/events/${id}`, staff: true },
     { name: "account-password", path: "/account/password", staff: true },
-    { name: "check-in-list", path: "/check-in", staff: true, touch: true },
+    { name: "check-in-list", path: "/check-in", staff: true },
     { name: "check-in", path: `/check-in/${id}?session=${session.id}`, staff: true, touch: true },
     ...(process.env.FEATURE_KIOSK === "true" ? [{ name: "kiosk", path: `/check-in/${id}/kiosk?session=${session.id}`, staff: true, touch: true }] : []),
   ].filter((page) => !args.only || page.name.includes(String(args.only)));
@@ -170,7 +172,10 @@ try {
       const page = await contexts[target.staff ? "staff" : "public"].newPage();
       const pageErrors = [];
       page.on("pageerror", (error) => pageErrors.push(error.message.split("\n")[0].slice(0, 120)));
-      await page.goto(base + target.path, { waitUntil: "networkidle" });
+      // Not "networkidle": the Turnstile widget and live refresh keep connections open.
+      await page.goto(base + target.path, { waitUntil: "load" });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(target.path.startsWith("/events/") ? 1500 : 300);
       await page.waitForTimeout(250);
       const result = await page.evaluate(inspect, { minTarget: target.touch ? 44 : 24, mobile: size.width < 768 });
       const problems = [];

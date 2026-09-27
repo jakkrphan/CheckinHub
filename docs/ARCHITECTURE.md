@@ -27,3 +27,19 @@
 ## Authentication roadmap
 
 ระหว่างพัฒนาใช้ Auth.js Credentials ตรวจอีเมล/รหัสผ่านกับ `User.passwordHash` ใน MySQL local เท่านั้น ระบบจริงในอนาคตจะตรวจตัวตนผ่าน LDAP (ต้องกำหนด server, TLS, search/bind, รหัสประจำตัวที่คงที่ และ group mapping ก่อน) โดยให้ `User` ในฐานข้อมูลแอปยังเก็บ role, `isActive` และ event membership ต่อไป ขั้นย้ายไป LDAP ต้องปรับ schema ให้บัญชี LDAP ไม่ต้องมี `passwordHash` และแมป LDAP identity เข้ากับ `User` อย่างชัดเจน โดยยังใช้กฎสิทธิ์ของโครงการและ session guard เดิม
+
+## Session strategy (ตัดสินใจ 27 ก.ย. 2026 — รอผู้ใช้ยืนยัน)
+
+สเปกแนะนำ database session เพื่อให้ปิดบัญชีแล้วตัด session ทันที ระบบนี้ **คง JWT session ของ Auth.js ไว้** เพราะได้ผลเท่ากันในทางปฏิบัติ:
+
+- ทุกหน้า/server action/route handler ที่ต้อง login เรียก `requireActiveUser` / `requireAdminUser` / `requireEventAccess` (`src/server/authorization/`) ซึ่งอ่าน `User.isActive`, `role` และ membership จาก MySQL **ทุก request** — JWT ใช้บอกแค่ว่าเป็นใคร ไม่ได้เก็บสิทธิ์ ดังนั้นปิดบัญชี เปลี่ยน role หรือถอดออกจากโครงการ มีผลตั้งแต่ request ถัดไป (ตรวจแล้ว 27 ก.ย.: handler ที่ไม่เรียก guard มีแค่ login และตั้งรหัสผ่านจากลิงก์เชิญ ซึ่งเป็นขั้นก่อน login)
+- ไม่ต้องมีตาราง Session และไม่ต้อง query เพิ่มตอนอ่าน session (เราอ่าน User อยู่แล้ว)
+- ข้อจำกัดที่ยอมรับ: บังคับ logout "ทุกเครื่อง" ของบัญชีที่ยังเปิดอยู่ไม่ได้ (เช่น รหัสผ่านหลุด) ถ้าจำเป็นให้เพิ่ม `User.sessionVersion` ใส่ใน JWT แล้วให้ guard เทียบค่า — เพิ่มได้โดยไม่ต้องเปลี่ยนเป็น database session
+- ข้อกำหนดต่อไป: handler ใหม่ที่ต้อง login ต้องเรียก guard ข้างต้นเสมอ ห้ามเชื่อ `session.user` จาก JWT อย่างเดียว
+
+## Logging (PDPA)
+
+- ห้ามเขียนอีเมล/ชื่อ/คำตอบลง server log ให้ใช้ id แทน — ตรวจแล้ว 27 ก.ย.: ในโค้ดไม่มี `console.*` ฝั่ง server, สคริปต์ maintenance พิมพ์แค่จำนวน
+- Prisma ตั้ง `errorFormat: "minimal"` (`src/server/db.ts`) เพื่อไม่ให้ error message แนบ argument ของ query (อีเมล/answers) ลง log
+- หน้า error ฝั่ง browser log แค่รหัสอ้างอิง (`digest`)
+- ข้อมูลใน `AuditLog.metadata` เป็นหลักฐานในฐานข้อมูล ไม่ใช่ system log: เก็บ id/ชื่อฟิลด์ ไม่เก็บค่าคำตอบของผู้สมัคร (ยกเว้นการแก้บัญชีเจ้าหน้าที่ที่ต้องเก็บอีเมลเดิม/ใหม่ของบัญชีนั้น)

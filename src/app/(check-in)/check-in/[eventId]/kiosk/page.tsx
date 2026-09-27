@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { Scanner } from "@/app/(check-in)/check-in/[eventId]/scanner";
-import { kioskEnabled } from "@/features/flags";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
+import { getFeatureFlags } from "@/server/settings/features";
 
 import { KioskLock } from "./kiosk-lock";
 
 export const metadata: Metadata = { title: "เช็คชื่อด้วยตนเอง" };
 
 export default async function KioskPage({ params, searchParams }: PageProps<"/check-in/[eventId]/kiosk">) {
-  // Switched off for this release (see features/flags.ts).
-  if (!kioskEnabled) notFound();
+  // Admin switch in /admin?view=settings (off by default until a "forgot PIN" flow exists).
+  const flags = await getFeatureFlags();
+  if (!flags.kiosk) notFound();
   const { eventId } = await params;
   const { session: sessionParam } = await searchParams;
   const { event, user } = await requireEventAccess(eventId, "checkIn");
@@ -28,7 +29,7 @@ export default async function KioskPage({ params, searchParams }: PageProps<"/ch
     </header>
     <KioskLock eventId={eventId} exitHref={`/check-in/${eventId}?session=${session.id}`}>
       <p className="text-center text-lg">สแกน QR จากหน้าสถานะของคุณเพื่อเช็คชื่อ</p>
-      <Scanner eventId={eventId} sessionId={session.id} operatorId={user.id} sessionLabels={{ [session.id]: session.label }} sessionTitle={session.label} mode="kiosk" />
+      <Scanner eventId={eventId} sessionId={session.id} operatorId={user.id} sessionLabels={{ [session.id]: session.label }} sessionTitle={session.label} mode="kiosk" allowCamera={flags.cameraScan} />
     </KioskLock>
   </main>;
 }

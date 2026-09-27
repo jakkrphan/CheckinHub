@@ -5,15 +5,17 @@ import { z } from "zod";
 
 import { parseRegistrationAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { CURRENT_CONSENT_VERSION } from "@/features/registrations/consent";
+import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
 import { getSeatAvailability, summarizeDayStatuses } from "@/server/registrations/day-status";
 import { checkFormTicket, HONEYPOT_FIELD } from "@/server/registrations/form-ticket";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 export const newBearerCode = () => randomBytes(32).toString("base64url");
 export const hashBearerCode = (code: string) => createHash("sha256").update(code).digest("hex");
 
-export type RegistrationFailure = "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired";
+export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired";
 export type RegistrationResult =
   | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null }
   | { ok: false; reason: RegistrationFailure };
@@ -45,6 +47,8 @@ async function recordAttempt(ip: string) {
 }
 
 export async function registerForEvent(slug: string, formData: FormData, ip: string): Promise<RegistrationResult> {
+  // Admin emergency switch; walk-in registration by organizers does not go through here.
+  if (!(await isFeatureEnabled("publicRegistration"))) return { ok: false, reason: "paused" };
   if (!(await recordAttempt(ip))) return { ok: false, reason: "rate-limited" };
   // Bot signals: a filled honeypot or a form submitted within seconds of rendering.
   const honeypot = formData.get(HONEYPOT_FIELD);
@@ -84,7 +88,8 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
 
         const fields = readRegistrationFields(event.fields);
         const answers = parseRegistrationAnswers(fields, formData, stored.uploads);
-        if (!answers) return { ok: false, reason: "invalid" } as const;
+        // A page rendered from an older form version fails validation through no fault of the registrant.
+        if (!answers) return { ok: false, reason: formData.get("fieldsVersion") === String(event.fieldsVersion) ? "invalid" : "form-changed" } as const;
 
         const alreadyRegistered = await tx.registrant.findUnique({
           where: { eventId_dedupeKey: { eventId: event.id, dedupeKey: email.data } },
@@ -127,6 +132,7 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
             email: email.data,
             dedupeKey: email.data,
             answers,
+            displayName: registrantDisplayName(fields, answers),
             fieldsVersion: event.fieldsVersion,
             status,
             autoApproveAtRegistration: currentEvent.autoApprove,

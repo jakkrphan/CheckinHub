@@ -17,6 +17,8 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values) {
   const data = new FormData();
+  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
+  data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   for (const [key, value] of Object.entries(values)) {
     if (Array.isArray(value)) { data.delete(key); for (const item of value) data.append(key, item); } else data.set(key, value);
@@ -42,6 +44,11 @@ async function callCheckInAction(pagePath, name, args, cookie) {
   ensure(id, `Action ${name} not found in manifest`);
   return (await fetch(`${base}${pagePath}`, { method: "POST", headers: { cookie, origin: base, "next-action": id, "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" }, body: JSON.stringify(args) })).text();
 }
+
+// Admin feature switches (/admin?view=settings) change what these pages offer; test against the defaults and put
+// whatever an admin had chosen back afterwards.
+const savedSettings = await db.systemSetting.findMany();
+await db.systemSetting.deleteMany();
 
 try {
   const suffix = randomUUID();
@@ -251,6 +258,8 @@ try {
 
   process.stdout.write("Local features: self-edit, self-service day change, check-in corrections, ETag delta polling, check-in method and station, kiosk switch, session order, xlsx export and retention anonymization passed.\n");
 } finally {
+  await db.systemSetting.deleteMany();
+  for (const row of savedSettings) await db.systemSetting.create({ data: row });
   for (const id of eventIds) await db.event.deleteMany({ where: { id } });
   if (staffId) { await db.auditLog.deleteMany({ where: { actorId: staffId } }); await db.user.deleteMany({ where: { id: staffId } }); }
   await db.$disconnect();

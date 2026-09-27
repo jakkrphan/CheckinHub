@@ -5,13 +5,16 @@ import { docxContentType, readLocalRegistrationFile } from "@/server/registratio
 
 const contentTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", docxContentType]);
 
-/** Downloads one attachment; multi-file answers pick the file with `?i=` (0-based, default 0). */
+/**
+ * Downloads one attachment; multi-file answers pick the file with `?i=` (0-based, default 0). Files of a field that was
+ * later removed from the form stay downloadable until retention deletes them.
+ */
 export async function GET(request: Request, context: RouteContext<"/organizer/[eventId]/registrants/[registrantId]/files/[fieldKey]">) {
   const { eventId, registrantId, fieldKey } = await context.params;
   const { event, user } = await requireEventAccess(eventId, "view");
   const fields = readRegistrationFields(event.fields);
-  const field = fields.find((item) => item.key === fieldKey && item.type === "file");
-  if (!field) return new Response("Not found", { status: 404 });
+  const field = fields.find((item) => item.key === fieldKey);
+  if (field && field.type !== "file") return new Response("Not found", { status: 404 });
 
   const person = await db.registrant.findFirst({ where: { id: registrantId, eventId }, select: { answers: true } });
   const answers = person?.answers && typeof person.answers === "object" && !Array.isArray(person.answers)

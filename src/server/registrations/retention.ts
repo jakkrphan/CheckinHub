@@ -14,9 +14,17 @@ export function retentionDueAt(lastDay: Date, retentionDays: number) {
 }
 
 /** Every stored upload in an answers object: single-file objects, multi-file arrays, and keys of fields removed from the form. */
-function fileKeys(answers: unknown) {
+export function fileKeys(answers: unknown) {
   if (!answers || typeof answers !== "object" || Array.isArray(answers)) return [];
   return Object.values(answers as Record<string, unknown>).flatMap((value) => readFileAnswers(value).map((file) => file.storageKey));
+}
+
+/** Registrant columns after anonymization: answers, contact details, consent IP, reasons, QR and status link go. */
+export function anonymizedRegistrantData(now: Date) {
+  return {
+    answers: {}, displayName: null, email: null, dedupeKey: null, lineUserId: null, consentIp: null, rejectReason: null, qrCode: null,
+    statusTokenHash: hashBearerCode(randomBytes(32).toString("base64url")), anonymizedAt: now,
+  };
 }
 
 /**
@@ -38,10 +46,7 @@ export async function anonymizeExpiredEvents(now = new Date()) {
       if (!batch.length) break;
       await db.$transaction(batch.map((person) => db.registrant.update({
         where: { id: person.id },
-        data: {
-          answers: {}, email: null, dedupeKey: null, lineUserId: null, consentIp: null, rejectReason: null, qrCode: null,
-          statusTokenHash: hashBearerCode(randomBytes(32).toString("base64url")), anonymizedAt: now,
-        },
+        data: anonymizedRegistrantData(now),
       })));
       await deleteLocalRegistrationFiles(batch.flatMap((person) => fileKeys(person.answers)));
       eventCount += batch.length;

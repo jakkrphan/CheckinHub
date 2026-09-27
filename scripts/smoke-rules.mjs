@@ -15,6 +15,8 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values) {
   const data = new FormData();
+  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
+  data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   for (const [key, value] of Object.entries(values)) {
     if (Array.isArray(value)) { data.delete(key); for (const item of value) data.append(key, item); } else data.set(key, value);
@@ -71,6 +73,11 @@ try {
   ensure(location(response).includes("error=invalid"), "Honeypot submission was accepted");
   response = await post(publicUrl, form, { ...values(`forged-${suffix}@example.invalid`), formTicket: `${Date.now() - 10_000}.forged` }, { "x-forwarded-for": `rules-forged-${suffix}` });
   ensure(location(response).includes("error=invalid"), "Forged form ticket was accepted");
+  if (process.env.TURNSTILE_SECRET_KEY) {
+    // With Turnstile configured, a submission without (or with a bad) token is refused.
+    response = await post(publicUrl, form, { ...values(`nocaptcha-${suffix}@example.invalid`), "cf-turnstile-response": "" }, { "x-forwarded-for": `rules-captcha-${suffix}` });
+    ensure(location(response).includes("error=captcha"), `Submission without a Turnstile token was accepted: ${location(response)}`);
+  }
   ensure(await db.registrant.count({ where: { eventId } }) === 0, "A refused submission created a registrant");
 
   // Consent evidence is stored with the registration.

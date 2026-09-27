@@ -24,42 +24,67 @@ export async function hasCapacity(tx: Prisma.TransactionClient, dayIds: string[]
   return true;
 }
 
+type QueueEvent = { id: string; seatMode: string; maxSeats: number | null };
+
+/** Moves the first whole-course registrant in the queue up when a course seat is free; returns their id. */
+async function promoteNextForCourse(tx: Prisma.TransactionClient, event: QueueEvent, excludedPeople: string[] = []) {
+  const availability = await getSeatAvailability(tx, event, []);
+  if (availability.mode !== "whole_course" || availability.remaining === 0) return null;
+  const nextRow = await tx.registrantEventDay.findFirst({ where: { status: "WAITLISTED", eventDay: { eventId: event.id }, registrant: { status: "WAITLISTED", ...(excludedPeople.length ? { id: { notIn: excludedPeople } } : {}) } }, orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }], select: { registrant: { select: { id: true, autoApproveAtRegistration: true } } } });
+  const next = nextRow?.registrant;
+  if (!next) return null;
+  const status = next.autoApproveAtRegistration ? "APPROVED" : "PENDING";
+  await tx.registrantEventDay.updateMany({ where: { registrantId: next.id }, data: { status, waitlistedAt: null, pendingSince: status === "PENDING" ? new Date() : null } });
+  await syncRegistrantStatus(tx, next.id);
+  return next.id;
+}
+
+/** Moves the first person queued for one day up when that day has a free seat; returns their registrant id. */
+async function promoteNextForDay(tx: Prisma.TransactionClient, day: { id: string; maxSeats: number | null; isClosed: boolean }, excludedRowIds: string[] = []) {
+  if (day.isClosed) return null;
+  if (day.maxSeats !== null && (await seatsTaken(tx, day.id)) >= day.maxSeats) return null;
+  const next = await tx.registrantEventDay.findFirst({
+    where: { eventDayId: day.id, status: "WAITLISTED", ...(excludedRowIds.length ? { id: { notIn: excludedRowIds } } : {}) },
+    orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }],
+    select: { id: true, registrantId: true, registrant: { select: { autoApproveAtRegistration: true } } },
+  });
+  if (!next) return null;
+  await tx.registrantEventDay.update({
+    where: { id: next.id },
+    data: { status: next.registrant.autoApproveAtRegistration ? "APPROVED" : "PENDING", waitlistedAt: null, pendingSince: next.registrant.autoApproveAtRegistration ? null : new Date() },
+  });
+  await syncRegistrantStatus(tx, next.registrantId);
+  return next.registrantId;
+}
+
+/** Fills every free seat from the queue, in order — only for published events set to promote automatically. */
 export async function promoteWaitlist(tx: Prisma.TransactionClient, eventId: string, excludedRowIds: string[] = []) {
   const event = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { id: true, status: true, waitlistPromotion: true, seatMode: true, maxSeats: true } });
   if (event.status !== "PUBLISHED" || event.waitlistPromotion !== "AUTO") return;
   if (event.seatMode === "whole_course") {
     await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
     const excludedPeople = excludedRowIds.length ? (await tx.registrantEventDay.findMany({ where: { id: { in: excludedRowIds } }, select: { registrantId: true } })).map((row) => row.registrantId) : [];
-    while (true) {
-      const availability = await getSeatAvailability(tx, event, []);
-      if (availability.mode !== "whole_course" || availability.remaining === 0) break;
-      const nextRow = await tx.registrantEventDay.findFirst({ where: { status: "WAITLISTED", eventDay: { eventId }, registrant: { status: "WAITLISTED", ...(excludedPeople.length ? { id: { notIn: excludedPeople } } : {}) } }, orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }], select: { registrant: { select: { id: true, autoApproveAtRegistration: true } } } });
-      const next = nextRow?.registrant;
-      if (!next) break;
-      const status = next.autoApproveAtRegistration ? "APPROVED" : "PENDING";
-      await tx.registrantEventDay.updateMany({ where: { registrantId: next.id }, data: { status, waitlistedAt: null, pendingSince: status === "PENDING" ? new Date() : null } });
-      await syncRegistrantStatus(tx, next.id);
-    }
+    while (await promoteNextForCourse(tx, event, excludedPeople));
     return;
   }
   await lockEventDays(tx, eventId);
   const days = await tx.eventDay.findMany({ where: { eventId }, select: { id: true, maxSeats: true, isClosed: true } });
-  for (const day of days) {
-    if (day.isClosed) continue;
-    while (day.maxSeats === null || (await seatsTaken(tx, day.id)) < day.maxSeats) {
-      const next = await tx.registrantEventDay.findFirst({
-        where: { eventDayId: day.id, status: "WAITLISTED", ...(excludedRowIds.length ? { id: { notIn: excludedRowIds } } : {}) },
-        orderBy: [{ waitlistedAt: "asc" }, { id: "asc" }],
-        select: { id: true, registrantId: true, registrant: { select: { autoApproveAtRegistration: true } } },
-      });
-      if (!next) break;
-      await tx.registrantEventDay.update({
-        where: { id: next.id },
-        data: { status: next.registrant.autoApproveAtRegistration ? "APPROVED" : "PENDING", waitlistedAt: null, pendingSince: next.registrant.autoApproveAtRegistration ? null : new Date() },
-      });
-      await syncRegistrantStatus(tx, next.registrantId);
-    }
-  }
+  for (const day of days) while (await promoteNextForDay(tx, day, excludedRowIds));
+}
+
+/**
+ * Manual promotion (spec 1.7 `waitlistPromotion = manual`): the organizer moves the next person in one queue up.
+ * `eventDayId` null means the whole-course queue. Returns the promoted registrant id, or null when there is no free
+ * seat or nobody waiting any more (someone else acted first).
+ */
+export async function promoteNextManually(tx: Prisma.TransactionClient, eventId: string, eventDayId: string | null) {
+  const days = await lockEventDays(tx, eventId);
+  const event = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { id: true, status: true, seatMode: true, maxSeats: true } });
+  if (event.status !== "PUBLISHED") return null;
+  if (event.seatMode === "whole_course") return eventDayId === null ? promoteNextForCourse(tx, event) : null;
+  if (!eventDayId || !days.some((day) => day.id === eventDayId)) return null;
+  const day = await tx.eventDay.findUniqueOrThrow({ where: { id: eventDayId }, select: { id: true, maxSeats: true, isClosed: true } });
+  return promoteNextForDay(tx, day);
 }
 
 export async function cancelOwnRegistration(slug: string, token: string, eventDayId?: string) {

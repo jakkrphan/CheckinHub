@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
+import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 import { db } from "@/server/db";
 
 export const metadata: Metadata = { title: "ข้อมูลโครงการ" };
@@ -37,7 +38,6 @@ const errorMessage: Record<string, string> = {
   "invalid-field": "บันทึกฟิลด์ไม่ได้: ตรวจชื่อฟิลด์ เงื่อนไข (ฟิลด์ลูกต้องอยู่หลังฟิลด์แม่ และใช้ค่าที่มีในตัวเลือกของฟิลด์แม่) และตัวเลือกที่ฟิลด์ลูกอ้างถึง",
   "invalid-condition": "ตั้งเงื่อนไขไม่ครบ: เลือกค่าของฟิลด์แม่อย่างน้อย 1 ค่า หรือปิดสวิตช์ “แสดงแบบมีเงื่อนไข”",
   "invalid-options": "ตัวเลือกต้องมี 2–30 ค่า ห้ามซ้ำกัน และยาวไม่เกิน 191 ตัวอักษร",
-  "fields-locked": "แก้ฟอร์มได้เฉพาะโครงการฉบับร่าง",
   "field-in-use": "ลบฟิลด์นี้ไม่ได้ เพราะมีผู้ลงทะเบียนหรือฟิลด์อื่นอ้างถึงอยู่",
 };
 
@@ -73,7 +73,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
   const registrantCount = await db.registrant.count({ where: { eventId } });
   const step = typeof requestedStep === "string" && /^[1-5]$/.test(requestedStep)
     ? Number(requestedStep)
-    : saved === "field" || ["invalid-field", "invalid-condition", "invalid-options", "fields-locked", "field-in-use"].includes(String(error)) ? 3
+    : saved === "field" || ["invalid-field", "invalid-condition", "invalid-options", "field-in-use"].includes(String(error)) ? 3
     : saved === "session" || ["invalid-session", "session-in-use", "duplicate-session"].includes(String(error)) ? 4
     : saved === "member" || saved === "status" || ["invalid-member", "member-not-found", "not-ready", "invalid-status"].includes(String(error)) ? 5
     : saved === "day" || ["invalid-day", "duplicate-day", "day-in-use"].includes(String(error)) ? 2
@@ -232,7 +232,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
           <h2 className="font-heading text-[22px] font-bold">ผู้ร่วมจัด & เผยแพร่</h2>
           <p className="text-sm text-muted-foreground">เจ้าของเท่านั้นที่เพิ่ม/ลบผู้ร่วมจัด และกดเผยแพร่/ปิดรับได้</p>
         </div>
-        <PublishStep event={event} owner={owner} members={members} checks={publishChecks} canAdminister={canAdminister}
+        <PublishStep event={event} owner={owner} members={members} checks={publishChecks} canAdminister={canAdminister} canClone={await mayCreateEvents(user.role) && await isFeatureEnabled("eventClone")}
           error={typeof error === "string" ? error : undefined} saved={typeof saved === "string" ? saved : undefined} />
       </section>}
     </main>

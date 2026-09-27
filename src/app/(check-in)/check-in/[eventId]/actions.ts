@@ -8,9 +8,11 @@ import { redirect } from "next/navigation";
 import { requireEventAccess } from "@/server/authorization/event";
 import { canManageEvent, requiresAdminAudit } from "@/server/authorization/policy";
 import { readRegistrationFields } from "@/features/events/registration-fields";
+import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
 import { mergeAnswers } from "@/server/registrations/self-edit";
 import { cleanStation, currentStation, STATION_COOKIE } from "@/server/checkin/station";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 export type ScanPerson = {
   id: string;
@@ -76,8 +78,10 @@ export type CheckInMethod = (typeof checkInMethods)[number];
 
 async function recordCheckIn(eventId: string, sessionId: string, code: string, options: { clientEventId?: string; scannedAt?: string; override?: { note: string }; method?: string }): Promise<ScanResult> {
   const { user, event, membership } = await requireEventAccess(eventId, "checkIn");
-  const mayOverride = canManageEvent(membership);
+  const overrideEnabled = await isFeatureEnabled("checkinOverride");
+  const mayOverride = canManageEvent(membership) && overrideEnabled;
   const station = await currentStation();
+  if (options.override && !overrideEnabled) return { kind: "invalid", message: "ผู้ดูแลระบบปิดการอนุญาตกรณีพิเศษไว้" };
   if (options.override && !mayOverride) return { kind: "invalid", message: "บัญชีนี้ไม่มีสิทธิ์อนุญาตเป็นกรณีพิเศษ" };
   if (!code || code.length > 200) return { kind: "invalid", message: "รหัสไม่ถูกต้อง" };
   const { clientEventId } = options;
@@ -191,10 +195,10 @@ export async function correctCheckInAnswers(eventId: string, sessionId: string, 
   const person = await db.registrant.findFirst({ where: { id: registrantId, eventId, status: "APPROVED", anonymizedAt: null }, select: { answers: true } });
   if (!person || !editable.size) redirect(`${back}&corrected=invalid`);
   const merged = mergeAnswers(fields, person.answers, formData, editable);
-  if (!merged) redirect(`${back}&corrected=invalid`);
+  if ("problem" in merged) redirect(`${back}&corrected=invalid`);
   if (merged.changed.length) {
     await db.$transaction([
-      db.registrant.update({ where: { id: registrantId }, data: { answers: merged.answers as Prisma.InputJsonValue } }),
+      db.registrant.update({ where: { id: registrantId }, data: { answers: merged.answers as Prisma.InputJsonValue, displayName: registrantDisplayName(fields, merged.answers) } }),
       db.auditLog.create({ data: { eventId, actorId: user.id, action: "CHECKIN_ANSWERS_CORRECTED", target: registrantId, metadata: { changedFields: merged.changed, sessionId } } }),
     ]);
     revalidatePath(`/check-in/${eventId}`);

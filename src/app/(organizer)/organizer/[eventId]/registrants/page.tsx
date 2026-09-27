@@ -1,19 +1,23 @@
 import Link from "next/link";
 import { Prisma, type RegistrantStatus } from "@prisma/client";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, ShieldIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
 
-import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
+import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { readFileAnswers, readRegistrationFields, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { formatDateTime, formatEventDay, formatEventDayWithWeekday } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
+import { canManageEvent } from "@/server/authorization/policy";
 import { db } from "@/server/db";
+import { getWaitlistOpenings } from "@/server/registrations/waitlist-openings";
+import { getFeatureFlags } from "@/server/settings/features";
 
 import { OrganizerEventHeader } from "../event-header";
+import { WaitlistOpenings } from "../waitlist-openings";
 import { BulkSelectForm } from "./bulk-select";
 
 const labels: Record<RegistrantStatus, string> = { PENDING: "รออนุมัติ", WAITLISTED: "รอคิว", APPROVED: "อนุมัติ", REJECTED: "ปฏิเสธ", CANCELLED: "ยกเลิก" };
@@ -33,13 +37,19 @@ const resultMessages: Record<string, [string, "ok" | "warn" | "error"]> = {
   missing: ["ไม่พบผู้ลงทะเบียนนี้", "error"],
   retry: ["ระบบกำลังทำรายการอื่นพร้อมกัน กรุณาลองใหม่", "error"],
   confirm: ["กรุณาติ๊กยืนยันก่อนออกลิงก์สถานะใหม่", "error"],
+  bulk: ["อนุมัติทุกคนที่เลือกแล้ว", "ok"],
+  "bulk-partial": ["อนุมัติได้บางส่วน — ดูรายชื่อที่ยังไม่ผ่านด้านล่าง", "warn"],
+  promoted: ["เลื่อนคิวถัดไปแล้ว", "ok"],
+  deleted: ["ลบข้อมูลตามคำขอแล้ว — ข้อมูลส่วนบุคคลถูกปกปิด การลงทะเบียนที่ยังไม่ถึงวันถูกยกเลิก", "ok"],
+  "delete-rejected": ["ปฏิเสธคำขอลบข้อมูลแล้ว ผู้สมัครจะเห็นเหตุผลในหน้าสถานะ", "ok"],
+  "delete-confirm": ["กรุณาติ๊กยืนยันก่อนลบข้อมูล", "error"],
+  "delete-note": ["กรุณาระบุเหตุผลที่ต้องเก็บข้อมูลไว้ (อย่างน้อย 3 ตัวอักษร)", "error"],
+  "promote-none": ["ไม่ได้เลื่อนคิว: ที่นั่งเต็มแล้วหรือไม่มีคนรอคิว (อาจมีผู้จัดคนอื่นเลื่อนไปก่อน)", "warn"],
 };
 
-/** The best human name for a registrant: the first text field that looks like a name, else their email. */
-function displayName(fields: RegistrationFieldConfig[], answers: Record<string, unknown>, email: string | null) {
-  const nameField = fields.find((field) => field.type === "text" && !field.sensitive && (/ชื่อ|name/i.test(field.label) || /name/i.test(field.key)));
-  const value = nameField ? answers[nameField.key] : undefined;
-  return typeof value === "string" && value.trim() ? value.trim() : email ?? "ไม่มีชื่อ (ข้อมูลถูกปกปิด)";
+/** The stored display name (see features/registrations/display-name.ts), else the email. */
+function displayName(person: { displayName: string | null; email: string | null }) {
+  return person.displayName ?? person.email ?? "ไม่มีชื่อ (ข้อมูลถูกปกปิด)";
 }
 
 function asAnswers(value: unknown) {
@@ -49,7 +59,7 @@ function asAnswers(value: unknown) {
 export default async function RegistrantsPage({ params, searchParams }: PageProps<"/organizer/[eventId]/registrants">) {
   const { eventId } = await params;
   const search = await searchParams;
-  const { event } = await requireEventAccess(eventId, "view");
+  const { event, membership } = await requireEventAccess(eventId, "view");
   const query = typeof search.q === "string" ? search.q.trim().slice(0, 100) : "";
   const selectedStatus = typeof search.status === "string" && search.status in labels ? search.status as RegistrantStatus : undefined;
   const fields = readRegistrationFields(event.fields);
@@ -66,6 +76,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   if (selectedDay) where.days = { some: { eventDayId: selectedDay, ...(selectedStatus ? { status: selectedStatus } : {}) } };
   if (query) {
     where.OR = [
+      { displayName: { contains: query } },
       { email: { contains: query } },
       ...fields.filter((item) => ["text", "textarea", "email", "tel"].includes(item.type) && !item.sensitive).map((item) => ({ answers: { path: `$.${item.key}`, string_contains: query, mode: "insensitive" as const } })),
     ];
@@ -82,7 +93,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   const [registrants, total, counts] = await Promise.all([
     db.registrant.findMany({
       where, orderBy: [{ registeredAt: "desc" }, { id: "desc" }], skip: (currentPage - 1) * pageSize, take: pageSize,
-      select: { id: true, email: true, answers: true, status: true, registeredAt: true, days: { select: { eventDayId: true, status: true } } },
+      select: { id: true, email: true, displayName: true, answers: true, status: true, registeredAt: true, days: { select: { eventDayId: true, status: true } } },
     }),
     db.registrant.count({ where }),
     db.registrant.groupBy({ by: ["status"], where: { eventId }, _count: true }),
@@ -117,19 +128,45 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   const next = positionInList >= 0 && positionInList < registrants.length - 1 ? registrants[positionInList + 1] : undefined;
   const returnTo = makeHref({ selected: person?.id });
   const result = typeof search.result === "string" ? resultMessages[search.result] : undefined;
+  const openings = await getWaitlistOpenings(event);
+  const deletionRequests = await db.dataRequest.findMany({ where: { eventId, status: "OPEN" }, orderBy: { requestedAt: "asc" }, select: { id: true, reason: true, requestedAt: true, registrant: { select: { id: true, displayName: true, email: true } } } });
+  const orphanKeys = person ? Object.keys(asAnswers(person.answers)).filter((key) => !fields.some((field) => field.key === key)) : [];
+  const orphanFiles = person ? orphanKeys.flatMap((key) => readFileAnswers(asAnswers(person.answers)[key]).map((file, index) => ({ key, index, name: file.originalName }))) : [];
+  const personRequest = person ? deletionRequests.find((request) => request.registrant.id === person.id) : undefined;
+  const mayManage = canManageEvent(membership) && !event.anonymizedAt;
+  // Bulk-approve outcome arrives as registrant ids (never names) in the URL; names and reasons are looked up here.
+  const idList = (value: unknown) => typeof value === "string" ? value.split(",").filter((id) => /^[a-z0-9]{20,40}$/.test(id)).slice(0, 100) : [];
+  const [heldIds, skippedIds] = [idList(search.held), idList(search.skipped)];
+  const bulkPeople = heldIds.length || skippedIds.length ? await db.registrant.findMany({
+    where: { eventId, id: { in: [...heldIds, ...skippedIds] } },
+    select: { id: true, displayName: true, email: true, status: true, days: { where: { status: "WAITLISTED" }, select: { eventDayId: true } } },
+  }) : [];
+  const bulkIssues = [
+    ...heldIds.flatMap((id) => bulkPeople.filter((item) => item.id === id).map((item) => ({ person: item, reason: event.seatMode === "whole_course" ? "ที่นั่งทั้งหลักสูตรเต็ม · ยังอยู่ในคิวสำรอง" : `${item.days.map((day) => `วันที่ ${dayIndex.get(day.eventDayId)}`).join(", ")} เต็ม · วันนั้นยังอยู่ในคิวสำรอง (วันอื่นอนุมัติแล้ว)` }))),
+    ...skippedIds.flatMap((id) => bulkPeople.filter((item) => item.id === id).map((item) => ({ person: item, reason: `สถานะเปลี่ยนไปก่อนกดอนุมัติ (ตอนนี้: ${labels[item.status]})` }))),
+  ];
   const personAnswers = asAnswers(person?.answers);
   const canEdit = !event.anonymizedAt;
+  const flags = await getFeatureFlags();
   const hasFilters = !!(query || selectedDay || (selectedField && answerValue));
 
   return <>
-    <OrganizerEventHeader event={event} activeTab="registrants" actions={<>
+    <OrganizerEventHeader event={event} activeTab="registrants" actions={flags.exportData ? <>
       <form method="get" action={`/organizer/${eventId}/registrants/export`} className="flex flex-wrap items-center gap-2">
         <label className="flex min-h-8 items-center gap-1.5 text-xs text-muted-foreground"><input type="checkbox" name="includeSensitive" className="size-4 accent-primary" />รวมข้อมูลอ่อนไหว</label>
         <Button type="submit" variant="outline"><DownloadIcon data-icon="inline-start" aria-hidden="true" />Export CSV</Button>
         <Button type="submit" name="format" value="xlsx" variant="outline">Excel</Button>
       </form>
-    </>} />
+    </> : undefined} />
     <AutoRefresh intervalMs={5000} />
+    {openings.length > 0 && <div className="mx-auto mt-4 w-full max-w-7xl px-5 lg:px-10"><WaitlistOpenings eventId={eventId} openings={openings} canManage={mayManage} returnTo={makeHref({})} /></div>}
+    {deletionRequests.length > 0 && <section aria-labelledby="deletion-requests-title" className="mx-auto mt-4 flex w-full max-w-7xl flex-col gap-2 px-5 lg:px-10">
+      <div className="flex flex-col gap-2 rounded-xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+        <h2 id="deletion-requests-title" className="flex items-center gap-2 font-semibold"><ShieldIcon className="size-4 shrink-0" aria-hidden="true" />{`คำขอลบข้อมูล (PDPA) รอดำเนินการ ${deletionRequests.length.toLocaleString("th-TH")} รายการ`}</h2>
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">{deletionRequests.map((request) => <li key={request.id}><Link href={makeHref({ selected: request.registrant.id })} className="font-medium underline underline-offset-4 [overflow-wrap:anywhere]">{request.registrant.displayName ?? request.registrant.email ?? "ผู้ลงทะเบียน"}</Link> <span className="text-sky-900/80">· {formatDateTime(request.requestedAt)}</span></li>)}</ul>
+      </div>
+    </section>}
+    {search.error === "walk-in-disabled" && <p role="alert" className="mx-auto mt-4 w-full max-w-7xl rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive lg:px-10">ผู้ดูแลระบบปิดการเพิ่มผู้ลงทะเบียนเองไว้</p>}
     {event.anonymizedAt && <p role="status" className="mx-auto mt-4 w-full max-w-7xl rounded-xl border bg-card px-5 py-3 text-sm text-muted-foreground lg:px-10">ข้อมูลส่วนบุคคลของโครงการนี้ถูกปกปิดแล้วเมื่อครบระยะเก็บข้อมูล {formatEventDay(event.anonymizedAt)} เหลือเฉพาะสถานะและสถิติ</p>}
 
     <div className="grid flex-1 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]">
@@ -175,7 +212,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
             <p>{allCount ? "ลองล้างตัวกรองหรือเปลี่ยนแท็บสถานะ" : "แชร์ลิงก์ลงทะเบียน หรือเพิ่มผู้ลงทะเบียนเองได้จากปุ่มด้านขวา"}</p>
           </div> : <ul className="divide-y">{registrants.map((item) => {
             const active = item.id === person?.id;
-            const name = displayName(fields, asAnswers(item.answers), item.email);
+            const name = displayName(item);
             return <li key={item.id} className={cn("relative flex items-start gap-3 px-4 py-3 hover:bg-muted/50", active && "bg-accent/60 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary")}>
               {canEdit && item.status === "PENDING" ? <input type="checkbox" name="registrantId" value={item.id} aria-label={`เลือก ${name}`} className="relative z-10 mt-0.5 size-6 shrink-0 accent-primary" /> : <span className="w-6 shrink-0" aria-hidden="true" />}
               <Link href={makeHref({ selected: item.id })} aria-current={active ? "true" : undefined} className="flex min-w-0 flex-1 flex-col gap-1 outline-none after:absolute after:inset-0 focus-visible:underline">
@@ -199,22 +236,47 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-5 py-3">
           <div className="flex items-center gap-2">
             {requestedSelection && <Button asChild variant="ghost" size="sm" className="lg:hidden"><Link href={makeHref({ selected: undefined })}><ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />รายชื่อ</Link></Button>}
-            {canEdit && <Button asChild variant="outline" size="sm"><Link href={`/organizer/${eventId}/registrants/new`}><UserPlusIcon data-icon="inline-start" aria-hidden="true" />เพิ่มผู้ลงทะเบียนเอง</Link></Button>}
+            {canEdit && flags.walkIn && <Button asChild variant="outline" size="sm"><Link href={`/organizer/${eventId}/registrants/new`}><UserPlusIcon data-icon="inline-start" aria-hidden="true" />เพิ่มผู้ลงทะเบียนเอง</Link></Button>}
           </div>
           <span className="flex items-center gap-2 text-xs text-muted-foreground"><span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />อัปเดตอัตโนมัติทุก 5 วินาที</span>
         </div>
 
-        {result && <p role={result[1] === "error" ? "alert" : "status"} className={cn("mx-5 mt-4 rounded-lg border px-4 py-3 text-sm", result[1] === "error" ? "border-destructive/30 bg-destructive/10 text-destructive" : result[1] === "warn" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-primary/30 bg-accent text-accent-foreground")}>{result[0]}{search.result === "partial" && typeof search.approved === "string" && typeof search.requested === "string" ? ` (อนุมัติ ${search.approved} จาก ${search.requested} วัน)` : ""}</p>}
+        {result && <p role={result[1] === "error" ? "alert" : "status"} className={cn("mx-5 mt-4 rounded-lg border px-4 py-3 text-sm", result[1] === "error" ? "border-destructive/30 bg-destructive/10 text-destructive" : result[1] === "warn" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-primary/30 bg-accent text-accent-foreground")}>{result[0]}{search.result === "partial" && typeof search.approved === "string" && typeof search.requested === "string" ? ` (อนุมัติ ${search.approved} จาก ${search.requested} วัน)` : ""}{search.result === "bulk-partial" && typeof search.approved === "string" && typeof search.requested === "string" ? ` · อนุมัติครบ ${search.approved} จาก ${search.requested} คน` : ""}</p>}
+        {bulkIssues.length > 0 && <section aria-label="ผู้ที่ยังไม่ได้รับอนุมัติ" className="mx-5 mt-2 rounded-lg border border-amber-300 bg-card">
+          <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">{`ยังไม่ได้อนุมัติ ${bulkIssues.length.toLocaleString("th-TH")} คน`}</p>
+          <ul className="divide-y text-sm">{bulkIssues.map(({ person: item, reason }) => <li key={item.id} className="flex flex-col gap-0.5 px-4 py-2.5">
+            <Link href={makeHref({ selected: item.id, result: typeof search.result === "string" ? search.result : undefined, held: heldIds.join(",") || undefined, skipped: skippedIds.join(",") || undefined, approved: typeof search.approved === "string" ? search.approved : undefined, requested: typeof search.requested === "string" ? search.requested : undefined })} className="font-medium underline-offset-4 hover:underline [overflow-wrap:anywhere]">{item.displayName ?? item.email ?? "ผู้ลงทะเบียน"}</Link>
+            <span className="text-muted-foreground">{reason}</span>
+          </li>)}</ul>
+        </section>}
 
         {!person ? <div className="flex flex-1 items-center justify-center p-10 text-center text-sm text-muted-foreground">เลือกผู้ลงทะเบียนจากรายชื่อเพื่อดูรายละเอียดและอนุมัติ</div> : <>
           <article className="flex flex-1 flex-col gap-5 px-5 py-6 lg:px-8">
             <header className="flex flex-col gap-2">
-              <h2 className="font-heading text-2xl font-bold [overflow-wrap:anywhere]">{displayName(fields, personAnswers, person.email)}</h2>
+              <h2 className="font-heading text-2xl font-bold [overflow-wrap:anywhere]">{displayName(person)}</h2>
               <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold", chipTone[person.status])}>{labels[person.status]}{person.status === "WAITLISTED" && queuePositions.size ? ` · ลำดับ ${Math.min(...queuePositions.values())}` : ""}</span>
                 ลงทะเบียน {formatDateTime(person.registeredAt)}{person.anonymizedAt ? " · ข้อมูลถูกปกปิดแล้ว" : ""}
               </p>
             </header>
+            {personRequest && <section aria-label="คำขอลบข้อมูล" className="flex flex-col gap-3 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+              <p className="font-semibold">ผู้สมัครขอลบข้อมูล (PDPA) เมื่อ {formatDateTime(personRequest.requestedAt)}</p>
+              {personRequest.reason && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">เหตุผล: {personRequest.reason}</p>}
+              <p className="text-sky-900/80">ลบ = ยกเลิกวันที่ยังไม่ถึง (คืนที่นั่งให้คิว) แล้วปกปิดคำตอบ อีเมล และไฟล์แนบ ประวัติเช็คชื่อคงไว้แบบไม่ระบุตัวตน ย้อนกลับไม่ได้</p>
+              {mayManage && <div className="grid gap-3 sm:grid-cols-2">
+                <form action={resolveDeletionRequest.bind(null, eventId, personRequest.id, "complete")} className="flex flex-col gap-2">
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <label className="flex min-h-9 items-center gap-2"><input type="checkbox" name="confirm" required className="size-4 accent-destructive" />ยืนยันลบข้อมูลของคนนี้</label>
+                  <Button type="submit" size="sm" variant="destructive">ลบข้อมูลตามคำขอ</Button>
+                </form>
+                <form action={resolveDeletionRequest.bind(null, eventId, personRequest.id, "reject")} className="flex flex-col gap-2">
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <label htmlFor="deletion-note" className="sr-only">เหตุผลที่ต้องเก็บข้อมูลไว้</label>
+                  <Input id="deletion-note" name="note" required minLength={3} maxLength={500} placeholder="เหตุผลที่ต้องเก็บไว้ (ผู้สมัครเห็น)" />
+                  <Button type="submit" size="sm" variant="outline">ปฏิเสธคำขอ</Button>
+                </form>
+              </div>}
+            </section>}
             {person.status === "WAITLISTED" && <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"><TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{event.seatMode === "whole_course" ? "เข้าคิวเพราะที่นั่งทั้งหลักสูตรเต็ม" : `เข้าคิวเพราะ ${person.days.filter((day) => day.status === "WAITLISTED").map((day) => `วันที่ ${dayIndex.get(day.eventDayId)} เต็ม`).join(", ")}`} ตอนส่งใบสมัคร — เมื่อมีคนยกเลิก ระบบ{event.waitlistPromotion === "AUTO" ? "เลื่อนคิวให้อัตโนมัติ" : "แจ้งให้ผู้จัดเลือกเลื่อนคิวเอง"} หรืออนุมัติทับคิวได้เลย</p>}
             {person.status === "REJECTED" && person.rejectReason && <p className="rounded-lg border bg-card px-4 py-3 text-sm">เหตุผลที่ปฏิเสธ: {person.rejectReason}</p>}
 
@@ -245,7 +307,10 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                 </div>;
               })}
               {/* Answers to fields removed from the form stay stored (never silently deleted) but are not shown. */}
-              {Object.keys(personAnswers).some((key) => !fields.some((field) => field.key === key)) && <><dt className="border-b py-3 text-sm text-muted-foreground">คำตอบจากฟิลด์ที่ลบแล้ว</dt><dd className="border-b py-3 text-sm text-muted-foreground">{Object.keys(personAnswers).filter((key) => !fields.some((field) => field.key === key)).length} รายการ · เก็บไว้ในระบบแต่ไม่แสดง เพราะฟิลด์ถูกลบออกจากฟอร์มแล้ว</dd></>}
+              {orphanKeys.length > 0 && <><dt className="border-b py-3 text-sm text-muted-foreground">คำตอบจากฟิลด์ที่ลบแล้ว</dt><dd className="flex flex-col gap-1.5 border-b py-3 text-sm text-muted-foreground">
+                <span>{`${orphanKeys.length} รายการ · ข้อความไม่แสดง เพราะฟิลด์ถูกลบออกจากฟอร์มแล้ว`}{orphanFiles.length > 0 ? " · ไฟล์แนบยังดาวน์โหลดได้จนกว่าจะครบระยะเก็บข้อมูล" : ""}</span>
+                {orphanFiles.map(({ key, index, name }) => <a key={`${key}-${index}`} href={`/organizer/${eventId}/registrants/${person.id}/files/${encodeURIComponent(key)}?i=${index}`} className="inline-flex min-h-8 items-center gap-1.5 text-foreground underline-offset-4 hover:underline [overflow-wrap:anywhere]"><FileIcon className="size-4 shrink-0" aria-hidden="true" />{name}</a>)}
+              </dd></>}
               <dt className="py-3 text-sm text-muted-foreground">เช็คชื่อแล้ว</dt>
               <dd className="py-3">{person.checkIns.length ? <ul className="flex flex-col gap-1 text-sm">{person.checkIns.map((checkIn) => <li key={checkIn.id}>{checkIn.session.label}{checkIn.session.eventDay ? ` · ${formatEventDay(checkIn.session.eventDay.date)}` : ""} <span className="text-muted-foreground">({formatDateTime(checkIn.checkedInAt)}){checkIn.isOverride ? " · กรณีพิเศษ" : ""}</span></li>)}</ul> : <span className="text-muted-foreground">ยังไม่มี</span>}</dd>
             </dl>

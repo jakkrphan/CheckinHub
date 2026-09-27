@@ -13,6 +13,7 @@ import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 import { copyLocalCover, deleteLocalCover, storeLocalCover } from "@/server/registrations/local-covers";
 import { promoteWaitlist } from "@/server/registrations/lifecycle";
+import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 
 const eventInput = z.object({
   title: z.string().trim().min(1).max(191),
@@ -51,7 +52,8 @@ function parseEventForm(formData: FormData) {
 
 export async function createEvent(formData: FormData) {
   const user = await requireActiveUser();
-  if (user.role === "STAFF") redirect("/check-in");
+  if (user.role === "STAFF") redirect("/check-in?notice=no-organizer-access");
+  if (!(await mayCreateEvents(user.role))) redirect("/organizer?error=create-disabled");
 
   const parsed = parseEventForm(formData);
   if (!parsed.success) redirect("/organizer/new?error=invalid");
@@ -192,6 +194,7 @@ export async function updateEvent(eventId: string, formData: FormData) {
  */
 export async function cloneEvent(eventId: string) {
   const { user, event, membership } = await requireEventAccess(eventId, "manage");
+  if (!(await mayCreateEvents(user.role)) || !(await isFeatureEnabled("eventClone"))) redirect("/organizer?error=create-disabled");
   const sessions = await db.session.findMany({ where: { eventId }, orderBy: [{ eventDay: { date: "asc" } }, { sortOrder: "asc" }, { label: "asc" }] });
   const uniqueSessions = sessions.filter((session, index) => sessions.findIndex((other) => other.label === session.label) === index);
   const coverKey = await copyLocalCover(event.coverImageKey);

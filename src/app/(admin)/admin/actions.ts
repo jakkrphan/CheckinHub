@@ -5,9 +5,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { hash } from "bcryptjs";
 
+import { findFeature } from "@/features/settings/features";
 import { issueAccountToken } from "@/server/auth/account-tokens";
 import { requireAdminUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
+import { featureDefault } from "@/server/settings/features";
 
 const userIdSchema = z.string().cuid();
 const roleSchema = z.enum(["ORGANIZER", "STAFF", "ADMIN"]);
@@ -160,4 +162,21 @@ export async function toggleUserActive(formData: FormData) {
     } });
   });
   revalidatePath("/admin");
+}
+
+export async function updateFeatureSetting(formData: FormData) {
+  const actor = await requireAdminUser();
+  const feature = findFeature(String(formData.get("key") ?? ""));
+  const enabled = z.enum(["true", "false"]).safeParse(formData.get("enabled"));
+  if (!feature || !enabled.success || feature.availability?.status === "not-built") redirect("/admin?view=settings&error=invalid-setting");
+  const next = enabled.data === "true";
+
+  await db.$transaction(async (tx) => {
+    const current = await tx.systemSetting.findUnique({ where: { key: feature.key }, select: { enabled: true } });
+    const from = current?.enabled ?? featureDefault(feature);
+    await tx.systemSetting.upsert({ where: { key: feature.key }, create: { key: feature.key, enabled: next, updatedById: actor.id }, update: { enabled: next, updatedById: actor.id } });
+    if (from !== next) await tx.auditLog.create({ data: { actorId: actor.id, action: "ADMIN_FEATURE_TOGGLED", target: feature.key, metadata: { feature: feature.label, from, to: next } } });
+  });
+  revalidatePath("/", "layout");
+  redirect(`/admin?view=settings&saved=${feature.key}`);
 }

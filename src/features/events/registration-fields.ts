@@ -75,15 +75,22 @@ export function conditionMatches(field: RegistrationFieldConfig, answers: Record
   return !!selected && selected.some((item) => values.includes(item));
 }
 
-export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}) {
-  if (!validateRegistrationFields(fields)) return null;
+export type AnswerProblem = { fieldKey: string | null; reason: "required" | "invalid" };
+
+/**
+ * Validates submitted answers against the form. On failure returns which field failed and why, so the form can
+ * say more than "invalid" (`fieldKey` is null when the form configuration itself is broken).
+ */
+export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}): { answers: Record<string, RegistrationAnswerValue> } | { problem: AnswerProblem } {
+  if (!validateRegistrationFields(fields)) return { problem: { fieldKey: null, reason: "invalid" } };
+  const fail = (field: RegistrationFieldConfig, reason: AnswerProblem["reason"]) => ({ problem: { fieldKey: field.key, reason } });
   const answers: Record<string, RegistrationAnswerValue> = {};
 
   for (const field of fields) {
     if (!conditionMatches(field, answers)) continue;
     if (field.type === "file") {
       const files = readFileAnswers(uploads[field.key]);
-      if (field.required && !files.length) return null;
+      if (field.required && !files.length) return fail(field, "required");
       // Single-file fields keep the original object shape; multi-file fields always store an array.
       // The file count is enforced at upload time, so files kept from before a maxFiles change stay intact.
       if (files.length) answers[field.key] = maxFilesOf(field) > 1 || files.length > 1 ? files : files[0];
@@ -93,22 +100,27 @@ export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], form
     const values = formData.getAll(`answer:${field.key}`);
     if (field.type === "checkbox") {
       const selected = values.filter((value): value is string => typeof value === "string" && value.length > 0);
-      if (selected.some((value) => !field.options?.includes(value)) || selected.length !== new Set(selected).size) return null;
-      if (field.required && selected.length === 0) return null;
+      if (selected.some((value) => !field.options?.includes(value)) || selected.length !== new Set(selected).size) return fail(field, "invalid");
+      if (field.required && selected.length === 0) return fail(field, "required");
       answers[field.key] = selected;
       continue;
     }
 
-    if (values.length > 1 || (values[0] !== undefined && typeof values[0] !== "string")) return null;
+    if (values.length > 1 || (values[0] !== undefined && typeof values[0] !== "string")) return fail(field, "invalid");
     const value = typeof values[0] === "string" ? values[0].trim() : "";
-    if (field.required && !value) return null;
-    if (value.length > 3000) return null;
-    if (field.type === "select" && value && !field.options?.includes(value)) return null;
-    if (field.type === "email" && value && !z.email().safeParse(value).success) return null;
-    if (field.type === "tel" && value && !/^[+0-9() .-]{6,30}$/.test(value)) return null;
-    if (field.type === "date" && value && !z.iso.date().safeParse(value).success) return null;
+    if (field.required && !value) return fail(field, "required");
+    if (value.length > 3000) return fail(field, "invalid");
+    if (field.type === "select" && value && !field.options?.includes(value)) return fail(field, "invalid");
+    if (field.type === "email" && value && !z.email().safeParse(value).success) return fail(field, "invalid");
+    if (field.type === "tel" && value && !/^[+0-9() .-]{6,30}$/.test(value)) return fail(field, "invalid");
+    if (field.type === "date" && value && !z.iso.date().safeParse(value).success) return fail(field, "invalid");
     answers[field.key] = value;
   }
 
-  return answers;
+  return { answers };
+}
+
+export function parseRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}) {
+  const result = checkRegistrationAnswers(fields, formData, uploads);
+  return "answers" in result ? result.answers : null;
 }

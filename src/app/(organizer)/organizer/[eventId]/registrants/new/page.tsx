@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { WalkInForm } from "@/app/(organizer)/organizer/[eventId]/registrants/new/walk-in-form";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { readRegistrationFields, validateRegistrationFields } from "@/features/e
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { getSeatAvailability } from "@/server/registrations/day-status";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 import { OrganizerEventHeader } from "../../event-header";
 
@@ -25,6 +27,7 @@ export default async function NewRegistrantPage({ params, searchParams }: PagePr
   const { eventId } = await params;
   const { error } = await searchParams;
   const { event } = await requireEventAccess(eventId, "manage");
+  if (!(await isFeatureEnabled("walkIn"))) redirect(`/organizer/${eventId}/registrants?error=walk-in-disabled`);
   const fields = readRegistrationFields(event.fields);
   const eventDays = await db.eventDay.findMany({ where: { eventId }, orderBy: { date: "asc" }, select: { id: true, date: true, isClosed: true } });
   const availability = await getSeatAvailability(db, event, eventDays.map((day) => day.id));

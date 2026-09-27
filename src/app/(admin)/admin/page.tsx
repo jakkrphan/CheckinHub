@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { HistoryIcon, LayoutGridIcon, MoreHorizontalIcon, SearchIcon, ShieldIcon, UserPlusIcon, UsersIcon, XIcon } from "lucide-react";
+import { HistoryIcon, LayoutGridIcon, ShieldCheckIcon, SlidersHorizontalIcon, MoreHorizontalIcon, SearchIcon, ShieldIcon, UserPlusIcon, UsersIcon, XIcon } from "lucide-react";
 
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import { requireAdminUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 
 import { createUser, issuePasswordLink, toggleUserActive, updateUserDetails, updateUserRole } from "./actions";
+import { FeatureSettings } from "./feature-settings";
 
 export const metadata: Metadata = { title: "ผู้ดูแลระบบ" };
 
@@ -37,6 +38,11 @@ function bangkokDay(value: unknown, endOfDay: boolean) {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+/** Whole days between `date` and this request (server-rendered, so "now" is the request time). */
+function daysSince(date: Date) {
+  return Math.floor((Date.now() - date.getTime()) / 86_400_000);
+}
+
 const initials = (name: string) => name.trim().split(/\s+/).map((part) => part[0]).join("").slice(0, 2) || "?";
 
 function Flash({ params }: { params: Record<string, string | string[] | undefined> }) {
@@ -48,6 +54,7 @@ function Flash({ params }: { params: Record<string, string | string[] | undefine
   if (params.error === "email-exists") notices.push(["อีเมลนี้มีบัญชีในระบบแล้ว", "error"]);
   if (params.error === "invalid-user") notices.push(["สร้างบัญชีไม่ได้: ตรวจชื่อ อีเมล บทบาท และรหัสผ่าน (อย่างน้อย 12 ตัว หรือเว้นว่างเพื่อส่งลิงก์เชิญ)", "error"]);
   if (params.error === "invalid-user-edit") notices.push(["แก้บัญชีไม่ได้: ตรวจข้อมูลและรหัสผ่านใหม่ (อย่างน้อย 12 ตัว)", "error"]);
+  if (params.error === "invalid-setting") notices.push(["บันทึกการตั้งค่าไม่ได้: ฟังก์ชันนี้ยังเปลี่ยนไม่ได้หรือข้อมูลไม่ถูกต้อง", "error"]);
   if (params.error === "inactive-link") notices.push(["ออกลิงก์ตั้งรหัสผ่านให้บัญชีที่ปิดใช้งานไม่ได้ เปิดบัญชีก่อน", "error"]);
   if (!notices.length) return null;
   return <div className="flex flex-col gap-2">{notices.map(([text, tone]) => <p key={text} role={tone === "error" ? "alert" : "status"}
@@ -57,7 +64,7 @@ function Flash({ params }: { params: Record<string, string | string[] | undefine
 export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
   const actor = await requireAdminUser();
   const params = await searchParams;
-  const view = params.view === "events" || params.view === "audit" ? params.view : "users";
+  const view = params.view === "events" || params.view === "audit" || params.view === "settings" || params.view === "requests" ? params.view : "users";
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
   const roleFilter: UserRole | undefined = params.role === "ADMIN" || params.role === "ORGANIZER" || params.role === "STAFF" ? params.role : undefined;
   const auditActor = typeof params.actor === "string" ? params.actor.trim().slice(0, 100) : "";
@@ -71,6 +78,13 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
     ...(auditFrom || auditTo ? { createdAt: { ...(auditFrom ? { gte: auditFrom } : {}), ...(auditTo ? { lte: auditTo } : {}) } } : {}),
   };
   const userWhere: Prisma.UserWhereInput = { ...(query ? { OR: [{ name: { contains: query } }, { email: { contains: query } }] } : {}), ...(roleFilter ? { role: roleFilter } : {}) };
+  const [dataRequests, openRequestCount] = await Promise.all([
+    view === "requests" ? db.dataRequest.findMany({
+      where: params.requests === "all" ? {} : { status: "OPEN" }, orderBy: [{ status: "asc" }, { requestedAt: "asc" }], take: 200,
+      select: { id: true, status: true, requestedAt: true, resolvedAt: true, resolutionNote: true, registrantId: true, registrant: { select: { displayName: true, email: true } }, event: { select: { id: true, title: true } }, resolvedBy: { select: { name: true } } },
+    }) : Promise.resolve([]),
+    db.dataRequest.count({ where: { status: "OPEN" } }),
+  ]);
   const [users, events, logs, recentLogs, counts] = await Promise.all([
     view === "users" ? db.user.findMany({
       where: userWhere,
@@ -94,6 +108,8 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
     { value: "users", label: "ผู้ใช้ในระบบ", count: counts[0], icon: UsersIcon },
     { value: "events", label: "โครงการทั้งหมด", count: counts[1], icon: LayoutGridIcon },
     { value: "audit", label: "Audit log", count: counts[2], icon: HistoryIcon },
+    { value: "requests", label: "คำขอ PDPA", count: openRequestCount, icon: ShieldCheckIcon },
+    { value: "settings", label: "ตั้งค่าระบบ", count: null, icon: SlidersHorizontalIcon },
   ];
 
   return <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-8 lg:px-10">
@@ -105,10 +121,10 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
       <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 lg:max-w-md"><ShieldIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />ทุกครั้งที่ admin เปิด/แก้โครงการที่ไม่ได้เป็นเจ้าของ หรือเปลี่ยนบัญชีผู้ใช้ ระบบบันทึก audit log อัตโนมัติ</p>
     </header>
 
-    <nav aria-label="ส่วนผู้ดูแลระบบ" className="grid grid-cols-3 gap-1 border-b sm:flex">
+    <nav aria-label="ส่วนผู้ดูแลระบบ" className="grid grid-cols-2 gap-1 border-b sm:flex">
       {tabs.map(({ value, label, count, icon: Icon }) => <Link key={value} href={`/admin?view=${value}`} aria-current={view === value ? "page" : undefined}
         className={cn("flex min-h-11 shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 border-b-2 px-2 py-2.5 text-center text-sm sm:flex-nowrap sm:px-3", view === value ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
-        <Icon className="size-4 max-sm:hidden" aria-hidden="true" />{label}<span className="text-xs text-muted-foreground">{count.toLocaleString("th-TH")}</span>
+        <Icon className="size-4 max-sm:hidden" aria-hidden="true" />{label}{count !== null && <span className="text-xs text-muted-foreground">{count.toLocaleString("th-TH")}</span>}
       </Link>)}
     </nav>
 
@@ -249,6 +265,31 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
       </FieldGroup>
       <div className="flex flex-wrap items-center gap-2"><Button type="submit" size="sm" variant="outline">กรอง</Button><Link href="/admin?view=audit" className="inline-block py-1.5 text-sm text-muted-foreground underline-offset-4 hover:underline">ล้างตัวกรอง</Link><span className="text-xs text-muted-foreground">พบ {counts[2].toLocaleString("th-TH")} รายการ{counts[2] > AUDIT_PAGE_SIZE ? ` · แสดงล่าสุด ${AUDIT_PAGE_SIZE} รายการ` : ""} · เวลาเป็น Asia/Bangkok</span></div>
     </form>}
+    {view === "requests" && <section aria-labelledby="requests-title" className="flex flex-col overflow-hidden rounded-xl border bg-card">
+      <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 id="requests-title" className="font-heading text-lg font-bold">คำขอลบข้อมูลจากผู้ลงทะเบียน</h2><p className="text-sm text-muted-foreground">ผู้จัดของแต่ละโครงการเป็นคนดำเนินการ · หน้านี้ใช้ติดตามคำขอที่ค้างทั้งระบบ</p></div>
+        <nav aria-label="กรองคำขอ" className="flex gap-1 text-sm">{[["open", "รอดำเนินการ"], ["all", "ทั้งหมด"]].map(([value, label]) => { const active = (params.requests === "all" ? "all" : "open") === value; return <Link key={value} href={`/admin?view=requests${value === "all" ? "&requests=all" : ""}`} aria-current={active ? "page" : undefined} className={cn("inline-flex min-h-9 items-center rounded-md px-3", active ? "bg-secondary font-semibold" : "text-muted-foreground hover:text-foreground")}>{label}</Link>; })}</nav>
+      </div>
+      <Table className={stackedTable}><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">วันที่ขอ</TableHead><TableHead>ผู้ลงทะเบียน</TableHead><TableHead>โครงการ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
+        <TableBody>{dataRequests.map((request) => {
+          const waitingDays = daysSince(request.requestedAt);
+          return <TableRow key={request.id} className={stackedRow}>
+            <TableCell data-label="วันที่ขอ" className="px-5 text-sm">{dateFormatter.format(request.requestedAt)}{request.status === "OPEN" && waitingDays > 0 && <span className={cn("block text-xs", waitingDays >= 14 ? "font-semibold text-destructive" : "text-muted-foreground")}>{`รอมาแล้ว ${waitingDays} วัน`}</span>}</TableCell>
+            <TableCell data-label="ผู้ลงทะเบียน" className="max-w-64 whitespace-normal [overflow-wrap:anywhere]">{request.status === "COMPLETED" ? <span className="text-muted-foreground">ลบข้อมูลแล้ว</span> : <Link href={`/organizer/${request.event.id}/registrants?selected=${request.registrantId}`} prefetch={false} className="inline-block py-1 font-medium hover:underline">{request.registrant.displayName ?? request.registrant.email ?? "ผู้ลงทะเบียน"}</Link>}</TableCell>
+            <TableCell data-label="โครงการ" className="max-w-64 whitespace-normal"><Link href={`/admin/events/${request.event.id}`} prefetch={false} className="inline-block py-1 hover:underline">{request.event.title}</Link></TableCell>
+            <TableCell data-label="สถานะ"><span className="flex flex-col gap-0.5">
+              <Badge variant="secondary" className={request.status === "OPEN" ? "bg-sky-100 text-sky-900" : request.status === "COMPLETED" ? "bg-emerald-100 text-emerald-900" : ""}>{request.status === "OPEN" ? "รอดำเนินการ" : request.status === "COMPLETED" ? "ลบแล้ว" : "ปฏิเสธ"}</Badge>
+              {request.resolvedAt && <span className="text-xs text-muted-foreground">{`${request.resolvedBy?.name ?? "—"} · ${dateFormatter.format(request.resolvedAt)}`}</span>}
+              {request.resolutionNote && <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{request.resolutionNote}</span>}
+            </span></TableCell>
+          </TableRow>;
+        })}</TableBody>
+      </Table>
+      {dataRequests.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">{params.requests === "all" ? "ยังไม่มีคำขอลบข้อมูล" : "ไม่มีคำขอที่รอดำเนินการ"}</p>}
+    </section>}
+
+    {view === "settings" && <FeatureSettings saved={typeof params.saved === "string" ? params.saved : undefined} />}
+
     {view === "audit" && <section className="overflow-x-auto rounded-xl border bg-card" aria-label="Audit log">
       <Table className={stackedTable}><TableHeader className="bg-secondary"><TableRow><TableHead className="min-w-40 px-5">เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>การกระทำ</TableHead><TableHead>โครงการ</TableHead><TableHead>รายละเอียด</TableHead></TableRow></TableHeader>
         <TableBody>{logs.map((log) => {

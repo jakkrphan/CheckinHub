@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 // Neutralise spreadsheet formulas in user-supplied text (CSV/formula injection).
 const safeText = (raw: string) => /^[\s]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
@@ -22,6 +23,7 @@ const thaiDay = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone
 export async function GET(request: Request, context: RouteContext<"/organizer/[eventId]/registrants/export">) {
   const { eventId } = await context.params;
   const { event, user } = await requireEventAccess(eventId, "view");
+  if (!(await isFeatureEnabled("exportData"))) return new Response("ผู้ดูแลระบบปิดการส่งออกรายชื่อไว้", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } });
   const params = new URL(request.url).searchParams;
   const includeSensitive = params.get("includeSensitive") === "on";
   const xlsx = params.get("format") === "xlsx";

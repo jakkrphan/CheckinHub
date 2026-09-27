@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { requireAdminUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 import { getEventOverview } from "@/server/events/overview";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 import { DeleteEventButton } from "./delete-event-button";
 
@@ -71,7 +72,7 @@ export default async function AdminEventPage({ params }: PageProps<"/admin/event
             {isMember && <p className="text-sm text-muted-foreground">เจ้าของ: {event.owner.name} ({event.owner.email})</p>}
           </div>
           {!event.deletedAt && <div className="flex flex-wrap items-center gap-2">
-            <Button asChild variant="outline"><a href={`/organizer/${event.id}/registrants/export`}><DownloadIcon data-icon="inline-start" aria-hidden="true" />Export CSV</a></Button>
+            {await isFeatureEnabled("exportData") && <Button asChild variant="outline"><a href={`/organizer/${event.id}/registrants/export`}><DownloadIcon data-icon="inline-start" aria-hidden="true" />Export CSV</a></Button>}
             <Button asChild><Link href={`/organizer/${event.id}/dashboard`}>เปิดในหน้าผู้จัด</Link></Button>
             <DeleteEventButton eventId={event.id} title={event.title} hasRegistrants={event._count.registrants > 0} />
           </div>}

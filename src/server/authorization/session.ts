@@ -32,10 +32,12 @@ export async function requireAdminUser() {
   return user;
 }
 
-export async function requireOrganizerUser() {
-  const user = await requireActiveUser();
-  if (user.role !== "STAFF") return user;
-
+/**
+ * Whether the user can use the project area (/organizer): organizers and admins always; staff only while they own
+ * an event or are a full collaborator on one. The sidebar hides "โครงการ" by the same rule.
+ */
+export async function canUseProjectArea(user: { id: string; role: string }) {
+  if (user.role !== "STAFF") return true;
   const accessibleEvent = await db.event.findFirst({
     where: {
       deletedAt: null,
@@ -46,7 +48,11 @@ export async function requireOrganizerUser() {
     },
     select: { id: true },
   });
+  return !!accessibleEvent;
+}
 
-  if (!accessibleEvent) redirect("/check-in");
+export async function requireOrganizerUser() {
+  const user = await requireActiveUser();
+  if (!(await canUseProjectArea(user))) redirect("/check-in?notice=no-organizer-access");
   return user;
 }

@@ -7,6 +7,7 @@ const labels: Record<string, string> = {
   ADMIN_USER_STATUS_UPDATED: "เปิด/ปิดบัญชี",
   ADMIN_INVITE_LINK_ISSUED: "ออกลิงก์เชิญ",
   ADMIN_PASSWORD_RESET_LINK_ISSUED: "ออกลิงก์รีเซ็ตรหัสผ่าน",
+  ADMIN_FEATURE_TOGGLED: "เปิด/ปิดฟังก์ชันระบบ",
   ACCOUNT_INVITE_ACCEPTED: "รับคำเชิญ",
   ACCOUNT_PASSWORD_RESET: "รีเซ็ตรหัสผ่าน",
   ACCOUNT_PASSWORD_CHANGED: "เปลี่ยนรหัสผ่าน",
@@ -27,7 +28,11 @@ const labels: Record<string, string> = {
   REGISTRANTS_APPROVED_BY_ADMIN: "admin อนุมัติหลายคน",
   REGISTRANT_DAY_UPDATED_BY_ADMIN: "admin แก้สถานะรายวัน",
   MANUAL_REGISTRATION_CREATED: "เพิ่มผู้สมัครเอง",
+  WAITLIST_PROMOTED_MANUALLY: "เลื่อนคิวสำรอง (ผู้จัดกดเอง)",
   STATUS_LINK_REISSUED: "ออกลิงก์สถานะใหม่",
+  DATA_DELETION_REQUESTED: "ผู้สมัครขอลบข้อมูล",
+  DATA_DELETION_COMPLETED: "ลบข้อมูลตามคำขอ",
+  DATA_DELETION_REJECTED: "ปฏิเสธคำขอลบข้อมูล",
   REGISTRANT_SELF_EDITED: "ผู้สมัครแก้ข้อมูลเอง",
   REGISTRANT_DAYS_CHANGED: "ผู้สมัครเปลี่ยนวันเอง",
   EXPORT_CSV: "ส่งออก CSV",
@@ -46,7 +51,7 @@ const labels: Record<string, string> = {
 
 /** Human-readable Thai label and category for an audit action code; unknown codes fall back to the code itself. */
 export function describeAudit(action: string): { label: string; tone: AuditTone } {
-  const tone: AuditTone = /^(EXPORT_|FILE_|SENSITIVE_)/.test(action) ? "privacy"
+  const tone: AuditTone = /^(EXPORT_|FILE_|SENSITIVE_|DATA_)/.test(action) ? "privacy"
     : /^(ADMIN_USER|ADMIN_INVITE|ADMIN_PASSWORD|ACCOUNT_)/.test(action) ? "account"
     : /^CHECKIN_/.test(action) ? "checkin"
     : /^RETENTION_/.test(action) ? "system"

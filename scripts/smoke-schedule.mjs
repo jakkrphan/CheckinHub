@@ -25,6 +25,8 @@ function formsFrom(html) {
 
 function formDataFrom(html, values = {}) {
   const form = new FormData();
+  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
+  form.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   const hidden = /<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g;
   for (const match of html.matchAll(hidden)) {
     form.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));

@@ -17,6 +17,7 @@ import { formatDayNumber, formatMonth } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireOrganizerUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
+import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 
 export const metadata: Metadata = {
   title: "โครงการของฉัน",
@@ -95,7 +96,8 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
   ];
   const requestHeaders = await headers();
   const origin = process.env.APP_BASE_URL ?? `${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`;
-  const canCreate = user.role !== "STAFF";
+  const canCreate = await mayCreateEvents(user.role);
+  const canClone = canCreate && await isFeatureEnabled("eventClone");
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-5 py-8 lg:px-10">
@@ -105,7 +107,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
           <p className="text-sm text-muted-foreground">{events.length.toLocaleString("th-TH")} โครงการที่คุณ{user.role === "ADMIN" ? "ดูแลได้ในฐานะผู้ดูแลระบบ" : "เป็นเจ้าของหรือผู้ร่วมจัด"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canCreate && events.length > 0 && <>
+          {canClone && events.length > 0 && <>
             <Button type="button" variant="outline" size="lg" popoverTarget="clone-picker"><CopyIcon data-icon="inline-start" aria-hidden="true" />ทำสำเนาจากโครงการเดิม</Button>
             <div id="clone-picker" popover="auto" className="m-auto w-[min(92vw,480px)] rounded-xl border bg-card p-5 shadow-xl backdrop:bg-black/30">
               <div className="flex items-start justify-between gap-3">
@@ -122,6 +124,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
         </div>
       </div>
 
+      {params.error === "create-disabled" && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">ผู้ดูแลระบบปิดการสร้าง/ทำสำเนาโครงการสำหรับผู้จัดไว้ กรุณาติดต่อผู้ดูแลระบบ</p>}
       {params.deleted === "1" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">ลบโครงการแล้ว — ถ้ามีผู้ลงทะเบียน ระบบเก็บข้อมูลเดิมไว้ตรวจสอบย้อนหลัง</p>}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -206,7 +209,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                         {event.status !== "DRAFT" && <MenuLink href={`/organizer/${event.id}/dashboard`} icon={LayoutDashboardIcon}>ภาพรวมโครงการ</MenuLink>}
                         {event.status !== "DRAFT" && <MenuLink href={`/organizer/${event.id}/registrants`} icon={UsersIcon}>ผู้ลงทะเบียน</MenuLink>}
                         <MenuLink href={`/organizer/${event.id}?step=1`} icon={PencilIcon}>แก้ไขโครงการ</MenuLink>
-                        {canCreate && <form action={cloneEvent.bind(null, event.id)}><button type="submit" className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted"><CopyIcon className="size-4 text-muted-foreground" aria-hidden="true" />ทำสำเนาโครงการ (clone)</button></form>}
+                        {canClone && <form action={cloneEvent.bind(null, event.id)}><button type="submit" className="flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted"><CopyIcon className="size-4 text-muted-foreground" aria-hidden="true" />ทำสำเนาโครงการ (clone)</button></form>}
                       </div>
                       <div className="flex flex-col gap-2 border-t px-3 py-2.5">
                         <span className="flex items-center gap-2 text-sm"><LinkIcon className="size-4 text-muted-foreground" aria-hidden="true" />ลิงก์ลงทะเบียน</span>

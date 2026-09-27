@@ -66,6 +66,8 @@ model User {
   auditLogs           AuditLog[]       @relation("AuditActor")
   accountTokens       UserToken[]      @relation("TokenOwner")
   issuedTokens        UserToken[]      @relation("TokenIssuer")
+  updatedSettings     SystemSetting[]  @relation("SettingUpdater")
+  resolvedDataRequests DataRequest[]   @relation("DataRequestResolver")
 }
 
 enum UserTokenKind {
@@ -131,6 +133,7 @@ model Event {
   sessions             Session[]
   registrants          Registrant[]
   auditLogs            AuditLog[]
+  dataRequests         DataRequest[]
 
   @@index([ownerId])
   @@index([status, registrationDeadline])
@@ -186,6 +189,8 @@ model Registrant {
   eventId         String
   event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
   answers         Json
+  /// Denormalized from answers for name search/ordering; see src/features/registrations/display-name.ts.
+  displayName     String?             @db.VarChar(191)
   fieldsVersion   Int                 @default(1)
   registeredAt    DateTime            @default(now())
   consentedAt     DateTime?
@@ -208,10 +213,12 @@ model Registrant {
   statusTokenHash String               @unique
   checkIns        CheckIn[]
   days            RegistrantEventDay[]
+  dataRequests    DataRequest[]
 
   @@unique([eventId, dedupeKey])
   @@index([eventId, email])
   @@index([eventId, status, registeredAt])
+  @@index([eventId, displayName])
   @@index([approvedById])
 }
 
@@ -279,4 +286,45 @@ model RegistrationAttempt {
   createdAt DateTime @default(now())
 
   @@index([ipHash, createdAt])
+}
+
+// System-wide feature switches that admins turn on/off from /admin?view=settings. A missing row means the
+// feature's default from src/features/settings/features.ts.
+model SystemSetting {
+  key         String   @id @db.VarChar(64)
+  enabled     Boolean
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+  updatedBy   User?    @relation("SettingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById])
+}
+
+enum DataRequestStatus {
+  OPEN
+  COMPLETED
+  REJECTED
+}
+
+// PDPA data-subject request sent from the registrant's status page (spec: สิทธิ์เจ้าของข้อมูล). Only "DELETE" exists
+// for now; access/correction already happen on the status page itself. Kept after completion as evidence.
+model DataRequest {
+  id             String            @id @default(cuid())
+  eventId        String
+  event          Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrantId   String
+  registrant     Registrant        @relation(fields: [registrantId], references: [id], onDelete: Cascade)
+  kind           String            @default("DELETE") @db.VarChar(32)
+  status         DataRequestStatus @default(OPEN)
+  /// The registrant's own words; cleared when the request is completed.
+  reason         String?           @db.Text
+  requestedAt    DateTime          @default(now())
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolvedBy     User?             @relation("DataRequestResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionNote String?           @db.Text
+
+  @@index([eventId, status, requestedAt])
+  @@index([registrantId, status])
+  @@index([resolvedById])
 }

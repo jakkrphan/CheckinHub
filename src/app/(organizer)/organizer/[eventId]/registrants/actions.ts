@@ -8,7 +8,8 @@ import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
 import { getSeatAvailability, seatsTaken, syncRegistrantStatus } from "@/server/registrations/day-status";
-import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle";
+import { completeDeletionRequest, rejectDeletionRequest } from "@/server/registrations/data-requests";
+import { lockEventDays, promoteNextManually, promoteWaitlist } from "@/server/registrations/lifecycle";
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
 
 /** Returns to the list view the organizer acted from (filters + selected person), adding the result flags. */
@@ -16,7 +17,7 @@ function backTo(eventId: string, formData: FormData | undefined, flags: Record<s
   const base = `/organizer/${eventId}/registrants`;
   const raw = formData?.get("returnTo");
   const url = new URL(typeof raw === "string" && (raw === base || raw.startsWith(`${base}?`)) ? raw : base, "http://local");
-  for (const key of ["result", "approved", "requested"]) url.searchParams.delete(key);
+  for (const key of ["result", "approved", "requested", "held", "skipped"]) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(flags)) if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
   return `${url.pathname}${url.search}`;
 }
@@ -91,6 +92,11 @@ export async function decideRegistrant(eventId: string, registrantId: string, de
   redirect(backTo(eventId, formData, { result, approved: requestedDays ? approvedDays : undefined, requested: requestedDays || undefined }));
 }
 
+/**
+ * Bulk approval of pending registrants. Each person is handled on their own so one changed status does not block
+ * the rest; the result lists (by id, never by name) who stayed queued because a day or the course was full and who
+ * was skipped because their status had already changed.
+ */
 export async function approveSelected(eventId: string, formData: FormData) {
   const { user, membership } = await requireEventAccess(eventId, "manage");
   const ids = formData.getAll("registrantId").filter((value): value is string => typeof value === "string" && !!value);
@@ -98,36 +104,59 @@ export async function approveSelected(eventId: string, formData: FormData) {
   const outcome = await db.$transaction(async (tx) => {
     await lockEventDays(tx, eventId);
     const event = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { id: true, seatMode: true, maxSeats: true } });
-    const people = await tx.registrant.findMany({ where: { eventId, id: { in: ids }, status: "PENDING" }, select: { id: true } });
-    if (people.length !== ids.length) return null;
-    let approvedDays = 0;
-    let requestedDays = 0;
-    for (const person of people) {
-      const days = await tx.registrantEventDay.findMany({ where: { registrantId: person.id, status: { in: ["PENDING", "WAITLISTED"] } }, select: { id: true, eventDayId: true, status: true, eventDay: { select: { maxSeats: true } } } });
+    const pending = new Set((await tx.registrant.findMany({ where: { eventId, id: { in: ids }, status: "PENDING" }, select: { id: true } })).map((person) => person.id));
+    const approved: string[] = [];
+    const held: string[] = [];
+    const skipped = ids.filter((id) => !pending.has(id));
+    for (const id of ids.filter((item) => pending.has(item))) {
+      const days = await tx.registrantEventDay.findMany({ where: { registrantId: id, status: { in: ["PENDING", "WAITLISTED"] } }, select: { id: true, eventDayId: true, status: true, eventDay: { select: { maxSeats: true } } } });
+      let stillQueued = false;
       if (event.seatMode === "whole_course") {
         const availability = await getSeatAvailability(tx, event, []);
-        requestedDays += days.length;
-        if (availability.mode === "whole_course" && availability.remaining === 0 && days.some((day) => day.status === "WAITLISTED")) continue;
-        await tx.registrantEventDay.updateMany({ where: { registrantId: person.id }, data: { status: "APPROVED", waitlistedAt: null, pendingSince: null } });
-        approvedDays += days.length;
-        await tx.registrant.update({ where: { id: person.id }, data: { approvedById: user.id } });
-        await syncRegistrantStatus(tx, person.id);
-        continue;
+        if (availability.mode === "whole_course" && availability.remaining === 0 && days.some((day) => day.status === "WAITLISTED")) { held.push(id); continue; }
+        await tx.registrantEventDay.updateMany({ where: { registrantId: id }, data: { status: "APPROVED", waitlistedAt: null, pendingSince: null } });
+      } else {
+        for (const day of days) {
+          if (day.status === "WAITLISTED" && day.eventDay.maxSeats !== null && (await seatsTaken(tx, day.eventDayId)) >= day.eventDay.maxSeats) { stillQueued = true; continue; }
+          await tx.registrantEventDay.update({ where: { id: day.id }, data: { status: "APPROVED", waitlistedAt: null, pendingSince: null } });
+        }
       }
-      for (const day of days) {
-        requestedDays++;
-        if (day.status === "WAITLISTED" && day.eventDay.maxSeats !== null && (await seatsTaken(tx, day.eventDayId)) >= day.eventDay.maxSeats) continue;
-        await tx.registrantEventDay.update({ where: { id: day.id }, data: { status: "APPROVED", waitlistedAt: null, pendingSince: null } });
-        approvedDays++;
-      }
-      await tx.registrant.update({ where: { id: person.id }, data: { approvedById: user.id } });
-      await syncRegistrantStatus(tx, person.id);
+      await tx.registrant.update({ where: { id }, data: { approvedById: user.id } });
+      await syncRegistrantStatus(tx, id);
+      (stillQueued ? held : approved).push(id);
     }
-    if (requiresAdminAudit(membership)) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "REGISTRANTS_APPROVED_BY_ADMIN", target: ids.join(",") } });
-    return { approvedDays, requestedDays };
+    if (requiresAdminAudit(membership)) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "REGISTRANTS_APPROVED_BY_ADMIN", target: ids.join(","), metadata: { approved: approved.length, held: held.length, skipped: skipped.length } } });
+    return { approved, held, skipped };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   revalidatePath(`/organizer/${eventId}/registrants`);
-  redirect(backTo(eventId, formData, { result: !outcome ? "invalid" : outcome.approvedDays < outcome.requestedDays ? "partial" : "updated", approved: outcome?.approvedDays, requested: outcome?.requestedDays }));
+  redirect(backTo(eventId, formData, {
+    result: outcome.held.length || outcome.skipped.length ? "bulk-partial" : "bulk",
+    approved: outcome.approved.length, requested: ids.length,
+    held: outcome.held.join(",") || undefined, skipped: outcome.skipped.join(",") || undefined,
+  }));
+}
+
+/** Manual waitlist promotion: moves the next person in one queue (a day, or the whole course when dayId is empty) up. */
+export async function promoteFromWaitlist(eventId: string, formData: FormData) {
+  const { user } = await requireEventAccess(eventId, "manage");
+  const rawDay = formData.get("dayId");
+  const eventDayId = typeof rawDay === "string" && rawDay ? rawDay : null;
+  let promoted: string | null = null;
+  try {
+    promoted = await db.$transaction(async (tx) => {
+      const id = await promoteNextManually(tx, eventId, eventDayId);
+      if (id) await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "WAITLIST_PROMOTED_MANUALLY", target: id, metadata: { eventDayId } } });
+      return id;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034")) throw error;
+    redirect(backTo(eventId, formData, { result: "retry" }));
+  }
+  revalidatePath(`/organizer/${eventId}`, "layout");
+  const back = formData.get("returnTo");
+  const dashboard = `/organizer/${eventId}/dashboard`;
+  if (back === dashboard) redirect(`${dashboard}?promoted=${promoted ? "1" : "0"}`);
+  redirect(backTo(eventId, formData, { result: promoted ? "promoted" : "promote-none", selected: promoted ?? undefined }));
 }
 
 export async function decideRegistrantDay(eventId: string, registrantId: string, eventDayId: string, decision: "approve" | "reject" | "cancel", formData?: FormData) {
@@ -175,4 +204,19 @@ export async function reissueStatusLink(eventId: string, registrantId: string, f
   });
   if (!person) redirect(backTo(eventId, formData, { result: "missing" }));
   redirect(`/events/${event.slug}/status/${token}`);
+}
+
+/** Completes (anonymizes) or declines a registrant's PDPA deletion request. */
+export async function resolveDeletionRequest(eventId: string, requestId: string, decision: "complete" | "reject", formData: FormData) {
+  const { user } = await requireEventAccess(eventId, "manage");
+  let result: string;
+  if (decision === "complete") {
+    if (formData.get("confirm") !== "on") redirect(backTo(eventId, formData, { result: "delete-confirm" }));
+    result = (await completeDeletionRequest(eventId, requestId, user.id)) === "completed" ? "deleted" : "invalid";
+  } else {
+    const outcome = await rejectDeletionRequest(eventId, requestId, user.id, formData.get("note"));
+    result = outcome === "rejected" ? "delete-rejected" : outcome === "note" ? "delete-note" : "invalid";
+  }
+  revalidatePath(`/organizer/${eventId}`, "layout");
+  redirect(backTo(eventId, formData, { result }));
 }
