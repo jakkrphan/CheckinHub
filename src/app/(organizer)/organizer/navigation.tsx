@@ -31,7 +31,7 @@ function NavLink({ href, label, icon: Icon, active, compact }: { href: string; l
   );
 }
 
-export function OrganizerNavigation({ isAdmin, showProjects = true, compact = false }: { isAdmin: boolean; showProjects?: boolean; compact?: boolean }) {
+export function OrganizerNavigation({ isAdmin, compact = false }: { isAdmin: boolean; compact?: boolean }) {
   const pathname = usePathname();
   const wide = !compact;
 
@@ -39,7 +39,7 @@ export function OrganizerNavigation({ isAdmin, showProjects = true, compact = fa
     <nav aria-label="เมนูหลัก" className={cn("flex gap-1 sm:gap-2 lg:flex-col", wide && "lg:w-full lg:gap-4")}>
       <div className={cn("flex gap-1 sm:gap-2 lg:flex-col", wide && "lg:gap-1")}>
         <span className={cn("hidden px-3 pb-1 text-[11px] font-bold tracking-wide text-sidebar-foreground/50", wide && "lg:block")}>งานของฉัน</span>
-        {workLinks.filter((link) => showProjects || link.href !== "/organizer").map(({ href, ...item }) => <NavLink key={href} href={href} {...item} active={pathname.startsWith(href)} compact={compact} />)}
+        {workLinks.map(({ href, ...item }) => <NavLink key={href} href={href} {...item} active={pathname.startsWith(href)} compact={compact} />)}
       </div>
       {isAdmin && <div className={cn("flex gap-1 sm:gap-2 lg:flex-col", wide && "lg:gap-1")}>
         <span className={cn("hidden px-3 pb-1 text-[11px] font-bold tracking-wide text-sidebar-foreground/50", wide && "lg:block")}>ระบบ</span>

@@ -21,7 +21,7 @@ export async function requireEventAccess(eventId: string, permission: EventPermi
   if (!event) notFound();
 
   const membership: EventMembership = {
-    systemRole: user.role === "ADMIN" ? "admin" : user.role === "STAFF" ? "staff" : "organizer",
+    systemRole: user.role === "ADMIN" ? "admin" : "organizer",
     userId: user.id,
     ownerId: event.ownerId,
     collaboratorRole: event.organizers[0]?.role === "FULL" ? "full" : event.organizers[0]?.role === "CHECKIN_ONLY" ? "checkin_only" : null,

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CalendarXIcon, CameraIcon, CheckIcon, CloudOffIcon, CopyCheckIcon, KeyboardIcon, LockIcon, RefreshCwIcon, ScanBarcodeIcon, Undo2Icon, WifiOffIcon } from "lucide-react";
 
 import { checkInCode, checkInCodeForm, overrideCheckIn, undoCheckIn, type ScanResult } from "@/app/(check-in)/check-in/[eventId]/actions";
-import { discardRejectedScans, listReviewScans, pendingScanCount, queueScan, syncQueuedScans, type ReviewScan } from "@/app/(check-in)/check-in/[eventId]/offline-queue";
+import { discardRejectedScans, listReviewScans, otherOperatorScanCount, pendingScanCount, queueScan, syncQueuedScans, type ReviewScan } from "@/app/(check-in)/check-in/[eventId]/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -92,6 +92,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   const [cameraError, setCameraError] = useState("");
   const [pending, setPending] = useState(0);
   const [needsReview, setNeedsReview] = useState(0);
+  const [otherPending, setOtherPending] = useState(0);
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const syncing = useRef(false);
   const codeInput = useRef<HTMLInputElement>(null);
@@ -105,12 +106,15 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
     setOverrideCode(!kiosk && next?.kind === "wrong-day" && next.canOverride ? scannedCode : "");
   }
 
-  async function refreshPending() { setPending(await pendingScanCount(operatorId)); }
+  async function refreshPending() {
+    setPending(await pendingScanCount(operatorId));
+    setOtherPending(await otherOperatorScanCount(operatorId));
+  }
   async function refreshReview() { setReviewItems(await listReviewScans(operatorId)); }
 
-  async function queue(value: string) {
+  async function queue(value: string, clientEventId?: string) {
     try {
-      await queueScan(operatorId, eventId, sessionId, value);
+      await queueScan(operatorId, eventId, sessionId, value, clientEventId);
       await refreshPending();
       setResult({ kind: "queued", message: "ยังไม่บันทึกบนเซิร์ฟเวอร์ — เข้าคิวรอซิงก์เมื่อออนไลน์" });
       setCode("");
@@ -151,11 +155,13 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
 
   async function record(value: string, source: "camera" | "scanner") {
     busy.current = true;
+    // The same id goes into the queue if the request fails, so a save whose answer was lost is not counted twice.
+    const clientEventId = crypto.randomUUID();
     try {
-      if (!navigator.onLine) await queue(value);
-      else setResult(await checkInCode(eventId, sessionId, value, crypto.randomUUID(), undefined, kiosk ? "kiosk" : source), value);
+      if (!navigator.onLine) await queue(value, clientEventId);
+      else setResult(await checkInCode(eventId, sessionId, value, clientEventId, undefined, kiosk ? "kiosk" : source), value);
     } catch {
-      await queue(value);
+      await queue(value, clientEventId);
     } finally { busy.current = false; }
   }
 
@@ -200,7 +206,7 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   }, [pending]);
 
   useEffect(() => {
-    void pendingScanCount(operatorId).then((count) => { setPending(count); void refreshReview(); void sync(); }).catch(() => setResult({ kind: "error", message: "เปิดคิวออฟไลน์ไม่ได้ กรุณาเช็คชื่อขณะออนไลน์" }));
+    void pendingScanCount(operatorId).then((count) => { setPending(count); void otherOperatorScanCount(operatorId).then(setOtherPending); void refreshReview(); void sync(); }).catch(() => setResult({ kind: "error", message: "เปิดคิวออฟไลน์ไม่ได้ กรุณาเช็คชื่อขณะออนไลน์" }));
     const onOnline = () => { void sync(); };
     window.addEventListener("online", onOnline);
     const timer = window.setInterval(() => { if (navigator.onLine && document.visibilityState === "visible") void sync(); }, 15000);
@@ -265,6 +271,10 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
       </button>)}
     </div>}
     {offline}
+    {!kiosk && otherPending > 0 && <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+      <CloudOffIcon className="mt-px size-4 shrink-0" aria-hidden="true" />
+      <span>เครื่องนี้มีรายการสแกนของบัญชีเจ้าหน้าที่อื่นค้างอยู่ {otherPending} รายการ ยังไม่ได้บันทึก — ให้เจ้าของบัญชีนั้นเข้าสู่ระบบบนเครื่องนี้ขณะออนไลน์เพื่อซิงก์</span>
+    </div>}
 
     {/* Camera mode on tablets and short landscape phones: camera and controls side by side so the code input stays on screen. */}
     <div className={cn("grid grid-cols-1 items-start gap-3", camera && "md:grid-cols-2 [@media(orientation:landscape)_and_(max-height:540px)]:grid-cols-2")}>

@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
 import { formatDayNumber, formatMonth } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { requireOrganizerUser } from "@/server/authorization/session";
+import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 
@@ -65,7 +65,7 @@ function MenuLink({ href, icon: Icon, children, external }: { href: string; icon
 }
 
 export default async function OrganizerPage({ searchParams }: PageProps<"/organizer">) {
-  const user = await requireOrganizerUser();
+  const user = await requireActiveUser();
   const params = await searchParams;
   const status = typeof params.status === "string" && ["DRAFT", "PUBLISHED", "CLOSED"].includes(params.status) ? params.status : "ALL";
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";

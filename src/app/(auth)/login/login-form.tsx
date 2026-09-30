@@ -12,18 +12,22 @@ import { login, type LoginState } from "./actions";
 const messages = {
   invalid: "อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชียังไม่ได้ตั้งรหัสผ่าน/ถูกปิดใช้งาน",
   "rate-limited": "พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอ 15 นาทีแล้วลองใหม่",
+  "ldap-unavailable": "เชื่อมต่อเซิร์ฟเวอร์ AD ไม่ได้ กรุณาลองใหม่อีกครั้ง หากยังไม่ได้ให้ติดต่อผู้ดูแลระบบ",
+  "ldap-not-allowed": "บัญชี AD นี้ยังไม่ได้รับสิทธิ์ใช้ระบบ หรือถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
 };
 
-export function LoginForm({ next }: { next: string | null }) {
+export function LoginForm({ next, ldap }: { next: string | null; ldap: boolean }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
   const [showPassword, setShowPassword] = useState(false);
+  const invalid = ldap && state.error === "invalid" ? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" : state.error && messages[state.error];
 
   return <form action={action} className="flex flex-col gap-6" noValidate={false}>
     {next && <input type="hidden" name="next" value={next} />}
     <FieldGroup>
       <Field>
-        <FieldLabel htmlFor="email">อีเมล</FieldLabel>
-        <Input id="email" name="email" type="email" autoComplete="username" defaultValue={state.email} autoFocus required aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
+        <FieldLabel htmlFor="email">{ldap ? "ชื่อผู้ใช้ AD หรืออีเมล" : "อีเมล"}</FieldLabel>
+        {/* The field keeps name="email" for Auth.js; with AD it also takes a username, so it cannot be type="email". */}
+        <Input id="email" name="email" type={ldap ? "text" : "email"} autoComplete="username" autoCapitalize="none" spellCheck={false} defaultValue={state.email} autoFocus required aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
       </Field>
       <Field>
         <FieldLabel htmlFor="password">รหัสผ่าน</FieldLabel>
@@ -36,7 +40,7 @@ export function LoginForm({ next }: { next: string | null }) {
         </div>
       </Field>
     </FieldGroup>
-    {state.error && <p id="login-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{messages[state.error]}</p>}
+    {state.error && <p id="login-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{invalid}</p>}
     <Button type="submit" size="lg" disabled={pending}>{pending && <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden="true" />}{pending ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}</Button>
   </form>;
 }

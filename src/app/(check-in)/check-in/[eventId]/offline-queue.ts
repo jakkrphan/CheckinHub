@@ -64,11 +64,15 @@ async function readKey(database: IDBDatabase): Promise<CryptoKey> {
   }
 }
 
-export async function queueScan(operatorId: string, eventId: string, sessionId: string, code: string) {
+/**
+ * `clientEventId` keeps the id of an online attempt whose answer was lost, so a retry the server already saved is
+ * recognised as the same scan rather than a check-in from another device.
+ */
+export async function queueScan(operatorId: string, eventId: string, sessionId: string, code: string, clientEventId: string = crypto.randomUUID()) {
   const database = await openQueue();
   try {
     const key = await readKey(database);
-    const id = crypto.randomUUID();
+    const id = clientEventId;
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedCode = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(id) }, key, encoder.encode(code));
     const item: QueuedScan = { id, operatorId, eventId, sessionId, queuedAt: Date.now(), iv, encryptedCode };
@@ -84,7 +88,14 @@ export async function pendingScanCount(operatorId: string) {
   finally { database.close(); }
 }
 
-export async function syncQueuedScans(operatorId: string, send: (eventId: string, sessionId: string, code: string, clientEventId: string, scannedAt: string) => Promise<{ kind: string; message: string }>, retryRejected = false) {
+/** Scans another staff account left on this device; only that account can sync them, so staff must be told. */
+export async function otherOperatorScanCount(operatorId: string) {
+  const database = await openQueue();
+  try { return (await requestResult<QueuedScan[]>(database.transaction(SCANS).objectStore(SCANS).getAll())).filter((scan) => scan.operatorId !== operatorId).length; }
+  finally { database.close(); }
+}
+
+export async function syncQueuedScans(operatorId: string, send: (eventId: string, sessionId: string, code: string, clientEventId: string, scannedAt: string) => Promise<{ kind: string; message: string; alreadySaved?: boolean }>, retryRejected = false) {
   const database = await openQueue();
   let synced = 0;
   let alreadyChecked = 0;
@@ -110,8 +121,9 @@ export async function syncQueuedScans(operatorId: string, send: (eventId: string
         await transactionDone(transaction);
         continue;
       }
-      if (result.kind === "success") synced++;
-      if (result.kind === "duplicate") alreadyChecked++;
+      // A scan the server saved before its answer was lost counts as synced, not as another device's check-in.
+      if (result.kind === "success" || result.alreadySaved) synced++;
+      else if (result.kind === "duplicate") alreadyChecked++;
       const transaction = database.transaction(SCANS, "readwrite");
       transaction.objectStore(SCANS).delete(scan.id);
       await transactionDone(transaction);

@@ -9,7 +9,6 @@ datasource db {
 
 enum UserRole {
   ORGANIZER
-  STAFF
   ADMIN
 }
 
@@ -54,6 +53,8 @@ model User {
   name                String
   email               String           @unique
   passwordHash        String?
+  /// Active Directory objectGUID, set on the first LDAP sign-in. Stable across renames and email changes.
+  ldapId              String?          @unique
   role                UserRole         @default(ORGANIZER)
   isActive            Boolean          @default(true)
   createdAt           DateTime         @default(now())
@@ -134,6 +135,7 @@ model Event {
   registrants          Registrant[]
   auditLogs            AuditLog[]
   dataRequests         DataRequest[]
+  notifications        NotificationLog[]
 
   @@index([ownerId])
   @@index([status, registrationDeadline])
@@ -200,6 +202,9 @@ model Registrant {
   email           String?
   dedupeKey       String?
   lineUserId      String?
+  /// Day statuses last told to the registrant over LINE ({eventDayId: status}); new messages carry only what changed.
+  lineNotifiedDays Json?
+  emailNotifiedHash String? @db.Char(64)
   notifyVia       NotificationChannel @default(EMAIL)
   autoApproveAtRegistration Boolean    @default(false)
   status          RegistrantStatus    @default(PENDING)
@@ -214,6 +219,7 @@ model Registrant {
   checkIns        CheckIn[]
   days            RegistrantEventDay[]
   dataRequests    DataRequest[]
+  notifications   NotificationLog[]
 
   @@unique([eventId, dedupeKey])
   @@index([eventId, email])
@@ -327,4 +333,40 @@ model DataRequest {
   @@index([eventId, status, requestedAt])
   @@index([registrantId, status])
   @@index([resolvedById])
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+// Outbox for registrant notifications (spec: NotificationLog, sent from a background queue). A row is queued in the
+// same transaction as the status change and delivered after the response; retries back off via nextAttemptAt.
+// No recipient address or message text is stored: contact details live on Registrant and are cleared by retention.
+model NotificationLog {
+  id            String              @id @default(cuid())
+  eventId       String
+  event         Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registrantId  String
+  registrant    Registrant          @relation(fields: [registrantId], references: [id], onDelete: Cascade)
+  channel       NotificationChannel
+  /// linked | status | resend | fallback
+  kind          String              @db.VarChar(32)
+  status        NotificationStatus  @default(QUEUED)
+  attempts      Int                 @default(0)
+  /// LINE X-Line-Retry-Key: the same UUID on every retry so LINE never delivers one message twice.
+  retryKey      String              @db.Char(36)
+  /// Short technical reason (HTTP status / LINE error code), never personal data.
+  error         String?             @db.VarChar(255)
+  nextAttemptAt DateTime            @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([registrantId, createdAt])
+  @@index([eventId, status])
 }

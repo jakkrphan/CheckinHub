@@ -60,12 +60,12 @@ try {
   // Start from defaults so earlier runs cannot leak into this one.
   await db.systemSetting.deleteMany();
   const page = await (await fetch(settingsUrl, { headers: { cookie: adminCookie } })).text();
-  ensure(page.includes("ตั้งค่าระบบ") && page.includes("ยังไม่พัฒนา"), "Settings tab did not render");
+  ensure(page.includes("ตั้งค่าระบบ") && page.includes("ส่งอีเมลแจ้งผู้สมัคร"), "Settings tab did not render");
 
-  // A switch for an unbuilt feature cannot be saved.
-  const unbuiltForm = formsFrom(page).find((part) => part.includes('name="key" value="emailNotifications"'));
-  let response = await post(settingsUrl, unbuiltForm, { enabled: "true" }, { cookie: adminCookie });
-  ensure(location(response).includes("error=invalid-setting") && !(await db.systemSetting.findUnique({ where: { key: "emailNotifications" } })), "Unbuilt feature was switched on");
+  // Email delivery is implemented. Disable it so this fixture never mails a real SMTP service.
+  const emailForm = formsFrom(page).find((part) => part.includes('name="key" value="emailNotifications"'));
+  let response = await post(settingsUrl, emailForm, { enabled: "false" }, { cookie: adminCookie });
+  ensure(location(response).includes("saved=emailNotifications") && !(await db.systemSetting.findUniqueOrThrow({ where: { key: "emailNotifications" } })).enabled, "Email feature could not be disabled");
 
   const event = await db.event.create({ data: {
     slug: `feature-switch-${suffix}`, title: "Feature switch smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true,
@@ -95,8 +95,20 @@ try {
   ensure(location(response).includes("error=paused"), `Paused registration accepted: ${location(response)}`);
   await toggle("publicRegistration", true);
 
+  // Turnstile: on, a submit without a token is refused; off, the widget is gone and the same submit goes through.
+  const captchaValues = { "cf-turnstile-response": "", dayId: days[0].id, "answer:name": "No captcha", consent: "on" };
+  ensure((await (await fetch(publicUrl)).text()).includes("cf-turnstile"), "Turnstile widget missing while on (needs the test site key in .env.local)");
+  response = await post(publicUrl, registrationForm, { ...captchaValues, email: `captcha-on-${suffix}@example.invalid` }, { "x-forwarded-for": `fs-captcha-on-${suffix}` });
+  ensure(location(response).includes("error=captcha"), `Submit without a Turnstile token accepted while on: ${location(response)}`);
+  await toggle("turnstile", false);
+  let html = await (await fetch(publicUrl)).text();
+  ensure(!html.includes("cf-turnstile") && !html.includes("challenges.cloudflare.com/turnstile") && !html.includes("โหมดทดสอบในเครื่อง"), "Turnstile widget or notice still shown while off");
+  response = await post(publicUrl, registrationForm, { ...captchaValues, email: `captcha-off-${suffix}@example.invalid` }, { "x-forwarded-for": `fs-captcha-off-${suffix}` });
+  ensure(location(response).includes("/status/"), `Submit refused while Turnstile is off: ${location(response)}`);
+  await toggle("turnstile", true);
+
   // Registrant self-service switches.
-  let html = await (await fetch(statusUrl)).text();
+  html = await (await fetch(statusUrl)).text();
   ensure(html.includes("แก้ไขข้อมูลของฉัน") && html.includes("เปลี่ยนวันที่เข้าร่วม") && html.includes("ยกเลิกการเข้าร่วม") && html.includes("/calendar"), "Self-service controls missing while on");
   const cancelForm = formsFrom(html).find((part) => part.includes("ยกเลิกการเข้าร่วม"));
   for (const key of ["selfEdit", "selfDayChange", "selfCancel", "calendarDownload"]) await toggle(key, false);

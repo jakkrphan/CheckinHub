@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Prisma, type RegistrantStatus } from "@prisma/client";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, ShieldIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
 
-import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
+import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resendLineNotification, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
 import { canManageEvent } from "@/server/authorization/policy";
 import { db } from "@/server/db";
+import { emailConfigured } from "@/server/email/client";
+import { lineConfigured } from "@/server/line/client";
+import { getSeatAvailability } from "@/server/registrations/day-status";
 import { getWaitlistOpenings } from "@/server/registrations/waitlist-openings";
 import { getFeatureFlags } from "@/server/settings/features";
 
@@ -29,6 +32,9 @@ const chipTone: Record<RegistrantStatus, string> = {
   REJECTED: "border-border bg-muted text-muted-foreground line-through",
   CANCELLED: "border-border bg-muted text-muted-foreground line-through",
 };
+const lineKinds: Record<string, string> = { linked: "ข้อความต้อนรับ", status: "แจ้งสถานะ", resend: "ส่งซ้ำ" };
+const lineStatuses: Record<string, string> = { QUEUED: "รอส่ง", SENDING: "กำลังส่ง", SENT: "ส่งแล้ว", FAILED: "ส่งไม่ถึง", SKIPPED: "ไม่ได้ส่ง (ไม่มีอะไรใหม่ / ปิดอยู่)" };
+
 const resultMessages: Record<string, [string, "ok" | "warn" | "error"]> = {
   updated: ["บันทึกการตัดสินใจแล้ว", "ok"],
   partial: ["อนุมัติบางวันแล้ว วันที่เต็มยังอยู่ในคิวสำรอง", "warn"],
@@ -44,6 +50,10 @@ const resultMessages: Record<string, [string, "ok" | "warn" | "error"]> = {
   "delete-rejected": ["ปฏิเสธคำขอลบข้อมูลแล้ว ผู้สมัครจะเห็นเหตุผลในหน้าสถานะ", "ok"],
   "delete-confirm": ["กรุณาติ๊กยืนยันก่อนลบข้อมูล", "error"],
   "delete-note": ["กรุณาระบุเหตุผลที่ต้องเก็บข้อมูลไว้ (อย่างน้อย 3 ตัวอักษร)", "error"],
+  "line-resent": ["ส่งสถานะล่าสุดทาง LINE แล้ว (ส่งจริงภายในไม่กี่วินาที ดูผลในแถว LINE)", "ok"],
+  "line-limit": ["ส่งทาง LINE ซ้ำได้ไม่เกิน 3 ครั้งต่อชั่วโมงต่อคน", "warn"],
+  "line-not-linked": ["ผู้สมัครคนนี้ยังไม่ได้เชื่อม LINE", "error"],
+  "line-unavailable": ["ระบบแจ้งเตือนทาง LINE ปิดอยู่ (ตั้งค่าระบบ) หรือยังไม่ได้ตั้งคีย์", "error"],
   "promote-none": ["ไม่ได้เลื่อนคิว: ที่นั่งเต็มแล้วหรือไม่มีคนรอคิว (อาจมีผู้จัดคนอื่นเลื่อนไปก่อน)", "warn"],
 };
 
@@ -123,6 +133,12 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
       ? await db.registrant.count({ where: { eventId, status: "WAITLISTED", OR: [{ registeredAt: { lt: person.registeredAt } }, { registeredAt: person.registeredAt, id: { lte: person.id } }] } })
       : await db.registrantEventDay.count({ where: { eventDayId: day.eventDayId, status: "WAITLISTED", OR: [{ waitlistedAt: { lt: day.waitlistedAt! } }, { waitlistedAt: day.waitlistedAt!, id: { lte: day.id } }] } }),
   ] as const))) : new Map<string, number>();
+  // Seats of the days this person waits for: a waitlisted day can only be approved while it has a free seat.
+  const seats = person?.status === "WAITLISTED" || person?.days.some((day) => day.status === "WAITLISTED")
+    ? await getSeatAvailability(db, event, person.days.filter((day) => day.status === "WAITLISTED").map((day) => day.eventDayId))
+    : null;
+  const courseFull = seats?.mode === "whole_course" && seats.remaining === 0;
+  const dayFull = (eventDayId: string) => seats?.mode === "per_day" && seats.days.get(eventDayId)?.remaining === 0;
   const positionInList = person ? registrants.findIndex((item) => item.id === person.id) : -1;
   const previous = positionInList > 0 ? registrants[positionInList - 1] : undefined;
   const next = positionInList >= 0 && positionInList < registrants.length - 1 ? registrants[positionInList + 1] : undefined;
@@ -148,6 +164,13 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   const personAnswers = asAnswers(person?.answers);
   const canEdit = !event.anonymizedAt;
   const flags = await getFeatureFlags();
+  const lineOn = flags.lineLogin && lineConfigured();
+  const emailOn = emailConfigured() && flags.emailNotifications;
+  const emailHistory = person ? await db.notificationLog.findMany({ where: { registrantId: person.id, channel: "EMAIL" }, orderBy: { createdAt: "desc" }, take: 3, select: { id: true, status: true, createdAt: true, sentAt: true } }) : [];
+  // LINE delivery: the latest sent/failed message per person on this page (list badge) and a short history for the detail.
+  const lineResults = await db.notificationLog.findMany({ where: { registrantId: { in: registrants.map((item) => item.id) }, channel: "LINE", status: { in: ["SENT", "FAILED"] } }, orderBy: { createdAt: "desc" }, select: { registrantId: true, status: true } });
+  const lineFailed = new Set(registrants.filter((item) => lineResults.find((row) => row.registrantId === item.id)?.status === "FAILED").map((item) => item.id));
+  const lineHistory = person?.lineUserId ? await db.notificationLog.findMany({ where: { registrantId: person.id, channel: "LINE" }, orderBy: { createdAt: "desc" }, take: 3, select: { id: true, kind: true, status: true, error: true, createdAt: true, sentAt: true } }) : [];
   const hasFilters = !!(query || selectedDay || (selectedField && answerValue));
 
   return <>
@@ -219,7 +242,8 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                 <span className="flex items-baseline justify-between gap-2"><span className="truncate font-semibold">{name}</span><span className="shrink-0 text-xs text-muted-foreground">{formatEventDay(item.registeredAt)}</span></span>
                 <span className="truncate text-xs text-muted-foreground">{item.email ?? "—"}</span>
                 <span className="flex flex-wrap gap-1">{item.days.sort((a, b) => (dayIndex.get(a.eventDayId) ?? 0) - (dayIndex.get(b.eventDayId) ?? 0)).map((day) => <span key={day.eventDayId} title={`วันที่ ${dayIndex.get(day.eventDayId)}: ${labels[day.status]}`} className={cn("rounded border px-1.5 text-[11px] font-semibold", chipTone[day.status])}>ว.{dayIndex.get(day.eventDayId)}</span>)}
-                  {event.seatMode === "whole_course" && <span className={cn("rounded border px-1.5 text-[11px] font-semibold", chipTone[item.status])}>{labels[item.status]}</span>}</span>
+                  {event.seatMode === "whole_course" && <span className={cn("rounded border px-1.5 text-[11px] font-semibold", chipTone[item.status])}>{labels[item.status]}</span>}
+                  {lineFailed.has(item.id) && <span title="ส่งข้อความ LINE ล่าสุดไม่ถึง" className="rounded border border-amber-300 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-900">LINE ส่งไม่ถึง</span>}</span>
               </Link>
             </li>;
           })}</ul>}
@@ -277,7 +301,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                 </form>
               </div>}
             </section>}
-            {person.status === "WAITLISTED" && <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"><TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{event.seatMode === "whole_course" ? "เข้าคิวเพราะที่นั่งทั้งหลักสูตรเต็ม" : `เข้าคิวเพราะ ${person.days.filter((day) => day.status === "WAITLISTED").map((day) => `วันที่ ${dayIndex.get(day.eventDayId)} เต็ม`).join(", ")}`} ตอนส่งใบสมัคร — เมื่อมีคนยกเลิก ระบบ{event.waitlistPromotion === "AUTO" ? "เลื่อนคิวให้อัตโนมัติ" : "แจ้งให้ผู้จัดเลือกเลื่อนคิวเอง"} หรืออนุมัติทับคิวได้เลย</p>}
+            {person.status === "WAITLISTED" && seats && <WaitlistNotice seats={seats} maxSeats={event.maxSeats} days={person.days.filter((day) => day.status === "WAITLISTED").map((day) => ({ id: day.eventDayId, number: dayIndex.get(day.eventDayId) ?? 0, maxSeats: day.eventDay.maxSeats }))} autoPromote={event.waitlistPromotion === "AUTO"} settingsHref={mayManage ? `/organizer/${eventId}?step=2` : undefined} />}
             {person.status === "REJECTED" && person.rejectReason && <p className="rounded-lg border bg-card px-4 py-3 text-sm">เหตุผลที่ปฏิเสธ: {person.rejectReason}</p>}
 
             <dl className="grid grid-cols-1 border-t sm:grid-cols-[180px_minmax(0,1fr)]">
@@ -286,13 +310,29 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                 <span className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold", chipTone[day.status])}>วันที่ {dayIndex.get(day.eventDayId)} · {formatEventDayWithWeekday(day.eventDay.date)}</span>
                 <span className="text-xs text-muted-foreground">{labels[day.status]}{queuePositions.has(day.id) ? ` · คิวที่ ${queuePositions.get(day.id)}` : ""}</span>
                 {canEdit && event.seatMode !== "whole_course" && <span className="flex flex-wrap gap-1">
-                  {(day.status === "PENDING" || day.status === "WAITLISTED") && <form action={decideRegistrantDay.bind(null, eventId, person.id, day.eventDayId, "approve")}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="outline">อนุมัติวันนี้</Button></form>}
+                  {(day.status === "PENDING" || (day.status === "WAITLISTED" && !dayFull(day.eventDayId))) && <form action={decideRegistrantDay.bind(null, eventId, person.id, day.eventDayId, "approve")}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="outline">อนุมัติวันนี้</Button></form>}
+                  {day.status === "WAITLISTED" && dayFull(day.eventDayId) && <span className="inline-flex h-6 items-center px-1 text-xs text-muted-foreground">วันนี้เต็ม · อนุมัติได้เมื่อมีที่ว่าง</span>}
                   {(day.status === "PENDING" || day.status === "WAITLISTED") && <form action={decideRegistrantDay.bind(null, eventId, person.id, day.eventDayId, "reject")}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="ghost">ปฏิเสธวันนี้</Button></form>}
                   {day.status === "APPROVED" && person.days.filter((item) => item.status === "APPROVED").length > 1 && <form action={decideRegistrantDay.bind(null, eventId, person.id, day.eventDayId, "cancel")}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="ghost">ยกเลิกวันนี้</Button></form>}
                 </span>}
               </div>)}</dd>
               <dt className="border-b py-3 text-sm text-muted-foreground">อีเมล</dt>
-              <dd className="border-b py-3 break-all">{person.email ?? "—"}</dd>
+              <dd className="flex min-w-0 flex-col gap-2 border-b py-3">
+                <span className="break-all">{person.email ?? "—"}</span>
+                {person.email && !emailOn && <span className="text-xs text-destructive">การส่งอีเมลปิดอยู่หรือยังไม่ได้ตั้งค่า</span>}
+                {emailHistory.length > 0 && <ul className="flex flex-col gap-1 text-xs text-muted-foreground">{emailHistory.map((item) => <li key={item.id}>{formatDateTime(item.sentAt ?? item.createdAt)} · <span className={cn(item.status === "FAILED" && "font-semibold text-destructive")}>{item.status === "SENT" ? "เซิร์ฟเวอร์รับอีเมลแล้ว" : item.status === "FAILED" ? "ส่งอีเมลไม่สำเร็จ" : item.status === "SKIPPED" ? "ไม่ได้ส่ง (สถานะเดิม / ปิดอยู่ / ไม่มีผู้รับ)" : item.status === "SENDING" ? "กำลังส่งอีเมล" : "รอส่งอีเมล"}</span></li>)}</ul>}
+              </dd>
+              {(lineOn || person.lineUserId) && <>
+                <dt className="border-b py-3 text-sm text-muted-foreground">LINE</dt>
+                <dd className="flex flex-col gap-2 border-b py-3 text-sm">
+                  {person.lineUserId ? <>
+                    <span>เชื่อมแล้ว · แจ้งผลทาง LINE</span>
+                    {lineHistory.length > 0 && <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">{lineHistory.map((item) => <li key={item.id}>{lineKinds[item.kind] ?? item.kind} · {formatDateTime(item.sentAt ?? item.createdAt)} · <span className={cn(item.status === "FAILED" && "font-semibold text-destructive", item.status === "SENT" && "text-foreground")}>{lineStatuses[item.status]}</span>{item.status === "FAILED" && item.error ? ` (${item.error})` : ""}</li>)}</ul>}
+                    {lineHistory[0]?.status === "FAILED" && <span className="text-xs text-muted-foreground">มักเกิดจากผู้สมัครบล็อก OA หรือโควตาข้อความของเดือนหมด · ผู้สมัครยังดูผลได้จากลิงก์หน้าสถานะ</span>}
+                    {lineOn && canEdit && <form action={resendLineNotification.bind(null, eventId, person.id)}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="outline">ส่งสถานะทาง LINE อีกครั้ง</Button></form>}
+                  </> : <span className="text-muted-foreground">ยังไม่เชื่อม — ผู้สมัครกด &ldquo;รับแจ้งผลทาง LINE&rdquo; ได้ในหน้าสถานะของตัวเอง</span>}
+                </dd>
+              </>}
               {fields.map((field) => {
                 const answer = personAnswers[field.key];
                 const files = field.type === "file" ? readFileAnswers(answer) : [];
@@ -342,11 +382,37 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                   <Button size="sm" variant="destructive">ยืนยันปฏิเสธ</Button>
                 </form>
               </details>}
-              {(person.status === "PENDING" || (event.seatMode === "whole_course" && person.status === "WAITLISTED")) && <form action={decideRegistrant.bind(null, eventId, person.id, "approve")}><input type="hidden" name="returnTo" value={returnTo} /><Button>อนุมัติ{person.status === "WAITLISTED" ? "ทับคิว" : ""}</Button></form>}
+              {(person.status === "PENDING" || (event.seatMode === "whole_course" && person.status === "WAITLISTED" && !courseFull)) && <form action={decideRegistrant.bind(null, eventId, person.id, "approve")}><input type="hidden" name="returnTo" value={returnTo} /><Button>อนุมัติ{person.status === "WAITLISTED" ? "ข้ามคิว" : ""}</Button></form>}
             </div>}
           </footer>
         </>}
       </section>
     </div>
   </>;
+}
+
+type SeatStatus = Awaited<ReturnType<typeof getSeatAvailability>>;
+
+/**
+ * Why a person is waitlisted and what the organizer can do now: a full day or course can only be approved once a seat
+ * frees up (or seats are added); a day with a free seat can be approved straight away, ahead of the queue.
+ */
+function WaitlistNotice({ seats, maxSeats, days, autoPromote, settingsHref }: { seats: SeatStatus; maxSeats: number | null; days: { id: string; number: number; maxSeats: number | null }[]; autoPromote: boolean; settingsHref?: string }) {
+  const state = seats.mode === "whole_course"
+    ? [{ label: "ที่นั่งของหลักสูตร", full: seats.remaining === 0, taken: seats.taken, max: maxSeats, remaining: seats.remaining }]
+    : days.map((day) => {
+      const seat = seats.days.get(day.id);
+      return { label: `วันที่ ${day.number}`, full: seat?.remaining === 0, taken: seat?.taken ?? 0, max: day.maxSeats, remaining: seat?.remaining ?? null };
+    });
+  const anyFull = state.some((item) => item.full);
+  const anyFree = state.some((item) => !item.full);
+  const approveLabel = seats.mode === "whole_course" ? "อนุมัติข้ามคิว" : "อนุมัติวันนี้";
+  return <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+    <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+    <div className="flex flex-col gap-1">
+      <p className="font-semibold">{state.map((item) => item.full ? `${item.label} เต็ม (${item.taken}/${item.max})` : item.remaining === null ? `${item.label} ไม่จำกัดที่นั่ง` : `${item.label} ว่าง ${item.remaining} ที่`).join(" · ")}</p>
+      {anyFull && <p>{seats.mode === "whole_course" ? "อนุมัติได้เมื่อมีที่ว่าง" : "วันที่เต็มอนุมัติได้เมื่อมีที่ว่าง"} — เมื่อมีคนยกเลิก ระบบ{autoPromote ? "เลื่อนคิวให้อัตโนมัติตามลำดับ" : "แจ้งให้ผู้จัดเลื่อนคิวเอง"} หรือเพิ่มที่นั่ง{settingsHref ? <> <Link href={settingsHref} className="font-semibold underline underline-offset-2">ในขั้นที่ 2 วันที่จัด</Link></> : "ในขั้นที่ 2"}</p>}
+      {anyFree && <p>{seats.mode === "whole_course" ? "มีที่ว่างแล้ว" : "วันที่ว่าง"}กด &ldquo;{approveLabel}&rdquo; ได้เลย โดยไม่ต้องรอคิวก่อนหน้า</p>}
+    </div>
+  </div>;
 }

@@ -1,6 +1,6 @@
 import type { OrganizerRole } from "@/features/events/domain";
 
-export type SystemRole = "organizer" | "staff" | "admin";
+export type SystemRole = "organizer" | "admin";
 
 export type EventMembership = {
   systemRole: SystemRole;

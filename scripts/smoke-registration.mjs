@@ -50,7 +50,7 @@ try {
   eventId = event.id;
   const staffEmail = `checkin-staff-${suffix}@example.invalid`;
   const staffPassword = "LocalCheckIn123!";
-  const staff = await db.user.create({ data: { name: "Check-in staff smoke", email: staffEmail, passwordHash: await hash(staffPassword, 10), role: "STAFF" } });
+  const staff = await db.user.create({ data: { name: "Check-in staff smoke", email: staffEmail, passwordHash: await hash(staffPassword, 10), role: "ORGANIZER" } });
   staffId = staff.id;
   await db.eventOrganizer.create({ data: { eventId, userId: staff.id, role: "CHECKIN_ONLY" } });
   const fullEmail = `full-organizer-${suffix}@example.invalid`;
@@ -186,22 +186,28 @@ try {
   const manualForm = formsFrom(html).find((form) => form.includes('name="approveNow"'));
   ensure(manualForm, "Manual registration form missing");
   response = await submit(manualUrl, manualForm, { email: `manual-${suffix}@example.invalid`, dayId: day.id, "answer:name": "Manual Person", consent: "on", approveNow: "on" }, cookie);
-  ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), "Manual registration failed");
   const manual = await db.registrant.findFirstOrThrow({ where: { eventId, email: `manual-${suffix}@example.invalid` } });
+  // Saving stays on the walk-in page: a card for the saved person above a fresh form, status link carried by a cookie.
+  ensure(response.status === 303 && response.headers.get("location")?.endsWith(`/registrants/new?added=${manual.id}`), `Manual registration did not return to the walk-in page: ${response.headers.get("location")}`);
+  const flashCookie = response.headers.getSetCookie().map((item) => item.split(";")[0]).find((item) => item.startsWith("walk-in-status-link="));
+  ensure(flashCookie, "Walk-in status link cookie missing");
+  html = await (await fetch(new URL(response.headers.get("location"), base), { headers: { cookie: `${cookie}; ${flashCookie}` } })).text();
+  ensure(html.includes("บันทึก Manual Person แล้ว") && html.includes("คิวสำรอง") && /href="\/events\/[^"]+\/status\/[^"]+"/.test(html) && html.includes('name="approveNow"'), "Walk-in success card, status link or next form missing");
   ensure(manual.status === "WAITLISTED" && !!manual.consentedAt && await db.auditLog.count({ where: { eventId, action: "MANUAL_REGISTRATION_CREATED", target: manual.id } }) === 1, "Manual registration did not respect capacity or audit consent");
   // Walk-ins without email are allowed (QR printed by the organizer) and have no dedupe key.
   const walkInsBefore = await db.registrant.count({ where: { eventId, email: null } });
   response = await submit(manualUrl, manualForm, { email: "", dayId: day.id, "answer:name": `No email ${suffix}`, consent: "on" }, cookie);
-  ensure(response.status === 303 && response.headers.get("location")?.includes("/status/") && await db.registrant.count({ where: { eventId, email: null, dedupeKey: null } }) === walkInsBefore + 1, "Walk-in without email failed");
+  ensure(response.status === 303 && response.headers.get("location")?.includes("/registrants/new?added=") && await db.registrant.count({ where: { eventId, email: null, dedupeKey: null } }) === walkInsBefore + 1, "Walk-in without email failed");
 
   response = await submit(publicUrl, registrationForm, { email: `mixed-${suffix}@example.invalid`, dayId: [day.id, otherDay.id], "answer:name": "Mixed days", consent: "on" });
   ensure(response.status === 303, "Mixed-day registration failed");
   const mixed = await db.registrant.findFirstOrThrow({ where: { eventId, email: `mixed-${suffix}@example.invalid` }, include: { days: true } });
   ensure(mixed.status === "PENDING" && mixed.days.find((item) => item.eventDayId === day.id)?.status === "WAITLISTED" && mixed.days.find((item) => item.eventDayId === otherDay.id)?.status === "PENDING", "Mixed-day capacity did not stay independent");
   html = await detail(mixed.id);
+  // The full day offers no approve button (it cannot be approved until a seat frees up); the open day does.
   const mixedDayApprovals = formsFrom(html).filter((form) => form.includes("อนุมัติวันนี้"));
-  ensure(mixedDayApprovals.length === 2, "Per-day approval controls missing");
-  response = await submit(organizerUrl, mixedDayApprovals[1], {}, cookie);
+  ensure(mixedDayApprovals.length === 1 && html.includes("วันนี้เต็ม · อนุมัติได้เมื่อมีที่ว่าง"), "Per-day approval controls do not reflect the full day");
+  response = await submit(organizerUrl, mixedDayApprovals[0], {}, cookie);
   ensure(response.status === 303, "Per-day approval failed");
   const mixedApproved = await db.registrant.findUniqueOrThrow({ where: { id: mixed.id }, include: { days: true } });
   ensure(mixedApproved.status === "APPROVED" && !!mixedApproved.qrCode && mixedApproved.days.find((item) => item.eventDayId === day.id)?.status === "WAITLISTED" && mixedApproved.days.find((item) => item.eventDayId === otherDay.id)?.status === "APPROVED", "Per-day approval changed the wrong day");

@@ -17,7 +17,7 @@ try {
     seedUser("Local Admin", "admin@checkinhub.local", "ADMIN"),
     seedUser("Local Organizer", "organizer@checkinhub.local", "ORGANIZER"),
     seedUser("Full Collaborator", "collaborator@checkinhub.local", "ORGANIZER"),
-    seedUser("Check-in Staff", "staff@checkinhub.local", "STAFF"),
+    seedUser("Check-in Staff", "staff@checkinhub.local", "ORGANIZER"),
   ]);
 
   const event = await db.event.upsert({

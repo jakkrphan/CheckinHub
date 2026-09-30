@@ -5,12 +5,12 @@ import { notFound } from "next/navigation";
 import { db } from "@/server/db";
 import { todayInBangkok } from "@/server/registrations/day-change";
 import { getSeatAvailability } from "@/server/registrations/day-status";
-import { hashBearerCode } from "@/server/registrations/registration";
 import { canSelfEdit } from "@/server/registrations/self-edit";
 import { isFeatureEnabled } from "@/server/settings/features";
 
 import { changeOwnDaysAction } from "../actions";
 import { ChangeDaysForm } from "./change-days-form";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export const metadata: Metadata = { title: "เปลี่ยนวันที่เข้าร่วม", referrer: "no-referrer" };
 
@@ -29,7 +29,7 @@ export default async function ChangeDaysPage({ params, searchParams }: PageProps
   const { slug, token } = await params;
   const { error } = await searchParams;
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     select: {
       id: true, status: true, anonymizedAt: true,
       days: { select: { eventDayId: true, status: true } },

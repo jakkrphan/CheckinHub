@@ -4,8 +4,8 @@ import { db } from "@/server/db";
 import { syncRegistrantStatus } from "@/server/registrations/day-status";
 import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
-import { hashBearerCode } from "@/server/registrations/registration";
 import { anonymizedRegistrantData, fileKeys } from "@/server/registrations/retention";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 const REASON_MAX = 500;
 
@@ -15,7 +15,7 @@ const REASON_MAX = 500;
  */
 export async function requestOwnDeletion(slug: string, token: string, rawReason: FormDataEntryValue | null) {
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     select: { id: true, eventId: true, anonymizedAt: true, event: { select: { slug: true, deletedAt: true } }, dataRequests: { where: { status: "OPEN" }, select: { id: true } } },
   });
   if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt || registrant.anonymizedAt) return "not-found" as const;

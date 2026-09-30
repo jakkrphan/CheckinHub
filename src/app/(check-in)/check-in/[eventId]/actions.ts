@@ -35,6 +35,8 @@ export type ScanResult = {
   time?: string;
   /** Whole-course events: which session of the course this is and how many the person has attended. */
   progress?: { session: number; total: number; attended: number };
+  /** This exact scan (same clientEventId) was saved earlier, e.g. before its answer was lost on the network. */
+  alreadySaved?: boolean;
 };
 
 const timeFormatter = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
@@ -91,7 +93,7 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
   const fromQueue = !!options.scannedAt;
   try {
     const result = await db.$transaction(async (tx): Promise<ScanResult> => {
-      if (clientEventId && await tx.checkIn.findUnique({ where: { clientEventId }, select: { id: true } })) return { kind: "duplicate", message: "รายการสแกนนี้บันทึกแล้ว" };
+      if (clientEventId && await tx.checkIn.findUnique({ where: { clientEventId }, select: { id: true } })) return { kind: "duplicate", message: "รายการสแกนนี้บันทึกแล้ว", alreadySaved: true };
       const session = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { id: true, eventDayId: true } });
       if (!session) return { kind: "session-missing", message: "รอบเช็คชื่อนี้ถูกลบแล้ว ไม่ได้บันทึก กรุณาแจ้งผู้จัด" };
       const person = await tx.registrant.findFirst({ where: { eventId, qrCode: code.trim() }, select: { id: true } });
@@ -174,7 +176,7 @@ export async function undoCheckIn(eventId: string, sessionId: string, registrant
   await db.$transaction(async (tx) => {
     const record = await tx.checkIn.findFirst({ where: { sessionId, registrantId, registrant: { eventId }, voidedAt: null }, select: { id: true, checkedInAt: true } });
     if (!record) return;
-    const limited = membership.systemRole !== "admin" && membership.userId !== membership.ownerId && (membership.systemRole === "staff" || membership.collaboratorRole === "checkin_only");
+    const limited = membership.systemRole !== "admin" && membership.userId !== membership.ownerId && membership.collaboratorRole === "checkin_only";
     if (limited && Date.now() - record.checkedInAt.getTime() > 10 * 60 * 1000) return;
     await tx.checkIn.update({ where: { id: record.id }, data: { voidedAt: new Date(), voidedById: user.id, activeKey: null } });
     await tx.auditLog.create({ data: { eventId, actorId: user.id, action: requiresAdminAudit(membership) ? "CHECKIN_REVOKED_BY_ADMIN" : "CHECKIN_VOIDED", target: record.id, metadata: { sessionId, registrantId } } });

@@ -3,5 +3,3 @@ export function safeReturnTo(value: unknown) {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return null;
   return /^\/(organizer|admin|check-in|account\/password)(\/|\?|$)/.test(value) ? value.slice(0, 500) : null;
 }
-
-export const homeFor = (role: string) => role === "STAFF" ? "/check-in" : "/organizer";

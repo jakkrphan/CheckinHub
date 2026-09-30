@@ -10,13 +10,13 @@ import {
 } from "./policy.ts";
 
 const membership = {
-  systemRole: "staff",
-  userId: "staff-1",
+  systemRole: "organizer",
+  userId: "user-1",
   ownerId: "owner-1",
   collaboratorRole: null,
 };
 
-test("staff without event membership cannot access the event", () => {
+test("an organizer without event membership cannot access the event", () => {
   assert.equal(canViewEvent(membership), false);
   assert.equal(canManageEvent(membership), false);
   assert.equal(canCheckIn(membership), false);

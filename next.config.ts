@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Loaded by Node at runtime instead of bundled, as in portalrpp (it opens raw TCP/TLS sockets).
+  serverExternalPackages: ["ldapts"],
   experimental: {
     serverActions: { bodySizeLimit: "6mb" },
     // Enables forbidden() / forbidden.tsx for a real 403 on admin-only pages.

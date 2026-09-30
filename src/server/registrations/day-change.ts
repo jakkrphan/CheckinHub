@@ -3,8 +3,8 @@ import { Prisma, type RegistrantStatus } from "@prisma/client";
 import { db } from "@/server/db";
 import { getSeatAvailability, syncRegistrantStatus } from "@/server/registrations/day-status";
 import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle";
-import { hashBearerCode } from "@/server/registrations/registration";
 import { canSelfEdit } from "@/server/registrations/self-edit";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export type DayChangeResult = "saved" | "unchanged" | "invalid" | "closed" | "day-closed" | "checked-in" | "not-found" | "unavailable";
 
@@ -22,12 +22,12 @@ export async function changeOwnDays(slug: string, token: string, requested: Form
   const desired = new Set(requested as string[]);
   if (!desired.size || desired.size !== requested.length) return "invalid";
 
-  const statusTokenHash = hashBearerCode(token);
+  const tokenWhere = await statusTokenWhere(token);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await db.$transaction(async (tx) => {
         const registrant = await tx.registrant.findUnique({
-          where: { statusTokenHash },
+          where: tokenWhere,
           select: { id: true, eventId: true, status: true, anonymizedAt: true, event: { select: { id: true, slug: true, status: true, deletedAt: true, registrationDeadline: true, seatMode: true, maxSeats: true, autoApprove: true } } },
         });
         if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found" as const;

@@ -18,7 +18,6 @@ export async function FeatureSettings({ saved }: { saved?: string }) {
   ]);
   const lastChange = new Map(rows.map((row) => [row.key, row]));
   const features = featureDefinitions as readonly FeatureDefinition[];
-  const turnstileReady = envConfigured(["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"]);
 
   return <div className="flex flex-col gap-6">
     <p className="rounded-xl border bg-card px-4 py-3 text-sm leading-relaxed text-muted-foreground">
@@ -33,17 +32,11 @@ export async function FeatureSettings({ saved }: { saved?: string }) {
           <p className="text-sm text-muted-foreground">{group.description}</p>
         </header>
         <ul className="divide-y">
-          {group.value === "integration" && <li className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 flex-col gap-1">
-              <p className="font-semibold">Cloudflare Turnstile (กันบอทหน้าสมัคร)</p>
-              <p className="text-sm text-muted-foreground">บังคับใช้เสมอบน production — ไม่มีสวิตช์ปิด ถ้ายังไม่ตั้งคีย์ ผู้จัดจะเผยแพร่โครงการบน production ไม่ได้</p>
-            </div>
-            <EnvBadge ready={turnstileReady} />
-          </li>}
           {items.map((feature) => {
             const on = flags[feature.key as keyof typeof flags];
             const notBuilt = feature.availability?.status === "not-built";
             const change = lastChange.get(feature.key);
+            const env = feature.env ?? feature.availability?.env;
             const isDefault = !change || on === featureDefault(feature);
             return <li key={feature.key} id={`feature-${feature.key}`} className={cn("flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6", saved === feature.key && "bg-accent/60")}>
               <div className="flex min-w-0 flex-col gap-1.5">
@@ -51,12 +44,12 @@ export async function FeatureSettings({ saved }: { saved?: string }) {
                   <p className="font-semibold">{feature.label}</p>
                   {notBuilt ? <Badge variant="outline">ยังไม่พัฒนา</Badge> : <Badge variant="secondary" className={on ? "bg-emerald-100 text-emerald-900" : "bg-muted text-muted-foreground"}>{on ? "เปิดอยู่" : "ปิดอยู่"}</Badge>}
                   {!notBuilt && !isDefault && <Badge variant="outline" className="text-xs">ไม่ใช่ค่าเริ่มต้น</Badge>}
-                  {feature.availability?.env && <EnvBadge ready={envConfigured(feature.availability.env)} />}
+                  {env && <EnvBadge ready={envConfigured(env)} />}
                 </div>
                 <p className="text-sm">{feature.description}</p>
                 <p className="text-sm text-muted-foreground"><span className="font-medium">เมื่อปิด:</span> {feature.whenOff}</p>
                 {feature.warning && <p className="flex items-start gap-1.5 text-sm text-amber-900"><AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{feature.warning}</p>}
-                {feature.availability?.env && <p className="text-xs text-muted-foreground">ต้องตั้งใน .env: <span className="font-mono">{feature.availability.env.join(", ")}</span></p>}
+                {env && <p className="text-xs text-muted-foreground">ต้องตั้งใน .env: <span className="font-mono">{env.join(", ")}</span></p>}
                 {change?.updatedBy && <p className="text-xs text-muted-foreground">เปลี่ยนล่าสุดโดย {change.updatedBy.name} · {updatedFormatter.format(change.updatedAt)}</p>}
                 {saved === feature.key && <p role="status" className="text-sm font-medium text-primary">บันทึกแล้ว</p>}
               </div>

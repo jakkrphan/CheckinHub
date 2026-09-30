@@ -52,7 +52,6 @@ function parseEventForm(formData: FormData) {
 
 export async function createEvent(formData: FormData) {
   const user = await requireActiveUser();
-  if (user.role === "STAFF") redirect("/check-in?notice=no-organizer-access");
   if (!(await mayCreateEvents(user.role))) redirect("/organizer?error=create-disabled");
 
   const parsed = parseEventForm(formData);

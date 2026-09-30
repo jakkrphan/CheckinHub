@@ -37,7 +37,7 @@ export async function getSeatAvailability(
 export async function syncRegistrantStatus(tx: Prisma.TransactionClient, registrantId: string) {
   const person = await tx.registrant.findUniqueOrThrow({
     where: { id: registrantId },
-    select: { status: true, qrCode: true, approvedAt: true, days: { select: { status: true } } },
+    select: { status: true, qrCode: true, approvedAt: true, eventId: true, lineUserId: true, email: true, notifyVia: true, days: { select: { status: true } } },
   });
   const status = summarizeDayStatuses(person.days.map((day) => day.status));
   await tx.registrant.update({
@@ -51,5 +51,15 @@ export async function syncRegistrantStatus(tx: Prisma.TransactionClient, registr
       ...(status === "CANCELLED" || status === "REJECTED" ? { dedupeKey: null } : {}),
     },
   });
+  // People who connected LINE hear about the change; the message is built from what differs when it is sent.
+  // Imported lazily so the seat logic (and its unit tests) does not load the LINE/Next.js server modules.
+  if (person.lineUserId) {
+    const { queueLineNotification } = await import("@/server/line/notifications");
+    await queueLineNotification(tx, { id: registrantId, eventId: person.eventId }, "status");
+  }
+  if (person.email && person.notifyVia !== "LINE") {
+    const { queueEmailNotification } = await import("@/server/email/notifications");
+    await queueEmailNotification(tx, { id: registrantId, eventId: person.eventId });
+  }
   return status;
 }

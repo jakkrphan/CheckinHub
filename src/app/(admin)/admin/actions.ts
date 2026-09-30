@@ -7,12 +7,13 @@ import { hash } from "bcryptjs";
 
 import { findFeature } from "@/features/settings/features";
 import { issueAccountToken } from "@/server/auth/account-tokens";
+import { ldapEnabled } from "@/server/auth/ldap";
 import { requireAdminUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 import { featureDefault } from "@/server/settings/features";
 
 const userIdSchema = z.string().cuid();
-const roleSchema = z.enum(["ORGANIZER", "STAFF", "ADMIN"]);
+const roleSchema = z.enum(["ORGANIZER", "ADMIN"]);
 
 export async function createUser(formData: FormData) {
   const actor = await requireAdminUser();
@@ -30,6 +31,8 @@ export async function createUser(formData: FormData) {
   });
   if (!parsed.success) redirect("/admin?error=invalid-user");
 
+  // With AD sign-in, a blank password means "signs in with AD": linked by email at the first login, no invite link.
+  const invited = !parsed.data.password && !ldapEnabled();
   let invite: { token: string } | null = null;
   try {
     invite = await db.$transaction(async (tx) => {
@@ -43,9 +46,9 @@ export async function createUser(formData: FormData) {
         actorId: actor.id,
         action: "ADMIN_USER_CREATED",
         target: user.id,
-        metadata: { email: parsed.data.email, role: parsed.data.role, invited: !parsed.data.password },
+        metadata: { email: parsed.data.email, role: parsed.data.role, invited, ...(!parsed.data.password && !invited ? { ldap: true } : {}) },
       } });
-      return parsed.data.password ? null : issueAccountToken(tx, user.id, "INVITE", actor.id);
+      return invited ? issueAccountToken(tx, user.id, "INVITE", actor.id) : null;
     });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
@@ -64,8 +67,10 @@ export async function issuePasswordLink(formData: FormData) {
   const userId = userIdSchema.safeParse(formData.get("userId"));
   if (!userId.success) redirect("/admin?error=invalid-user-edit");
   const issued = await db.$transaction(async (tx) => {
-    const target = await tx.user.findUnique({ where: { id: userId.data }, select: { id: true, isActive: true, passwordHash: true } });
+    const target = await tx.user.findUnique({ where: { id: userId.data }, select: { id: true, isActive: true, passwordHash: true, ldapId: true } });
     if (!target?.isActive) return null;
+    // AD accounts sign in with the directory password; a local one is set explicitly in the details form (break-glass).
+    if ((target.ldapId || ldapEnabled()) && !target.passwordHash) return "directory" as const;
     // Accounts that never set a password get a fresh 7-day invitation; others get a 30-minute reset link.
     const kind = target.passwordHash ? "RESET" : "INVITE";
     const link = await issueAccountToken(tx, target.id, kind, actor.id);
@@ -73,6 +78,7 @@ export async function issuePasswordLink(formData: FormData) {
     return link;
   });
   if (!issued) redirect("/admin?error=inactive-link");
+  if (issued === "directory") redirect("/admin?error=ldap-link");
   redirect(`/admin/account-link?token=${issued.token}`);
 }
 

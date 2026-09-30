@@ -45,6 +45,9 @@ async function callAction(pagePath, name, args, cookie) {
   return response.text();
 }
 
+// The captcha checks need the admin Turnstile switch on; restore whatever an admin had set when finished.
+const savedTurnstile = await db.systemSetting.findUnique({ where: { key: "turnstile" } });
+await db.systemSetting.deleteMany({ where: { key: "turnstile" } });
 try {
   const suffix = randomUUID();
   const owner = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" }, select: { id: true } });
@@ -97,7 +100,7 @@ try {
 
   // A check-in-only collaborator may not override; the owner may, with a reason, and it is audited.
   const staffEmail = `rules-staff-${suffix}@example.invalid`;
-  const staff = await db.user.create({ data: { name: "Rules staff", email: staffEmail, passwordHash: await hash("Rules-Staff-Password-1", 12), role: "STAFF" } });
+  const staff = await db.user.create({ data: { name: "Rules staff", email: staffEmail, passwordHash: await hash("Rules-Staff-Password-1", 12), role: "ORGANIZER" } });
   staffId = staff.id;
   await db.eventOrganizer.create({ data: { eventId, userId: staff.id, role: "CHECKIN_ONLY" } });
   const staffCookie = await login(staffEmail, "Rules-Staff-Password-1");
@@ -151,6 +154,8 @@ try {
 
   process.stdout.write("Rules: bot checks, consent evidence, wrong-day override permissions/audit, session label and removal rules, manual capacity override and eventType warning passed.\n");
 } finally {
+  await db.systemSetting.deleteMany({ where: { key: "turnstile" } });
+  if (savedTurnstile) await db.systemSetting.create({ data: savedTurnstile });
   if (eventId) await db.event.delete({ where: { id: eventId } });
   if (staffId) await db.user.deleteMany({ where: { id: staffId } });
   await db.$disconnect();

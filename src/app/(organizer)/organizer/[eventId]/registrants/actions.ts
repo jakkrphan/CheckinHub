@@ -7,6 +7,8 @@ import { redirect } from "next/navigation";
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
+import { lineAvailable } from "@/server/line/link";
+import { queueLineResend } from "@/server/line/notifications";
 import { getSeatAvailability, seatsTaken, syncRegistrantStatus } from "@/server/registrations/day-status";
 import { completeDeletionRequest, rejectDeletionRequest } from "@/server/registrations/data-requests";
 import { lockEventDays, promoteNextManually, promoteWaitlist } from "@/server/registrations/lifecycle";
@@ -219,4 +221,16 @@ export async function resolveDeletionRequest(eventId: string, requestId: string,
   }
   revalidatePath(`/organizer/${eventId}`, "layout");
   redirect(backTo(eventId, formData, { result }));
+}
+
+/** "ส่งทาง LINE อีกครั้ง": queues the full status summary with a fresh link; at most three per person per hour. */
+export async function resendLineNotification(eventId: string, registrantId: string, formData: FormData) {
+  await requireEventAccess(eventId, "manage");
+  if (!(await lineAvailable())) redirect(backTo(eventId, formData, { result: "line-unavailable" }));
+  const person = await db.registrant.findFirst({ where: { id: registrantId, eventId, anonymizedAt: null }, select: { id: true, eventId: true, lineUserId: true } });
+  if (!person?.lineUserId) redirect(backTo(eventId, formData, { result: "line-not-linked" }));
+  const queued = await queueLineResend(person);
+  if (queued === "rate-limited") redirect(backTo(eventId, formData, { result: "line-limit" }));
+  revalidatePath(`/organizer/${eventId}/registrants`);
+  redirect(backTo(eventId, formData, { result: "line-resent" }));
 }

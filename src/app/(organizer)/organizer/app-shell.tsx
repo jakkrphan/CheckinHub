@@ -6,13 +6,10 @@ import { Button } from "@/components/ui/button";
 
 import { OrganizerSidebar } from "./sidebar";
 
-const roleLabel = { ADMIN: "ผู้ดูแลระบบ", STAFF: "เจ้าหน้าที่", ORGANIZER: "ผู้จัดโครงการ" } as const;
+const roleLabel = { ADMIN: "ผู้ดูแลระบบ", ORGANIZER: "ผู้จัดโครงการ" } as const;
 
-/**
- * Staff app frame: dark sidebar with the main menu, top bar with the account and sign-out. `showProjects` false hides
- * the "โครงการ" menu for staff who have no project to manage (see canUseProjectArea).
- */
-export function AppShell({ user, showProjects = true, children }: { user: { name: string; role: keyof typeof roleLabel }; showProjects?: boolean; children: ReactNode }) {
+/** Staff app frame: dark sidebar with the main menu, top bar with the account and sign-out. */
+export function AppShell({ user, children }: { user: { name: string; role: keyof typeof roleLabel }; children: ReactNode }) {
   async function logout() {
     "use server";
     await signOut({ redirectTo: "/login" });
@@ -20,7 +17,7 @@ export function AppShell({ user, showProjects = true, children }: { user: { name
 
   return (
     <div className="flex min-h-svh flex-col lg:flex-row">
-      <OrganizerSidebar isAdmin={user.role === "ADMIN"} showProjects={showProjects} name={user.name} />
+      <OrganizerSidebar isAdmin={user.role === "ADMIN"} name={user.name} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex min-h-[60px] print:hidden flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-2 sm:px-6 lg:px-8">

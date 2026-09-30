@@ -136,7 +136,7 @@ try {
 
   // Check-in staff may correct only fields shown on the check-in screen.
   const staffEmail = `lf-staff-${suffix}@example.invalid`;
-  staffId = (await db.user.create({ data: { name: "LF staff", email: staffEmail, passwordHash: await hash("Local-Features-Pass-1", 12), role: "STAFF" } })).id;
+  staffId = (await db.user.create({ data: { name: "LF staff", email: staffEmail, passwordHash: await hash("Local-Features-Pass-1", 12), role: "ORGANIZER" } })).id;
   await db.eventOrganizer.create({ data: { eventId: event.id, userId: staffId, role: "CHECKIN_ONLY" } });
   const staffCookie = await login(staffEmail, "Local-Features-Pass-1");
   const checkInUrl = `${base}/check-in/${event.id}?session=${first.id}&q=Somchai`;

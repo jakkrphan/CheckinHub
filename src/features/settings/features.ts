@@ -15,6 +15,8 @@ export type FeatureDefinition = {
   defaultEnabled: boolean;
   /** Shown next to the switch when turning it on/off needs care. */
   warning?: string;
+  /** Keys a built feature needs in .env; the settings tab shows whether they are set. */
+  env?: readonly string[];
   /**
    * `not-built`: the switch is listed so admins can see what is coming, but it stays off and cannot be changed
    * until the feature ships. `env` names the keys it needs in .env.
@@ -26,7 +28,7 @@ export const featureGroups: { value: FeatureGroup; label: string; description: s
   { value: "registration", label: "ผู้ลงทะเบียน", description: "สิ่งที่ผู้สมัครทำเองได้จากหน้าสมัครและหน้าสถานะ มีผลกับทุกโครงการ" },
   { value: "organizer", label: "ผู้จัดโครงการ", description: "สิทธิ์ของผู้จัดที่เกี่ยวกับการสร้างโครงการและข้อมูลส่วนบุคคล — admin ทำได้เสมอ" },
   { value: "checkin", label: "เช็คชื่อหน้างาน", description: "วิธีเช็คชื่อที่เปิดให้เจ้าหน้าที่ใช้" },
-  { value: "integration", label: "บริการภายนอก", description: "ต้องตั้งค่าคีย์ใน .env ของเซิร์ฟเวอร์ และจะเปิดได้เมื่อพัฒนาเสร็จ" },
+  { value: "integration", label: "บริการภายนอก", description: "ต้องตั้งค่าคีย์ใน .env ของเซิร์ฟเวอร์ · รายการที่ยังไม่พัฒนาจะเปิดได้เมื่อพัฒนาเสร็จ" },
 ];
 
 export const featureDefinitions = [
@@ -113,18 +115,27 @@ export const featureDefinitions = [
     warning: "ยังไม่มีขั้นตอน \"ลืม PIN\" — PIN อยู่แค่ในแท็บเบราว์เซอร์ ถ้าลืมต้องปิดแท็บแล้วเข้าสู่ระบบใหม่",
   },
   {
-    key: "emailNotifications", group: "integration", defaultEnabled: false,
+    key: "turnstile", group: "integration", defaultEnabled: true,
+    label: "Cloudflare Turnstile (กันบอทหน้าสมัคร)",
+    description: "ผู้สมัครต้องผ่านการตรวจของ Cloudflare ก่อนส่งใบสมัคร และเซิร์ฟเวอร์ตรวจผลกับ Cloudflare ทุกครั้ง · บน production ต้องตั้งคีย์ก่อน ไม่งั้นเผยแพร่โครงการและรับสมัครไม่ได้",
+    whenOff: "ไม่แสดงกล่องตรวจของ Cloudflare และไม่ตรวจกับ Cloudflare · ยังกันบอทด้วยช่องดักบอท, จับเวลากรอกฟอร์ม และจำกัด 10 ใบสมัคร/10 นาทีต่อ IP · เผยแพร่โครงการได้โดยไม่ต้องมีคีย์",
+    warning: "ปิดเฉพาะเมื่อจำเป็น เช่น Cloudflare ขัดข้องหรือผู้สมัครผ่านการตรวจไม่ได้ แล้วเปิดกลับโดยเร็ว — ระหว่างปิดบอทสมัครได้ง่ายขึ้น",
+    env: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"],
+  },
+  {
+    key: "emailNotifications", group: "integration", defaultEnabled: true,
     label: "ส่งอีเมลแจ้งผู้สมัคร",
-    description: "ส่ง QR, ผลอนุมัติ/ปฏิเสธ, เลื่อนคิว, ประกาศถึงผู้เข้าร่วม และลิงก์ลืมรหัสผ่าน",
-    whenOff: "ผู้สมัครดูผลได้จากลิงก์หน้าสถานะเท่านั้น",
-    availability: { status: "not-built", env: ["RESEND_API_KEY", "EMAIL_FROM"] },
+    description: "ส่งผลการลงทะเบียน อนุมัติ/ปฏิเสธ เลื่อนคิว และยกเลิกทางอีเมล พร้อมแนบ QR เมื่ออนุมัติ · ส่งผ่าน SMTP และดูผลการส่งได้ในหน้ารายชื่อ",
+    whenOff: "ไม่ส่งอีเมลแจ้งผล รวมอีเมลที่ยังค้างในคิวและการส่งแทน LINE · ผู้สมัครยังดูผลจากลิงก์หน้าสถานะได้",
+    env: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"],
   },
   {
     key: "lineLogin", group: "integration", defaultEnabled: false,
     label: "LINE Login และแจ้งเตือนทาง LINE",
-    description: "สมัครด้วยบัญชี LINE และรับแจ้งผลผ่าน LINE OA (ถ้าส่งไม่ได้จะส่งอีเมลแทน)",
-    whenOff: "สมัครด้วยอีเมลเท่านั้น",
-    availability: { status: "not-built", env: ["LINE_CHANNEL_ID", "LINE_CHANNEL_SECRET", "LINE_MESSAGING_ACCESS_TOKEN"] },
+    description: "ผู้สมัครกด \"รับแจ้งผลทาง LINE\" ในหน้าสถานะ → login ด้วย LINE และเพิ่มเพื่อน OA → ระบบส่งผลอนุมัติ/ปฏิเสธ/เลื่อนคิว/ยกเลิก พร้อมลิงก์ QR ทาง LINE · ผู้จัดเห็นสถานะการส่งและส่งซ้ำได้ในหน้ารายชื่อ",
+    whenOff: "ซ่อนปุ่มเชื่อม LINE และไม่ส่งข้อความทาง LINE (ข้อความที่ค้างอยู่จะถูกข้าม) · ผู้สมัครดูผลจากลิงก์หน้าสถานะ",
+    warning: "OA แพ็กเกจฟรีส่งได้ 300 ข้อความ/เดือน — ข้อความที่เกินจะส่งไม่ถึง (ผู้จัดเห็นเป็น \"ส่งไม่ถึง\")",
+    env: ["LINE_LOGIN_CHANNEL_ID", "LINE_LOGIN_CHANNEL_SECRET", "LINE_MESSAGING_ACCESS_TOKEN"],
   },
 ] as const satisfies readonly FeatureDefinition[];
 

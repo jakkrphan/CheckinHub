@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { CalendarCheck2Icon, CheckIcon, QrCodeIcon, ShieldCheckIcon } from "lucide-react";
 
 import { auth } from "@/auth";
-import { homeFor, safeReturnTo } from "@/server/auth/return-to";
+import { ldapEnabled } from "@/server/auth/ldap";
+import { safeReturnTo } from "@/server/auth/return-to";
 import { db } from "@/server/db";
 
 import { LoginForm } from "./login-form";
@@ -22,9 +23,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const next = safeReturnTo(nextParam);
   const session = await auth();
   if (session?.user?.id && error !== "inactive") {
-    const user = await db.user.findUnique({ where: { id: session.user.id }, select: { role: true, isActive: true } });
-    if (user?.isActive) redirect(next ?? homeFor(user.role));
+    const user = await db.user.findUnique({ where: { id: session.user.id }, select: { isActive: true } });
+    if (user?.isActive) redirect(next ?? "/organizer");
   }
+  const ldap = ldapEnabled();
 
   return (
     <main className="grid min-h-svh w-full lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
@@ -41,13 +43,13 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 lg:hidden"><span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><CheckIcon className="size-5" aria-hidden="true" /></span><span className="font-heading font-bold">CheckInHub</span></div>
             <h1 className="font-heading text-3xl font-bold tracking-tight">เข้าสู่ระบบ</h1>
-            <p className="text-muted-foreground">ใช้บัญชีที่ผู้ดูแลระบบสร้างให้ เพื่อจัดการโครงการหรือเช็คชื่อหน้างาน</p>
+            <p className="text-muted-foreground">{ldap ? "ใช้ชื่อผู้ใช้และรหัสผ่านเดียวกับที่เข้าคอมพิวเตอร์ของหน่วยงาน (AD)" : "ใช้บัญชีที่ผู้ดูแลระบบสร้างให้"} เพื่อจัดการโครงการหรือเช็คชื่อหน้างาน</p>
           </div>
           {next && !error && <p role="status" className="rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">กรุณาเข้าสู่ระบบเพื่อไปยังหน้าที่เปิดไว้ต่อ</p>}
           {error === "inactive" && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">บัญชีนี้ถูกปิดใช้งานหรือหมดสิทธิ์แล้ว กรุณาติดต่อผู้ดูแลระบบ</p>}
           {notice === "password-set" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-3 py-2 text-sm text-accent-foreground">ตั้งรหัสผ่านเรียบร้อยแล้ว เข้าสู่ระบบด้วยรหัสผ่านใหม่ได้เลย</p>}
-          <LoginForm next={next} />
-          <p className="text-sm leading-relaxed text-muted-foreground">ลืมรหัสผ่านหรือยังไม่ได้ตั้งรหัสผ่าน? ขอลิงก์ตั้งรหัสผ่านจากผู้ดูแลระบบ · <Link href="/" className="underline underline-offset-4 hover:text-foreground">กลับหน้าแรก</Link></p>
+          <LoginForm next={next} ldap={ldap} />
+          <p className="text-sm leading-relaxed text-muted-foreground">{ldap ? "ลืมรหัสผ่าน AD? ติดต่อฝ่าย IT ของหน่วยงาน" : "ลืมรหัสผ่านหรือยังไม่ได้ตั้งรหัสผ่าน? ขอลิงก์ตั้งรหัสผ่านจากผู้ดูแลระบบ"} · <Link href="/" className="underline underline-offset-4 hover:text-foreground">กลับหน้าแรก</Link></p>
         </div>
       </section>
     </main>

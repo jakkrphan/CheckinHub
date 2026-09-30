@@ -12,6 +12,7 @@ import { db } from "@/server/db";
 import { getSeatAvailability } from "@/server/registrations/day-status";
 import { issueFormTicket } from "@/server/registrations/form-ticket";
 import { isFeatureEnabled } from "@/server/settings/features";
+import { lineConfigured } from "@/server/line/client";
 
 export const metadata: Metadata = {
   title: "ลงทะเบียนอบรม",
@@ -94,7 +95,9 @@ export default async function PublicEventPage({
       remaining: availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null,
     };
   });
-  const captchaSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+  const captchaEnabled = await isFeatureEnabled("turnstile");
+  const lineEnabled = lineConfigured() && await isFeatureEnabled("lineLogin");
+  const captchaSiteKey = captchaEnabled ? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "" : "";
   const deadline = event.registrationDeadline ? new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(event.registrationDeadline) : "ยังไม่กำหนด";
   const errorMessage: Record<string, string> = {
     paused: "ขณะนี้ปิดรับลงทะเบียนออนไลน์ชั่วคราว กรุณาลองใหม่ภายหลัง",
@@ -118,7 +121,7 @@ export default async function PublicEventPage({
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
         {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} days={days} captchaSiteKey={captchaSiteKey} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
     );
   }

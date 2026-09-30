@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+
+import { lineAuthorizeUrl, lineCallbackUrl } from "@/server/line/client";
+import { lineAvailable, lineLinkTarget, unlinkLineAccount } from "@/server/line/link";
+import { encodeLineLinkState, LINE_LINK_COOKIE, LINE_LINK_MAX_AGE, newLineLinkState } from "@/server/line/link-state";
 
 import { requestOwnDeletion } from "@/server/registrations/data-requests";
 import { changeOwnDays } from "@/server/registrations/day-change";
@@ -52,4 +57,26 @@ export async function requestDeletionAction(slug: string, token: string, formDat
   const result = await requestOwnDeletion(slug, token, formData.get("reason"));
   if (result === "not-found") notFound();
   redirect(`/events/${slug}/status/${token}?deletion=requested#delete-request`);
+}
+
+/** "รับแจ้งผลทาง LINE": sends the person to LINE Login (with the add-friend prompt); /api/line/callback finishes. */
+export async function startLineLinkAction(slug: string, token: string) {
+  const back = `/events/${slug}/status/${token}`;
+  if (!(await lineAvailable())) redirect(`${back}?line=unavailable#line`);
+  const registrant = await lineLinkTarget(slug, token);
+  if (!registrant) notFound();
+  if (registrant.status === "CANCELLED" || registrant.status === "REJECTED") redirect(`${back}?line=closed#line`);
+  const requestHeaders = await headers();
+  const redirectUri = lineCallbackUrl(`${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`);
+  const state = newLineLinkState(registrant.id, back, redirectUri);
+  (await cookies()).set(LINE_LINK_COOKIE, encodeLineLinkState(state), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/api/line", maxAge: LINE_LINK_MAX_AGE });
+  redirect(lineAuthorizeUrl({ redirectUri, state: state.state, nonce: state.nonce }));
+}
+
+export async function unlinkLineAction(slug: string, token: string) {
+  const registrant = await lineLinkTarget(slug, token);
+  if (!registrant) notFound();
+  if (registrant.lineUserId) await unlinkLineAccount(registrant);
+  revalidatePath(`/events/${slug}/status/${token}`);
+  redirect(`/events/${slug}/status/${token}?line=unlinked#line`);
 }

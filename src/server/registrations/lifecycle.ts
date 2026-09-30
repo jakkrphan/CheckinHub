@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { db } from "@/server/db";
 import { getSeatAvailability, seatsTaken, syncRegistrantStatus } from "@/server/registrations/day-status";
-import { hashBearerCode } from "@/server/registrations/registration";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export async function lockEventDays(tx: Prisma.TransactionClient, eventId: string) {
   await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
@@ -88,12 +88,12 @@ export async function promoteNextManually(tx: Prisma.TransactionClient, eventId:
 }
 
 export async function cancelOwnRegistration(slug: string, token: string, eventDayId?: string) {
-  const statusTokenHash = hashBearerCode(token);
+  const tokenWhere = await statusTokenWhere(token);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await db.$transaction(async (tx) => {
         const registrant = await tx.registrant.findUnique({
-          where: { statusTokenHash },
+          where: tokenWhere,
           include: { event: { select: { id: true, slug: true, seatMode: true, deletedAt: true } } },
         });
         if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found" as const;

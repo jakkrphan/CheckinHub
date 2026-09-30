@@ -4,12 +4,12 @@ import { notFound } from "next/navigation";
 
 import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
-import { hashBearerCode } from "@/server/registrations/registration";
 import { canSelfEdit } from "@/server/registrations/self-edit";
 import { isFeatureEnabled } from "@/server/settings/features";
 
 import { updateOwnAnswersAction } from "../actions";
 import { EditAnswersForm } from "./edit-answers-form";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export const metadata: Metadata = { title: "แก้ไขข้อมูลการลงทะเบียน", referrer: "no-referrer" };
 
@@ -19,7 +19,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
   const { slug, token } = await params;
   const { error, field: problemKey, reason } = await searchParams;
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     select: { status: true, anonymizedAt: true, answers: true, event: { select: { slug: true, title: true, status: true, registrationDeadline: true, deletedAt: true, fields: true, fieldsVersion: true } } },
   });
   if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) notFound();

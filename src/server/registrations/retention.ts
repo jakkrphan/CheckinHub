@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 
+import { Prisma } from "@prisma/client";
+
 import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
@@ -19,11 +21,11 @@ export function fileKeys(answers: unknown) {
   return Object.values(answers as Record<string, unknown>).flatMap((value) => readFileAnswers(value).map((file) => file.storageKey));
 }
 
-/** Registrant columns after anonymization: answers, contact details, consent IP, reasons, QR and status link go. */
+/** Registrant columns after anonymization: answers, contact details (email, LINE), consent IP, reasons, QR and status link go. */
 export function anonymizedRegistrantData(now: Date) {
   return {
-    answers: {}, displayName: null, email: null, dedupeKey: null, lineUserId: null, consentIp: null, rejectReason: null, qrCode: null,
-    statusTokenHash: hashBearerCode(randomBytes(32).toString("base64url")), anonymizedAt: now,
+    answers: {}, displayName: null, email: null, dedupeKey: null, lineUserId: null, lineNotifiedDays: Prisma.DbNull, notifyVia: "EMAIL" as const, consentIp: null, rejectReason: null, qrCode: null,
+    statusTokenHash: hashBearerCode(randomBytes(32).toString("base64url")), emailNotifiedHash: null, anonymizedAt: now,
   };
 }
 

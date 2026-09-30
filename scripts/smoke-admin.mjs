@@ -73,12 +73,12 @@ try {
   let createForm = formsFrom(page).find((form) => form.includes('id="new-user-name"'));
   ensure(createForm, "Admin create-user form missing");
   response = await submit(`${base}/admin`, createForm, {
-    name: "Admin smoke user", email: testEmail, password: `Smoke-${token}-Password`, role: "STAFF",
+    name: "Admin smoke user", email: testEmail, password: `Smoke-${token}-Password`, role: "ADMIN",
   }, cookie);
   ensure(response.status === 303, `User creation did not redirect: ${response.status}`);
   let user = await db.user.findUniqueOrThrow({ where: { email: testEmail } });
   testUserId = user.id;
-  ensure(user.role === "STAFF" && await compare(`Smoke-${token}-Password`, user.passwordHash), "Created account role or password hash is incorrect");
+  ensure(user.role === "ADMIN" && await compare(`Smoke-${token}-Password`, user.passwordHash), "Created account role or password hash is incorrect");
   ensure(await db.auditLog.findFirst({ where: { actorId: admin.id, action: "ADMIN_USER_CREATED", target: user.id } }), "Account creation was not audited");
 
   page = await (await fetch(`${base}/admin`, { headers: { cookie } })).text();
@@ -195,30 +195,6 @@ try {
   ensure(archived?.deletedAt && archived.status === "CLOSED", "Event with registrants was not soft deleted");
   ensure(await db.checkIn.findFirst({ where: { registrantId: person.id, sessionId: session.id } }), "Soft delete removed check-in history");
   ensure(await db.auditLog.findFirst({ where: { actorId: admin.id, action: "EVENT_SOFT_DELETED", target: eventId } }), "Event soft delete was not audited");
-
-  // Staff without a project to manage: no "โครงการ" menu, an explanation on the check-in page, and /organizer explains
-  // the redirect. A full-collaborator membership brings the menu back.
-  const staffUser = await db.user.findUniqueOrThrow({ where: { email: "staff@checkinhub.local" }, select: { id: true } });
-  const staffMemberships = await db.eventOrganizer.findMany({ where: { userId: staffUser.id } });
-  try {
-    await db.eventOrganizer.updateMany({ where: { userId: staffUser.id }, data: { role: "CHECKIN_ONLY" } });
-    const staffLogin = await login("staff@checkinhub.local", "CheckInHub123!");
-    ensure(staffLogin.ok, "Seed staff could not sign in");
-    const staffCookie = staffLogin.response.headers.getSetCookie().map((item) => item.split(";")[0]).join("; ");
-    let staffPage = await (await fetch(`${base}/check-in`, { headers: { cookie: staffCookie } })).text();
-    ensure(staffPage.includes("บัญชีเจ้าหน้าที่") && staffPage.includes("ต้องการสร้างหรือจัดการโครงการ") && !staffPage.includes('href="/organizer"'), "Check-in-only staff still sees the project menu or lacks the rights note");
-    response = await fetch(`${base}/organizer`, { headers: { cookie: staffCookie }, redirect: "manual" });
-    const bounce = response.headers.get("location") ?? "";
-    ensure(bounce.includes("/check-in?notice=no-organizer-access"), `Staff was not redirected with a notice: ${bounce}`);
-    ensure((await (await fetch(new URL(bounce, base), { headers: { cookie: staffCookie } })).text()).includes("บัญชีนี้ยังไม่มีสิทธิ์จัดการโครงการ"), "Redirect notice not shown");
-    if (staffMemberships[0]) {
-      await db.eventOrganizer.update({ where: { id: staffMemberships[0].id }, data: { role: "FULL" } });
-      staffPage = await (await fetch(`${base}/check-in`, { headers: { cookie: staffCookie } })).text();
-      ensure(staffPage.includes('href="/organizer"') && !staffPage.includes("ต้องการสร้างหรือจัดการโครงการ"), "Full-collaborator staff does not get the project menu back");
-    }
-  } finally {
-    for (const membership of staffMemberships) await db.eventOrganizer.update({ where: { id: membership.id }, data: { role: membership.role } });
-  }
 
   process.stdout.write("Admin accounts (create/edit/role/activation, invite and reset links, login throttle), audit filters and event soft delete passed.\n");
 } finally {

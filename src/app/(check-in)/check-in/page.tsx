@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { CalendarDaysIcon, ImageIcon, InfoIcon, QrCodeIcon, SearchIcon } from "lucide-react";
+import { CalendarDaysIcon, ImageIcon, QrCodeIcon, SearchIcon } from "lucide-react";
 
 import { AppShell } from "@/app/(organizer)/organizer/app-shell";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDayNumber, formatEventDay, formatMonth } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { canUseProjectArea, requireActiveUser } from "@/server/authorization/session";
+import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 
 export const metadata: Metadata = { title: "เช็คชื่อหน้างาน" };
@@ -36,7 +36,6 @@ export default async function CheckInPage({ searchParams }: PageProps<"/check-in
   const params = await searchParams;
   const show: Filter = filters.some((item) => item.value === params.show) ? params.show as Filter : "all";
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
-  const showProjects = await canUseProjectArea(user);
 
   const events = await db.event.findMany({
     where: user.role === "ADMIN" ? { status: { in: ["PUBLISHED", "CLOSED"] }, deletedAt: null } : {
@@ -83,15 +82,13 @@ export default async function CheckInPage({ searchParams }: PageProps<"/check-in
     : event.organizers[0]?.role === "FULL" ? "ผู้ร่วมจัด" : event.organizers[0]?.role === "CHECKIN_ONLY" ? "เช็คชื่ออย่างเดียว" : user.role === "ADMIN" ? "ผู้ดูแลระบบ" : "ผู้ร่วมจัด";
   const hrefFor = (value: Filter) => `/check-in${value !== "all" || query ? `?${new URLSearchParams({ ...(value !== "all" ? { show: value } : {}), ...(query ? { q: query } : {}) })}` : ""}`;
 
-  return <AppShell user={user} showProjects={showProjects}>
+  return <AppShell user={user}>
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-5 py-8 lg:px-10">
       <div className="flex flex-col gap-1.5">
         <h1 className="font-heading text-3xl font-bold tracking-tight">เช็คชื่อหน้างาน</h1>
         <p className="text-sm text-muted-foreground">{`${events.length.toLocaleString("th-TH")} โครงการที่คุณเช็คชื่อได้ · โครงการที่จัดวันนี้แสดงก่อน`}</p>
       </div>
 
-      {params.notice === "no-organizer-access" && <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">บัญชีนี้ยังไม่มีสิทธิ์จัดการโครงการ จึงพามาที่หน้าเช็คชื่อแทน</p>}
-      {user.role === "STAFF" && <p className="flex items-start gap-2.5 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground"><InfoIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><span><strong className="font-semibold text-foreground">บัญชีเจ้าหน้าที่</strong> · เช็คชื่อได้เฉพาะโครงการที่ผู้จัดเพิ่มคุณไว้{showProjects ? " · โครงการที่คุณได้รับสิทธิ์เต็มจัดการได้จากเมนู “โครงการ”" : " · ต้องการสร้างหรือจัดการโครงการ ติดต่อผู้ดูแลระบบ"}</span></p>}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <nav aria-label="กรองโครงการ" className="flex flex-wrap gap-0.5 rounded-lg bg-[#eae6dd] p-1">

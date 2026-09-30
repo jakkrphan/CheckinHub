@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 
-import { hashBearerCode } from "@/server/registrations/registration";
 import { db } from "@/server/db";
 import { isFeatureEnabled } from "@/server/settings/features";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 function escapeIcs(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
@@ -35,7 +35,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/events/[
   if (!(await isFeatureEnabled("calendarDownload"))) notFound();
   const { slug, token } = await params;
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     select: {
       status: true,
       event: { select: { slug: true, title: true, location: true, deletedAt: true } },

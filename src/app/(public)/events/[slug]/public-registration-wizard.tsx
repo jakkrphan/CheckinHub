@@ -29,7 +29,7 @@ const shortDate = (date: string) => { const value = utcDate(date); return `${wee
 const controlClass = "h-12 rounded-lg bg-card px-3.5 text-base md:text-base";
 const stepTitle = (step: Step, seatMode: string) => step === 1 ? seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่จะเข้าร่วม" : step === 2 ? "ข้อมูลผู้ลงทะเบียน" : "ยืนยันการลงทะเบียน";
 
-export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, days, captchaSiteKey, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
+export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, days, captchaSiteKey, captchaEnabled, lineEnabled, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
   slug: string;
   formTicket: string;
   /** Lets the server recognise a submission made from a page opened before the organizer changed the form. */
@@ -37,6 +37,10 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   fields: RegistrationFieldConfig[];
   days: DayOption[];
   captchaSiteKey: string;
+  /** Admin switch; off hides the local-testing note as well as the widget. */
+  captchaEnabled: boolean;
+  /** LINE notifications are on: the status page after submitting offers "รับแจ้งผลทาง LINE". */
+  lineEnabled: boolean;
   deadline: string;
   autoApprove: boolean;
   seatMode: string;
@@ -171,9 +175,9 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
           <div className="flex items-center gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><MailIcon className="size-5" aria-hidden="true" /></span><div className="flex flex-col"><label htmlFor="public-email" className="font-semibold">อีเมลสำหรับติดต่อ <span className="text-destructive" aria-hidden="true">*</span></label><span className="text-xs text-muted-foreground">ใช้ระบุตัวตนผู้ลงทะเบียนและติดต่อกลับ</span></div></div>
           <Input ref={emailInput} id="public-email" name="email" type="email" autoComplete="email" inputMode="email" placeholder="name@example.com" maxLength={191} required className={controlClass} />
         </div>
-        <div className="flex items-start gap-3 rounded-xl border bg-card p-4"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><MessageCircleIcon className="size-5" aria-hidden="true" /></span><p className="text-sm leading-relaxed text-muted-foreground">LINE Login และการส่ง QR ทางอีเมลยังไม่เปิดใช้ใน local flow หลังส่งใบสมัคร กรุณาบันทึกลิงก์หน้าสถานะที่ระบบแสดงไว้</p></div>
+        <div className="flex items-start gap-3 rounded-xl border bg-card p-4"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><MessageCircleIcon className="size-5" aria-hidden="true" /></span><p className="text-sm leading-relaxed text-muted-foreground">{lineEnabled ? "ต้องการรับผลทาง LINE? หลังส่งใบสมัคร กด \"รับแจ้งผลทาง LINE\" ในหน้าสถานะ และบันทึกลิงก์หน้าสถานะไว้ดูผลและ QR" : "หลังส่งใบสมัคร กรุณาบันทึกลิงก์หน้าสถานะที่ระบบแสดงไว้ เพื่อดูผลการอนุมัติและ QR"}</p></div>
         <div className="flex items-start gap-3 rounded-xl border bg-card p-4 has-[:checked]:border-primary"><input ref={consentInput} id="public-consent" name="consent" type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" required /><label htmlFor="public-consent" className="text-sm leading-relaxed">{CURRENT_CONSENT_TEXT} <span className="text-destructive" aria-hidden="true">*</span></label></div>
-        {captchaSiteKey ? <div className="cf-turnstile" data-sitekey={captchaSiteKey} /> : <div className="flex items-center gap-3 rounded-xl border bg-card p-4"><ShieldCheckIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><p className="text-xs text-muted-foreground">โหมดทดสอบในเครื่อง: ยังไม่ได้เชื่อม Cloudflare Turnstile</p></div>}
+        {captchaSiteKey ? <div className="cf-turnstile" data-sitekey={captchaSiteKey} /> : captchaEnabled && <div className="flex items-center gap-3 rounded-xl border bg-card p-4"><ShieldCheckIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><p className="text-xs text-muted-foreground">โหมดทดสอบในเครื่อง: ยังไม่ได้เชื่อม Cloudflare Turnstile</p></div>}
       </section>
 
       {wizardError && <p role="alert" className="px-5 pb-4 text-sm text-destructive">{wizardError}</p>}

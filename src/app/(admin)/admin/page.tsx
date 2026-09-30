@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { auditToneClass, describeAudit } from "@/features/audit/labels";
 import { cn } from "@/lib/utils";
 import type { Prisma, UserRole } from "@prisma/client";
+import { ldapEnabled } from "@/server/auth/ldap";
 import { requireAdminUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
 
@@ -55,6 +56,7 @@ function Flash({ params }: { params: Record<string, string | string[] | undefine
   if (params.error === "invalid-user") notices.push(["สร้างบัญชีไม่ได้: ตรวจชื่อ อีเมล บทบาท และรหัสผ่าน (อย่างน้อย 12 ตัว หรือเว้นว่างเพื่อส่งลิงก์เชิญ)", "error"]);
   if (params.error === "invalid-user-edit") notices.push(["แก้บัญชีไม่ได้: ตรวจข้อมูลและรหัสผ่านใหม่ (อย่างน้อย 12 ตัว)", "error"]);
   if (params.error === "invalid-setting") notices.push(["บันทึกการตั้งค่าไม่ได้: ฟังก์ชันนี้ยังเปลี่ยนไม่ได้หรือข้อมูลไม่ถูกต้อง", "error"]);
+  if (params.error === "ldap-link") notices.push(["บัญชีนี้เข้าสู่ระบบด้วยรหัสผ่าน AD จึงไม่มีลิงก์ตั้งรหัสผ่าน ถ้าจำเป็นต้องมีรหัสในระบบ (เช่น บัญชีสำรองตอน AD ล่ม) ให้ตั้งในช่องรหัสผ่านใหม่", "error"]);
   if (params.error === "inactive-link") notices.push(["ออกลิงก์ตั้งรหัสผ่านให้บัญชีที่ปิดใช้งานไม่ได้ เปิดบัญชีก่อน", "error"]);
   if (!notices.length) return null;
   return <div className="flex flex-col gap-2">{notices.map(([text, tone]) => <p key={text} role={tone === "error" ? "alert" : "status"}
@@ -66,7 +68,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
   const params = await searchParams;
   const view = params.view === "events" || params.view === "audit" || params.view === "settings" || params.view === "requests" ? params.view : "users";
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
-  const roleFilter: UserRole | undefined = params.role === "ADMIN" || params.role === "ORGANIZER" || params.role === "STAFF" ? params.role : undefined;
+  const roleFilter: UserRole | undefined = params.role === "ADMIN" || params.role === "ORGANIZER" ? params.role : undefined;
   const auditActor = typeof params.actor === "string" ? params.actor.trim().slice(0, 100) : "";
   const auditEvent = typeof params.event === "string" ? params.event.trim().slice(0, 100) : "";
   const auditScope = params.scope === "system" || params.scope === "event" ? params.scope : "all";
@@ -85,11 +87,12 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
     }) : Promise.resolve([]),
     db.dataRequest.count({ where: { status: "OPEN" } }),
   ]);
+  const ldap = ldapEnabled();
   const [users, events, logs, recentLogs, counts] = await Promise.all([
     view === "users" ? db.user.findMany({
       where: userWhere,
       orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, email: true, role: true, isActive: true, passwordHash: true, _count: { select: { ownedEvents: true, organizerOf: true } } },
+      select: { id: true, name: true, email: true, role: true, isActive: true, passwordHash: true, ldapId: true, _count: { select: { ownedEvents: true, organizerOf: true } } },
     }) : Promise.resolve([]),
     view === "events" ? db.event.findMany({
       where: query ? { OR: [{ title: { contains: query } }, { slug: { contains: query } }] } : undefined,
@@ -141,7 +144,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
               <Input id="admin-search" name="q" defaultValue={query} maxLength={100} placeholder="ค้นหาชื่อ / อีเมล" className="pl-9" />
             </div>
             <label htmlFor="admin-role-filter" className="sr-only">กรองตามสิทธิ์</label>
-            <select id="admin-role-filter" name="role" defaultValue={roleFilter ?? ""} className={selectClass}><option value="">ทุกสิทธิ์</option><option value="ADMIN">ผู้ดูแลระบบ</option><option value="ORGANIZER">ผู้จัดโครงการ</option><option value="STAFF">เจ้าหน้าที่</option></select>
+            <select id="admin-role-filter" name="role" defaultValue={roleFilter ?? ""} className={selectClass}><option value="">ทุกสิทธิ์</option><option value="ADMIN">ผู้ดูแลระบบ</option><option value="ORGANIZER">ผู้จัดโครงการ</option></select>
             <Button type="submit" variant="outline">ค้นหา</Button>
           </form>
           <Button type="button" popoverTarget="create-user-panel"><UserPlusIcon data-icon="inline-start" aria-hidden="true" />สร้างบัญชี</Button>
@@ -151,8 +154,8 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
               <FieldGroup>
                 <Field><FieldLabel htmlFor="new-user-name">ชื่อ</FieldLabel><Input id="new-user-name" name="name" required maxLength={191} /></Field>
                 <Field><FieldLabel htmlFor="new-user-email">อีเมล</FieldLabel><Input id="new-user-email" name="email" type="email" required maxLength={191} /></Field>
-                <Field><FieldLabel htmlFor="new-user-role">สิทธิ์ระดับระบบ</FieldLabel><select id="new-user-role" name="role" defaultValue="ORGANIZER" className={selectClass}><option value="ORGANIZER">ผู้จัดโครงการ</option><option value="STAFF">เจ้าหน้าที่</option><option value="ADMIN">ผู้ดูแลระบบ</option></select></Field>
-                <Field><FieldLabel htmlFor="new-user-password">รหัสผ่านเริ่มต้น (ไม่บังคับ)</FieldLabel><Input id="new-user-password" name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" placeholder="เว้นว่าง = สร้างลิงก์เชิญ" /><FieldDescription>เว้นว่างเพื่อให้ผู้ใช้ตั้งรหัสผ่านเองจากลิงก์เชิญ (อายุ 7 วัน)</FieldDescription></Field>
+                <Field><FieldLabel htmlFor="new-user-role">สิทธิ์ระดับระบบ</FieldLabel><select id="new-user-role" name="role" defaultValue="ORGANIZER" className={selectClass}><option value="ORGANIZER">ผู้จัดโครงการ</option><option value="ADMIN">ผู้ดูแลระบบ</option></select></Field>
+                <Field><FieldLabel htmlFor="new-user-password">รหัสผ่านเริ่มต้น (ไม่บังคับ)</FieldLabel><Input id="new-user-password" name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" placeholder={ldap ? "เว้นว่าง = เข้าด้วยบัญชี AD" : "เว้นว่าง = สร้างลิงก์เชิญ"} /><FieldDescription>{ldap ? "เว้นว่างเพื่อให้เข้าสู่ระบบด้วยบัญชี AD — ช่องอีเมลใส่ UPN ของ AD (เช่น somchai@rpphosp.local) ระบบจะผูกบัญชีเมื่อเข้าครั้งแรก" : "เว้นว่างเพื่อให้ผู้ใช้ตั้งรหัสผ่านเองจากลิงก์เชิญ (อายุ 7 วัน)"}</FieldDescription></Field>
               </FieldGroup>
               <Button type="submit">สร้างบัญชี</Button>
             </form>
@@ -176,14 +179,16 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
                     <input type="hidden" name="userId" value={user.id} />
                     <label htmlFor={`role-${user.id}`} className="sr-only">สิทธิ์ของ {user.name}</label>
                     <AutoSubmitSelect key={user.role} id={`role-${user.id}`} name="role" defaultValue={user.role} disabled={self} title={self ? "เปลี่ยนสิทธิ์ของตัวเองไม่ได้" : undefined} className={cn(selectClass, "min-w-32")}>
-                      <option value="ORGANIZER">ผู้จัดโครงการ</option><option value="STAFF">เจ้าหน้าที่</option><option value="ADMIN">ผู้ดูแลระบบ</option>
+                      <option value="ORGANIZER">ผู้จัดโครงการ</option><option value="ADMIN">ผู้ดูแลระบบ</option>
                     </AutoSubmitSelect>
                     <noscript><Button type="submit" size="sm" variant="outline">บันทึก</Button></noscript>
                   </form>
                 </TableCell>
                 <TableCell className="max-md:col-start-2 max-md:row-start-2 max-md:justify-self-end"><div className="flex flex-wrap gap-1">
                   <Badge variant="secondary" className={user.isActive ? "bg-emerald-100 text-emerald-900" : ""}>{user.isActive ? "ใช้งานอยู่" : "ปิดการใช้งาน"}</Badge>
-                  {!user.passwordHash && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">รอตั้งรหัสผ่าน</Badge>}
+                  {user.ldapId ? <Badge variant="outline">AD</Badge>
+                    : ldap && !user.passwordHash ? <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">รอเข้าด้วย AD ครั้งแรก</Badge>
+                    : !user.passwordHash && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">รอตั้งรหัสผ่าน</Badge>}
                 </div></TableCell>
                 <TableCell className="pr-4 max-md:col-start-2 max-md:row-start-1"><div className="flex items-center justify-end gap-1.5">
                   <form action={toggleUserActive}>
@@ -195,11 +200,11 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
                   <div id={`user-menu-${user.id}`} popover="auto" className="m-auto w-[min(92vw,380px)] rounded-xl border bg-card p-5 text-left shadow-xl backdrop:bg-black/30">
                     <div className="flex flex-col gap-4">
                       <div className="flex items-start justify-between gap-2"><div><p className="font-heading font-bold">{user.name}</p><p className="text-xs text-muted-foreground">{user.email}</p></div><Button type="button" variant="ghost" size="icon-sm" popoverTarget={`user-menu-${user.id}`} popoverTargetAction="hide" aria-label="ปิด"><XIcon aria-hidden="true" /></Button></div>
-                      <form action={issuePasswordLink} className="flex flex-col gap-1.5">
+                      {(user.passwordHash || !(ldap || user.ldapId)) && <form action={issuePasswordLink} className="flex flex-col gap-1.5">
                         <input type="hidden" name="userId" value={user.id} />
                         <Button type="submit" size="sm" variant="outline" disabled={!user.isActive}>{user.passwordHash ? "ออกลิงก์รีเซ็ตรหัสผ่าน" : "ออกลิงก์เชิญใหม่"}</Button>
                         <span className="text-xs text-muted-foreground">{!user.isActive ? "เปิดบัญชีก่อนจึงออกลิงก์ได้" : user.passwordHash ? "ลิงก์ใช้ได้ครั้งเดียว อายุ 30 นาที" : "ลิงก์ใช้ได้ครั้งเดียว อายุ 7 วัน"}</span>
-                      </form>
+                      </form>}
                       <form action={updateUserDetails} className="flex flex-col gap-3 border-t pt-4">
                         <input type="hidden" name="userId" value={user.id} />
                         <p className="text-sm font-semibold">แก้ชื่อ อีเมล หรือรหัสผ่าน</p>

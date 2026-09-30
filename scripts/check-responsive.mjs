@@ -93,6 +93,7 @@ function pagesFor({ event, draft, approved, session }) {
     { name: "registrants", path: `/organizer/${id}/registrants`, staff: true },
     { name: "registrant-detail", path: `/organizer/${id}/registrants?selected=${approved.id}`, staff: true },
     { name: "walk-in", path: `/organizer/${id}/registrants/new`, staff: true },
+    { name: "walk-in-added", path: `/organizer/${id}/registrants/new?added=${approved.id}`, staff: true },
     { name: "qr-poster", path: `/organizer/${id}/poster`, staff: true },
     { name: "admin-users", path: "/admin", staff: true },
     { name: "admin-events", path: "/admin?view=events", staff: true },

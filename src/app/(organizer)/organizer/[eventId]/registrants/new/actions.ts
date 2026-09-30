@@ -2,6 +2,7 @@
 
 import { Prisma, type RegistrantStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -14,6 +15,8 @@ import { getSeatAvailability, summarizeDayStatuses } from "@/server/registration
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { isFeatureEnabled } from "@/server/settings/features";
+
+import { WALK_IN_LINK_COOKIE } from "./walk-in-link";
 
 const errorUrl = (eventId: string, reason: string) => `/organizer/${eventId}/registrants/new?error=${reason}`;
 
@@ -47,6 +50,7 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
   const overrideCapacity = approved && formData.get("overrideCapacity") === "on";
   let overriddenDays = 0;
   let token: string | null = null;
+  let createdId: string | null = null;
   let failure: string | null = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -85,6 +89,9 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
           statusTokenHash: hashBearerCode(token),
           days: { create: dayStatuses },
         } });
+        const { queueEmailNotification } = await import("@/server/email/notifications");
+        await queueEmailNotification(tx, person);
+        createdId = person.id;
         await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "MANUAL_REGISTRATION_CREATED", target: person.id, metadata: { consentConfirmedByOrganizer: true, requestedApproval: approved, initialStatus: status, capacityOverride: overriddenDays > 0, overriddenDays } } });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
       break;
@@ -100,10 +107,14 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
       throw error;
     }
   }
-  if (failure || !token) {
+  if (failure || !token || !createdId) {
     await deleteLocalRegistrationFiles(stored.keys);
     redirect(errorUrl(eventId, failure ?? "retry"));
   }
   revalidatePath(`/organizer/${eventId}/registrants`);
-  redirect(`/events/${event.slug}/status/${token}`);
+  // Stay on the walk-in page for the next person; it shows this person's QR and status link at the top.
+  (await cookies()).set(WALK_IN_LINK_COOKIE, `${createdId}:${token}`, {
+    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: `/organizer/${eventId}/registrants/new`, maxAge: 10 * 60,
+  });
+  redirect(`/organizer/${eventId}/registrants/new?added=${createdId}`);
 }

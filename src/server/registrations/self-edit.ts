@@ -4,7 +4,7 @@ import { checkRegistrationAnswers, readFileAnswers, readRegistrationFields, type
 import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
-import { hashBearerCode } from "@/server/registrations/registration";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export type SelfEditResult =
   | { status: "saved" | "unchanged" | "closed" | "not-found" }
@@ -66,7 +66,7 @@ export function canSelfEdit(registrant: { status: string; anonymizedAt: Date | n
  */
 export async function updateOwnAnswers(slug: string, token: string, formData: FormData): Promise<SelfEditResult> {
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     select: {
       id: true, eventId: true, status: true, anonymizedAt: true, answers: true,
       event: { select: { slug: true, status: true, registrationDeadline: true, deletedAt: true, fields: true, fieldsVersion: true } },

@@ -55,7 +55,8 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
   if (typeof honeypot === "string" && honeypot.trim()) return { ok: false, reason: "invalid" };
   const ticket = checkFormTicket(formData.get("formTicket"));
   if (ticket !== "ok") return { ok: false, reason: ticket === "invalid" ? "invalid" : ticket };
-  if (!(await verifyTurnstile(formData.get("cf-turnstile-response"), ip))) return { ok: false, reason: "captcha" };
+  // Admins may switch Turnstile off (e.g. a Cloudflare outage); the honeypot, form ticket and IP limit above still apply.
+  if (await isFeatureEnabled("turnstile") && !(await verifyTurnstile(formData.get("cf-turnstile-response"), ip))) return { ok: false, reason: "captcha" };
   if (formData.get("consent") !== "on") return { ok: false, reason: "invalid" };
 
   const email = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
@@ -126,7 +127,7 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
         const status = summarizeDayStatuses(dayStatuses.map((day) => day.status));
         const token = newBearerCode();
         const qrCode = status === "APPROVED" ? newBearerCode() : null;
-        await tx.registrant.create({
+        const person = await tx.registrant.create({
           data: {
             eventId: event.id,
             email: email.data,
@@ -146,6 +147,8 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
             days: { create: dayStatuses },
           },
         });
+        const { queueEmailNotification } = await import("@/server/email/notifications");
+        await queueEmailNotification(tx, person);
         return { ok: true, status, token, qrCode } as const;
         }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
         fileAttachmentsCommitted = result.ok;

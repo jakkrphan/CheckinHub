@@ -7,6 +7,7 @@ import { readRegistrationFields, validateRegistrationFields } from "@/features/e
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
+import { captchaReadyToPublish } from "@/server/settings/features";
 
 export async function changeEventStatus(eventId: string, target: "PUBLISHED" | "CLOSED") {
   // Publishing and closing are owner-only (admins included), per the access-control spec.
@@ -21,7 +22,7 @@ export async function changeEventStatus(eventId: string, target: "PUBLISHED" | "
       && days.length > 0 && days.every((day) => globalSessionCount > 0 || day.sessions.length > 0)
       && fields.length > 0 && validateRegistrationFields(fields)
       && fields.every((field) => field.type !== "file" || process.env.NODE_ENV !== "production")
-      && (process.env.NODE_ENV !== "production" || !!(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && process.env.TURNSTILE_SECRET_KEY));
+      && await captchaReadyToPublish();
     if (!ready || event.status === "PUBLISHED") redirect(`/organizer/${eventId}?error=not-ready`);
   } else if (event.status !== "PUBLISHED") {
     redirect(`/organizer/${eventId}?error=invalid-status`);

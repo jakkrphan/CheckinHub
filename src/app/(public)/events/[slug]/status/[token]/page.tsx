@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
-import { CalendarDaysIcon, CalendarPlusIcon, CheckCircle2Icon, Clock3Icon, DownloadIcon, PencilIcon, ShieldAlertIcon } from "lucide-react";
+import { CalendarDaysIcon, CalendarPlusIcon, CheckCircle2Icon, Clock3Icon, DownloadIcon, MessageCircleIcon, PencilIcon, ShieldAlertIcon } from "lucide-react";
 
-import { cancelRegistration, requestDeletionAction } from "@/app/(public)/events/[slug]/status/[token]/actions";
+import { cancelRegistration, requestDeletionAction, startLineLinkAction, unlinkLineAction } from "@/app/(public)/events/[slug]/status/[token]/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { hashBearerCode } from "@/server/registrations/registration";
 import { db } from "@/server/db";
+import { lineConfigured, lineOaBasicId } from "@/server/line/client";
 import { canSelfEdit } from "@/server/registrations/self-edit";
 import { getFeatureFlags } from "@/server/settings/features";
+import { statusTokenWhere } from "@/server/registrations/status-token";
 
 export const metadata: Metadata = { title: "สถานะการลงทะเบียน" };
 
@@ -29,6 +30,16 @@ const dateFormatter = new Intl.DateTimeFormat("th-TH", {
 });
 const shortDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "UTC" });
 
+const lineMessages: Record<string, string> = {
+  linked: "เชื่อม LINE แล้ว — ส่งสถานะล่าสุดไปที่ LINE ของคุณ",
+  unlinked: "เลิกรับแจ้งเตือนทาง LINE แล้ว",
+  "not-friend": "ยังไม่ได้เพิ่ม OA เป็นเพื่อน ระบบจึงส่งข้อความหาคุณไม่ได้ — เพิ่มเพื่อนแล้วกด \"รับแจ้งผลทาง LINE\" อีกครั้ง",
+  cancelled: "ยกเลิกการเชื่อม LINE — กดใหม่ได้ทุกเมื่อ",
+  error: "เชื่อม LINE ไม่สำเร็จ กรุณาลองใหม่",
+  closed: "การลงทะเบียนนี้ถูกยกเลิกหรือไม่ได้รับอนุมัติแล้ว จึงไม่ต้องรับแจ้งเตือน",
+  unavailable: "ขณะนี้ปิดการแจ้งเตือนทาง LINE ชั่วคราว",
+};
+
 function StatusChip({ status, queue }: { status: Status; queue?: number }) {
   const [label, tone] = status === "APPROVED" ? ["อนุมัติแล้ว", "bg-accent text-accent-foreground"]
     : status === "WAITLISTED" ? [queue ? `รอคิว #${queue}` : "รอคิว", "bg-[var(--status-warning-background)] text-[var(--status-warning)]"]
@@ -40,13 +51,14 @@ function StatusChip({ status, queue }: { status: Status; queue?: number }) {
 
 export default async function RegistrationStatusPage({ params, searchParams }: PageProps<"/events/[slug]/status/[token]">) {
   const { slug, token } = await params;
-  const { error, cancelled, updated, days: daysChanged, deletion } = await searchParams;
+  const { error, cancelled, updated, days: daysChanged, deletion, line } = await searchParams;
   const registrant = await db.registrant.findUnique({
-    where: { statusTokenHash: hashBearerCode(token) },
+    where: await statusTokenWhere(token),
     include: {
       event: { select: { slug: true, title: true, location: true, seatMode: true, deletedAt: true, status: true, registrationDeadline: true, fields: true, days: { orderBy: { date: "asc" }, select: { id: true } } } },
       days: { include: { eventDay: { select: { date: true } } }, orderBy: { eventDay: { date: "asc" } } },
       dataRequests: { orderBy: { requestedAt: "desc" }, take: 1, select: { status: true, requestedAt: true, resolutionNote: true } },
+      notifications: { where: { channel: "LINE", status: { in: ["SENT", "FAILED"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
     },
   });
   if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) notFound();
@@ -74,6 +86,12 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
   const heroText = registrant.status === "WAITLISTED" ? "ลงทะเบียนสำเร็จ · อยู่ในคิวรอ" : registrant.status === "PENDING" ? "ลงทะเบียนสำเร็จ · รออนุมัติ" : registrant.status === "APPROVED" ? "ลงทะเบียนสำเร็จ · พร้อมเช็คชื่อ" : statusLabel[registrant.status];
   const HeroIcon = registrant.status === "APPROVED" ? CheckCircle2Icon : registrant.status === "WAITLISTED" || registrant.status === "PENDING" ? Clock3Icon : ShieldAlertIcon;
   const notice = "rounded-xl border bg-card p-4 text-sm";
+  // LINE (spec 2.1): offered while the admin switch is on and the person is still registered, or already linked.
+  const lineOn = flags.lineLogin && lineConfigured() && !registrant.anonymizedAt;
+  const showLine = lineOn && (!!registrant.lineUserId || ["PENDING", "APPROVED", "WAITLISTED"].includes(registrant.status));
+  const oaId = showLine ? await lineOaBasicId() : null;
+  const addFriendHref = oaId ? `https://line.me/R/ti/p/${encodeURIComponent(oaId)}` : null;
+  const lineUndelivered = registrant.notifications[0]?.status === "FAILED";
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">
@@ -137,6 +155,22 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
           </div>}
         </section>
         <p className="text-center text-xs leading-relaxed text-muted-foreground">เก็บลิงก์หน้านี้ไว้เพื่อตรวจสถานะหรือดู QR อีกครั้ง อย่าแชร์ลิงก์กับผู้อื่น</p>
+
+        {showLine && <section id="line" aria-labelledby="line-title" className="flex scroll-mt-4 flex-col gap-3 rounded-2xl border bg-card p-5">
+          <div className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#06C755] text-white"><MessageCircleIcon className="size-5" aria-hidden="true" /></span>
+            <div className="flex min-w-0 flex-col"><h3 id="line-title" className="font-heading text-lg font-semibold">รับแจ้งผลทาง LINE</h3><p className="text-xs text-muted-foreground">{registrant.lineUserId ? "เชื่อมแล้ว · ผลอนุมัติ การเลื่อนคิว และลิงก์ QR จะส่งไปที่ LINE ของคุณ" : "ผลอนุมัติ การเลื่อนคิว และลิงก์ QR ส่งถึง LINE ของคุณ"}</p></div>
+          </div>
+          {typeof line === "string" && lineMessages[line] && <p role={line === "linked" || line === "unlinked" ? "status" : "alert"} className={cn("rounded-lg px-3 py-2 text-sm", line === "linked" || line === "unlinked" ? "bg-accent text-accent-foreground" : "bg-[var(--status-warning-background)] text-[var(--status-warning)]")}>{lineMessages[line]}</p>}
+          {registrant.lineUserId && lineUndelivered && <p role="alert" className="rounded-lg bg-[var(--status-warning-background)] px-3 py-2 text-sm text-[var(--status-warning)]">ส่งข้อความล่าสุดไม่ถึง — ตรวจว่ายังเป็นเพื่อนกับ OA และไม่ได้บล็อกไว้ ข้อมูลล่าสุดดูได้ที่หน้านี้เสมอ</p>}
+          {(line === "not-friend" || (registrant.lineUserId && lineUndelivered)) && addFriendHref && <Button asChild variant="outline" className="h-11"><a href={addFriendHref} target="_blank" rel="noopener noreferrer">เพิ่ม {oaId} เป็นเพื่อนใน LINE</a></Button>}
+          {registrant.lineUserId
+            ? <form action={unlinkLineAction.bind(null, slug, token)}><Button type="submit" variant="ghost" className="h-11 w-full text-muted-foreground">เลิกรับแจ้งเตือนทาง LINE</Button></form>
+            : <form action={startLineLinkAction.bind(null, slug, token)} className="flex flex-col gap-2">
+              <p className="text-sm leading-relaxed text-muted-foreground">กดแล้วจะไปหน้า LINE ให้เข้าสู่ระบบและ<strong className="text-foreground">เพิ่ม {oaId ?? "OA ของระบบ"} เป็นเพื่อน</strong> — ระบบส่งข้อความได้เฉพาะเพื่อนของ OA และไม่เห็นแชตหรือรายชื่อเพื่อนของคุณ</p>
+              <Button type="submit" className="h-12 bg-[#06C755] text-base font-bold text-white hover:bg-[#05b34c]">รับแจ้งผลทาง LINE</Button>
+            </form>}
+        </section>}
 
         {flags.selfCancel && registrant.event.seatMode !== "whole_course" && activeDays.length > 1 && <section className="flex flex-col gap-3 rounded-2xl border bg-card p-5">
           <h3 className="font-heading text-lg font-semibold">ยกเลิกเฉพาะบางวัน</h3>
