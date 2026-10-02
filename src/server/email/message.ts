@@ -29,7 +29,7 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => (
 
 export function buildEmailMessage(person: EmailRecipient, statusUrl: string) {
   const approved = person.status === "APPROVED" && person.days.some((day) => day.status === "APPROVED") && !!person.qrCode;
-  const lines = [` · ${person.event.title}`, "", "ผลการลงทะเบียนของคุณ"];
+  const lines = [` โครงการ ${person.event.title}`, "", "ผลการลงทะเบียนของคุณ"];
   if (person.event.seatMode === "whole_course") lines.push(`หลักสูตร ${person.event.days.length} วัน: ${statusWords[person.status]}`);
   // Include the complete current state, including mixed approval/waitlist days.
   for (const [index, day] of person.event.days.entries()) {
@@ -41,7 +41,7 @@ export function buildEmailMessage(person: EmailRecipient, statusUrl: string) {
   lines.push("", `ดูสถานะล่าสุดและรายละเอียด: ${statusUrl}`, "", "ลิงก์และ QR นี้เป็นของคุณ กรุณาอย่าส่งต่อให้ผู้อื่น");
   const text = lines.join("\n");
   return {
-    subject: `ผลการลงทะเบียน: ${statusWords[person.status]} · ${person.event.title}`.replace(/[\r\n]+/g, " "),
+    subject: `โรงพยาบาลราชพิพัฒน์ — ผลการลงทะเบียน: ${statusWords[person.status]} · ${person.event.title}`.replace(/[\r\n]+/g, " "),
     text,
     html: `<!doctype html><html lang="th"><body><div style="font-family:Tahoma,sans-serif;line-height:1.7">${escapeHtml(text).replace(/\n/g, "<br>")}<p><a href="${escapeHtml(statusUrl)}">ดูสถานะการลงทะเบียน</a></p></div></body></html>`,
     attachQr: approved,

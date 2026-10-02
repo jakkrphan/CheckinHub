@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatDeadlineDay, formatEventDayList } from "@/lib/format";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
-import { publicEventUrl, registrationQrSvg } from "@/server/events/public-url";
+import { registrationQrSvg, shortEventUrl } from "@/server/events/public-url";
 
 export const metadata: Metadata = { title: "พิมพ์ QR ลงทะเบียน" };
 
@@ -16,7 +16,7 @@ export default async function RegistrationPosterPage({ params }: PageProps<"/org
   const { eventId } = await params;
   const { event } = await requireEventAccess(eventId, "manage");
   const days = await db.eventDay.findMany({ where: { eventId }, select: { date: true }, orderBy: { date: "asc" } });
-  const url = await publicEventUrl(event.slug);
+  const url = await shortEventUrl(event.slug);
   const svg = await registrationQrSvg(url);
 
   return <main className="flex flex-1 flex-col items-center gap-5 bg-muted/40 px-4 py-6 print:bg-white print:p-0">

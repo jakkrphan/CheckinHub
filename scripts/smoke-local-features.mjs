@@ -61,7 +61,7 @@ try {
     { key: "secret", label: "เลขบัตร", type: "text", required: false, sensitive: true },
   ];
   const event = await db.event.create({ data: {
-    slug: `local-features-${suffix}`, title: "Local features smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true,
+    slug: `local-features-${suffix}`, title: "Local features smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields,
     days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }] },
   } });
@@ -94,7 +94,7 @@ try {
 
   // Self-service day change (per-day): adding a full day queues, a checked-in day stays, dropping frees the seat.
   const dcEvent = await db.event.create({ data: {
-    slug: `local-days-${suffix}`, title: "Day change smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true, waitlistPromotion: "AUTO",
+    slug: `local-days-${suffix}`, title: "Day change smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true, waitlistPromotion: "AUTO",
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
     days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }, { date: new Date("2031-10-02T00:00:00.000Z"), maxSeats: 1 }] },
   } });
@@ -113,6 +113,12 @@ try {
   html = await (await fetch(daysUrl)).text();
   const daysForm = formsFrom(html).find((part) => part.includes("บันทึกการเปลี่ยนวัน"));
   ensure(daysForm && html.includes("เต็มแล้ว"), "Change-days form missing or does not show the full day");
+  // Waitlist switch off: the full day is locked on the page and adding it is refused without touching the existing days.
+  await db.event.update({ where: { id: dcEvent.id }, data: { waitlistEnabled: false } });
+  ensure((await (await fetch(daysUrl)).text()).includes("เต็มแล้ว · ไม่รับรอคิว"), "Change-days page does not lock a full day when the waitlist is off");
+  response = await post(daysUrl, daysForm, { dayId: [dayA.id, dayB.id] });
+  ensure(location(response).includes("error=full") && await db.registrantEventDay.count({ where: { registrantId: mover.id } }) === 1, `Adding a full day with the waitlist off was not refused: ${location(response)}`);
+  await db.event.update({ where: { id: dcEvent.id }, data: { waitlistEnabled: true } });
   response = await post(daysUrl, daysForm, { dayId: [dayA.id, dayB.id] });
   ensure(location(response).includes("days=1"), `Adding a day failed: ${location(response)}`);
   let moverDays = await db.registrantEventDay.findMany({ where: { registrantId: mover.id } });
@@ -189,7 +195,9 @@ try {
 
   // Registration QR: printable poster and PNG for managers; check-in-only staff are refused.
   html = await (await fetch(`${base}/organizer/${event.id}/poster`, { headers: { cookie } })).text();
-  ensure(html.includes("<svg") && html.includes(`/events/${event.slug}`) && html.includes("สแกนเพื่อลงทะเบียน"), "Registration QR poster missing QR or link");
+  ensure(html.includes("<svg") && html.includes(`/r/${event.slug}`) && html.includes("สแกนเพื่อลงทะเบียน"), "Registration QR poster missing QR or short link");
+  response = await fetch(`${base}/r/${event.slug}`, { redirect: "manual" });
+  ensure(response.status === 307 && response.headers.get("location")?.endsWith(`/events/${event.slug}`), "Short link does not redirect to the registration page");
   response = await fetch(`${base}/organizer/${event.id}/qr`, { headers: { cookie } });
   const png = new Uint8Array(await response.arrayBuffer());
   ensure(response.status === 200 && response.headers.get("content-type") === "image/png" && png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47, "Registration QR PNG not served");

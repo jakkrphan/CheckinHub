@@ -29,7 +29,7 @@ const shortDate = (date: string) => { const value = utcDate(date); return `${wee
 const controlClass = "h-12 rounded-lg bg-card px-3.5 text-base md:text-base";
 const stepTitle = (step: Step, seatMode: string) => step === 1 ? seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่จะเข้าร่วม" : step === 2 ? "ข้อมูลผู้ลงทะเบียน" : "ยืนยันการลงทะเบียน";
 
-export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, days, captchaSiteKey, captchaEnabled, lineEnabled, deadline, autoApprove, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
+export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, days, captchaSiteKey, captchaEnabled, lineEnabled, deadline, autoApprove, waitlistEnabled, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
   slug: string;
   formTicket: string;
   /** Lets the server recognise a submission made from a page opened before the organizer changed the form. */
@@ -43,6 +43,8 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   lineEnabled: boolean;
   deadline: string;
   autoApprove: boolean;
+  /** Off: full days cannot be picked and a full course cannot be joined. */
+  waitlistEnabled: boolean;
   seatMode: string;
   courseRemaining: number | null;
   courseMaxSeats: number | null;
@@ -71,6 +73,8 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
     else groups.push({ parent, fields: [field] });
   }
 
+  const courseFull = seatMode === "whole_course" && courseRemaining === 0 && !waitlistEnabled;
+
   function goTo(next: Step) {
     setStep(next);
     setWizardError("");
@@ -80,6 +84,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   function nextStep() {
     setWizardError("");
     if (step === 1) {
+      if (courseFull) { setWizardError("ที่นั่งของหลักสูตรเต็มแล้ว โครงการนี้ไม่เปิดรับรอคิว"); return; }
       if (seatMode !== "whole_course" && selectedDays.length === 0) { setWizardError("กรุณาเลือกวันที่เข้าร่วมอย่างน้อย 1 วัน"); return; }
       goTo(2);
       return;
@@ -139,17 +144,18 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
       {notice && <p role="alert" className="mx-5 mt-5 rounded-lg border border-destructive bg-card p-4 text-sm text-destructive">{notice}</p>}
 
       <section className={cn("flex flex-col gap-3 px-5 py-5", seatMode === "whole_course" && "gap-3.5", step !== 1 && "hidden")} aria-label={seatMode === "whole_course" ? "รายละเอียดหลักสูตร" : "เลือกวันที่เข้าร่วม"}>
-        {seatMode === "whole_course" ? <CourseOverview days={days} remaining={courseRemaining} maxSeats={courseMaxSeats} /> : <>
+        {seatMode === "whole_course" ? <CourseOverview days={days} remaining={courseRemaining} maxSeats={courseMaxSeats} waitlistEnabled={waitlistEnabled} /> : <>
         <p className="text-sm text-muted-foreground">เลือกได้หลายวัน อย่างน้อย 1 วัน · ที่นั่งนับแยกแต่ละวัน</p>
         <fieldset className="flex flex-col gap-3"><legend className="sr-only">วันที่เข้าร่วม</legend>
           {days.map((day, index) => {
             const date = utcDate(day.date);
             const selected = selectedDays.includes(day.id);
             const full = day.remaining === 0;
-            return <label key={day.id} className={cn("flex items-center gap-4 rounded-xl border bg-card p-4 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50", day.isClosed ? "cursor-not-allowed opacity-60" : "cursor-pointer", full && !selected && "bg-muted", selected && "border-primary bg-primary text-primary-foreground")}>
-              <input type="checkbox" name="dayId" value={day.id} checked={selected} disabled={day.isClosed} onChange={(event) => { setSelectedDays((current) => event.target.checked ? [...current, day.id] : current.filter((id) => id !== day.id)); setWizardError(""); }} className="sr-only" />
+            const unavailable = day.isClosed || (full && !waitlistEnabled);
+            return <label key={day.id} className={cn("flex items-center gap-4 rounded-xl border bg-card p-4 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50", unavailable ? "cursor-not-allowed opacity-60" : "cursor-pointer", full && !selected && "bg-muted", selected && "border-primary bg-primary text-primary-foreground")}>
+              <input type="checkbox" name="dayId" value={day.id} checked={selected} disabled={unavailable} onChange={(event) => { setSelectedDays((current) => event.target.checked ? [...current, day.id] : current.filter((id) => id !== day.id)); setWizardError(""); }} className="sr-only" />
               <span className={cn("flex w-14 shrink-0 flex-col items-center rounded-lg bg-secondary px-1 py-2 text-xs", selected && "bg-primary-foreground/15 text-primary-foreground")}><span>{weekdayCard[date.getUTCDay()]}</span><strong className="font-heading text-2xl leading-tight">{date.getUTCDate()}</strong><span>{monthsShort[date.getUTCMonth()]}</span></span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1"><strong>วันที่ {index + 1}</strong><span className="text-xs">{day.isClosed ? "ปิดรับลงทะเบียนวันนี้" : day.remaining === null ? "ไม่จำกัดที่นั่ง" : full ? "เต็ม · เลือกได้เพื่อเข้าคิวสำรอง" : `เหลือ ${day.remaining} จาก ${day.maxSeats} ที่นั่ง`}</span></span>
+              <span className="flex min-w-0 flex-1 flex-col gap-1"><strong>วันที่ {index + 1}</strong><span className="text-xs">{day.isClosed ? "ปิดรับลงทะเบียนวันนี้" : day.remaining === null ? "ไม่จำกัดที่นั่ง" : full ? waitlistEnabled ? "เต็ม · เลือกได้เพื่อเข้าคิวสำรอง" : "เต็มแล้ว · ไม่รับสมัครเพิ่ม" : `เหลือ ${day.remaining} จาก ${day.maxSeats} ที่นั่ง`}</span></span>
               {day.isClosed ? <Badge variant="secondary">ปิดรับ</Badge> : selected ? <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-foreground text-primary"><CheckIcon className="size-4" aria-hidden="true" /></span> : full ? <Badge variant="destructive">เต็ม</Badge> : <span aria-hidden="true" className="size-5 shrink-0 rounded-full border-2 border-input" />}
             </label>;
           })}
@@ -185,7 +191,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
         <div className="flex items-center gap-3">
           {/* Distinct keys: reusing one DOM button would flip it to type=submit mid-click and submit step 3 immediately. */}
           {step === 3 && <Button type="button" variant="outline" className="h-13 px-4" onClick={() => goTo(2)}>ย้อนกลับ</Button>}
-          {step < 3 ? <Button key="next" type="button" className="h-13 flex-1 text-base font-bold" onClick={nextStep}>{step === 1 ? seatMode === "whole_course" ? "ถัดไป · กรอกข้อมูล" : `ถัดไป · เลือกแล้ว ${selectedDays.length} วัน` : "ถัดไป · ยืนยันข้อมูล"}</Button> : <Button key="submit" type="submit" className="h-13 flex-1 text-base font-bold">ยืนยันการลงทะเบียน</Button>}
+          {step < 3 ? <Button key="next" type="button" disabled={step === 1 && courseFull} className="h-13 flex-1 text-base font-bold" onClick={nextStep}>{step === 1 ? seatMode === "whole_course" ? "ถัดไป · กรอกข้อมูล" : `ถัดไป · เลือกแล้ว ${selectedDays.length} วัน` : "ถัดไป · ยืนยันข้อมูล"}</Button> : <Button key="submit" type="submit" className="h-13 flex-1 text-base font-bold">ยืนยันการลงทะเบียน</Button>}
         </div>
         {step === 1 && seatMode === "whole_course" && <p className="text-center text-xs text-muted-foreground">ไม่ต้องเลือกวัน ระบบลงให้ครบทั้ง {days.length} วัน</p>}
         {step === 3 && <p className="text-center text-xs text-muted-foreground">{autoApprove ? "ได้ QR ทันทีหลังยืนยัน (ถ้ายังมีที่นั่ง)" : "โครงการนี้อนุมัติเอง — จะได้ QR เมื่อผู้จัดอนุมัติ"}</p>}

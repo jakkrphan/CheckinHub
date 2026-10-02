@@ -13,7 +13,7 @@ const eventTypes = [
 
 export type EventInfoDefaults = {
   title: string; description: string | null; location: string | null; eventType: "INTERNAL" | "EXTERNAL" | "MIXED";
-  seatMode: string; maxSeats: number | null; attendanceThreshold: number | null; autoApprove: boolean;
+  seatMode: string; maxSeats: number | null; attendanceThreshold: number | null; autoApprove: boolean; waitlistEnabled: boolean;
   pendingHoldHours: number | null; waitlistPromotion: "MANUAL" | "AUTO"; retentionDays: number;
   coverImageUrl: string | null; anonymizedAt: Date | null;
 };
@@ -59,7 +59,11 @@ export function EventInfoFields({ event, deadlineDate = "", seatModeLocked = fal
           <span className="flex flex-col gap-1"><span className="font-semibold">อนุมัติอัตโนมัติ</span><span className="text-sm text-muted-foreground">เปิด = ได้ QR ทันทีที่สมัคร · ปิด = ผู้จัดตรวจและกดอนุมัติเองทีละคน</span></span>
           <input type="checkbox" role="switch" name="autoApprove" defaultChecked={event?.autoApprove ?? false} className="relative mt-1 h-7 w-12 shrink-0 cursor-pointer appearance-none rounded-full bg-input transition-colors before:absolute before:left-1 before:top-1 before:size-5 before:rounded-full before:bg-card before:shadow before:transition-transform checked:bg-primary checked:before:translate-x-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" />
         </label>
-        <p className="border-t pt-3 text-xs leading-relaxed text-muted-foreground">ทั้งสองโหมด: ถ้าที่นั่งเต็ม ณ ตอนสมัคร (รายวันที่เลือก หรือที่นั่งรวมของหลักสูตร แล้วแต่โหมดการนับที่นั่ง) ใบสมัครจะเข้าสถานะ <strong className="text-foreground">รอคิว (waitlist)</strong> ไม่ใช่ปฏิเสธ · เปลี่ยนโหมดอนุมัติภายหลังไม่มีผลย้อนหลัง</p>
+        <label className="flex cursor-pointer items-start justify-between gap-4 border-t pt-3">
+          <span className="flex flex-col gap-1"><span className="font-semibold">เปิดรับรอคิว (waitlist)</span><span className="text-sm text-muted-foreground">เปิด = ที่นั่งเต็มแล้วยังสมัครได้ ใบสมัครเข้าสถานะรอคิว · ปิด = ที่นั่งเต็มแล้วไม่รับสมัครเพิ่ม</span></span>
+          <input type="checkbox" role="switch" name="waitlistEnabled" defaultChecked={event?.waitlistEnabled ?? false} className="relative mt-1 h-7 w-12 shrink-0 cursor-pointer appearance-none rounded-full bg-input transition-colors before:absolute before:left-1 before:top-1 before:size-5 before:rounded-full before:bg-card before:shadow before:transition-transform checked:bg-primary checked:before:translate-x-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" />
+        </label>
+        <p className="border-t pt-3 text-xs leading-relaxed text-muted-foreground">ที่นั่งเต็มนับ ณ ตอนสมัคร (รายวันที่เลือก หรือที่นั่งรวมของหลักสูตร แล้วแต่โหมดการนับที่นั่ง) · ปิดรอคิวภายหลังได้: คนที่อยู่ในคิวแล้วยังอยู่ต่อและเลื่อนขึ้นได้ตามปกติ · เปลี่ยนโหมดอนุมัติภายหลังไม่มีผลย้อนหลัง</p>
         <Field><FieldLabel htmlFor="pendingHoldHours">เวลาจองที่นั่งระหว่างรออนุมัติ (ชั่วโมง)</FieldLabel><Input id="pendingHoldHours" name="pendingHoldHours" type="number" min={1} max={720} defaultValue={event?.pendingHoldHours ?? ""} placeholder="ไม่หมดอายุ" className="h-10" /><FieldDescription>เว้นว่างถ้าไม่ต้องการให้หมดอายุ</FieldDescription></Field>
         <Field><FieldLabel htmlFor="waitlistPromotion">เมื่อมีที่นั่งว่าง</FieldLabel><NativeSelect id="waitlistPromotion" name="waitlistPromotion" defaultValue={event?.waitlistPromotion ?? "MANUAL"} className="h-10"><option value="MANUAL">ให้ผู้จัดเลือกคนจากคิวเอง</option><option value="AUTO">เลื่อนคิวอัตโนมัติตามลำดับ</option></NativeSelect></Field>
       </section>

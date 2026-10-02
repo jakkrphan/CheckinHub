@@ -38,9 +38,6 @@ const labels: Record<string, string> = {
   REGISTRANT_SELF_EDITED: "ผู้สมัครแก้ข้อมูลเอง",
   REGISTRANT_DAYS_CHANGED: "ผู้สมัครเปลี่ยนวันเอง",
   // No longer recorded (removed 27 Sep 2026); kept so entries written before then still read in Thai.
-  REGISTRANT_LINE_LINKED: "ผู้สมัครเชื่อม LINE",
-  REGISTRANT_LINE_UNLINKED: "ผู้สมัครเลิกรับแจ้งเตือนทาง LINE",
-  LINE_NOTIFICATION_RESENT: "ส่งแจ้งเตือนทาง LINE อีกครั้ง",
   EXPORT_CSV: "ส่งออก CSV",
   EXPORT_XLSX: "ส่งออก Excel",
   FILE_DOWNLOADED: "เปิดไฟล์แนบ",

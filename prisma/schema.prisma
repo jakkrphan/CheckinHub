@@ -114,6 +114,8 @@ model Event {
   fieldsVersion        Int              @default(1)
   registrationDeadline DateTime?
   autoApprove          Boolean          @default(false)
+  /// Off: a full day/course refuses new registrations instead of queueing them. People already queued stay queued.
+  waitlistEnabled      Boolean          @default(false)
   seatMode             String           @default("per_day")
   maxSeats             Int?
   attendanceThreshold  Int?

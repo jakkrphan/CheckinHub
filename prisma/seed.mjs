@@ -31,6 +31,7 @@ try {
       status: "PUBLISHED",
       eventType: "INTERNAL",
       autoApprove: true,
+      waitlistEnabled: true,
       ownerId: organizer.id,
       fields: [
         { key: "name", label: "ชื่อ-นามสกุล", type: "text", required: true },
@@ -116,7 +117,7 @@ try {
     create: {
       slug: "demo-whole-course", title: "Continuous training course (demo)", location: "Training room B",
       eventType: "INTERNAL", status: "PUBLISHED", seatMode: "whole_course", maxSeats: 50,
-      attendanceThreshold: 80, autoApprove: false, ownerId: organizer.id,
+      attendanceThreshold: 80, autoApprove: false, waitlistEnabled: true, ownerId: organizer.id,
       registrationDeadline: new Date("2030-02-09T16:59:59.999Z"),
       fields: [{ key: "name", label: "Full name", type: "text", required: true }],
     },

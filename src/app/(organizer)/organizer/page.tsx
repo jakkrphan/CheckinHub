@@ -172,7 +172,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
                 const pending = countOf(event.id, "PENDING");
                 const waitlisted = countOf(event.id, "WAITLISTED");
                 const openHref = event.status === "DRAFT" ? `/organizer/${event.id}?step=${setup?.step ?? 1}` : `/organizer/${event.id}/dashboard`;
-                const publicUrl = `${origin}/events/${event.slug}`;
+                const publicUrl = `${origin}/r/${event.slug}`;
                 const menuId = `event-menu-${event.id}`;
                 return <TableRow key={event.id} className={cn("max-xl:grid max-xl:grid-cols-[80px_minmax(0,1fr)_auto] max-xl:items-start max-xl:gap-x-3 max-xl:gap-y-3 max-xl:px-4 max-xl:py-4 [&>td]:max-xl:p-0 [&>td]:max-xl:whitespace-normal", event.status === "CLOSED" && "opacity-75")}>
                   <TableCell className="px-6 py-4 max-xl:col-start-1 max-xl:row-start-1"><div className="relative flex h-14 w-24 max-xl:h-12 max-xl:w-20 items-center justify-center overflow-hidden rounded-lg bg-[#d9d8ce] text-[#4a463f]">{event.coverImageUrl ? <Image src={event.coverImageUrl} alt="" fill unoptimized sizes="96px" className="object-cover" /> : <div className="flex flex-col items-center gap-1"><ImageIcon className="size-5" aria-hidden="true" /><span className="text-[10px] font-semibold">รูปปก</span></div>}</div></TableCell>

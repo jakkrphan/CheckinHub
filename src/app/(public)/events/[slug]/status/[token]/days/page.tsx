@@ -20,6 +20,7 @@ const statusLabel = { PENDING: "รออนุมัติ", APPROVED: "อน�
 const errors: Record<string, string> = {
   invalid: "เลือกวันไม่ถูกต้อง หรือเลือกวันที่ผู้จัดไม่อนุมัติไว้",
   "day-closed": "วันที่เลือกปิดรับแล้วหรือผ่านไปแล้ว",
+  full: "วันที่เลือกเพิ่มเต็มแล้ว และโครงการนี้ไม่เปิดรับรอคิว",
   "checked-in": "ยกเลิกวันที่เช็คชื่อแล้วไม่ได้",
   closed: "เปลี่ยนวันไม่ได้แล้ว เนื่องจากปิดรับลงทะเบียน หรือการลงทะเบียนถูกยกเลิก/ไม่อนุมัติ",
   unavailable: "ระบบกำลังทำรายการอื่น กรุณาลองใหม่",
@@ -34,7 +35,7 @@ export default async function ChangeDaysPage({ params, searchParams }: PageProps
       id: true, status: true, anonymizedAt: true,
       days: { select: { eventDayId: true, status: true } },
       checkIns: { where: { voidedAt: null }, select: { session: { select: { eventDayId: true } } } },
-      event: { select: { id: true, slug: true, title: true, status: true, registrationDeadline: true, deletedAt: true, seatMode: true, maxSeats: true, autoApprove: true, days: { orderBy: { date: "asc" }, select: { id: true, date: true, isClosed: true } } } },
+      event: { select: { id: true, slug: true, title: true, status: true, registrationDeadline: true, deletedAt: true, seatMode: true, maxSeats: true, autoApprove: true, waitlistEnabled: true, days: { orderBy: { date: "asc" }, select: { id: true, date: true, isClosed: true } } } },
     },
   });
   if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) notFound();
@@ -50,8 +51,9 @@ export default async function ChangeDaysPage({ params, searchParams }: PageProps
     const selected = status === "PENDING" || status === "APPROVED" || status === "WAITLISTED";
     const locked = checkedDays.has(day.id) ? "เช็คชื่อแล้ว" : status === "REJECTED" ? "ผู้จัดไม่อนุมัติวันนี้"
       : day.date.toISOString().slice(0, 10) < today ? "ผ่านไปแล้ว" : day.isClosed && !selected ? "ปิดรับวันนี้" : null;
+    const remaining = availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null;
     return { id: day.id, number: index + 1, label: dayFormatter.format(day.date), selected, statusLabel: status ? statusLabel[status] : null,
-      remaining: availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null, locked };
+      remaining, locked: locked ?? (!registrant.event.waitlistEnabled && remaining === 0 && !selected ? "เต็มแล้ว · ไม่รับรอคิว" : null) };
   });
 
   return <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">

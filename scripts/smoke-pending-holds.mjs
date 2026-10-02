@@ -14,7 +14,7 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 async function createScenario(ownerId, policy) {
   const event = await db.event.create({ data: {
     slug: `hold-smoke-${randomUUID()}`, title: "Pending hold smoke", ownerId,
-    status: "PUBLISHED", fields: [], autoApprove: false, pendingHoldHours: 1,
+    status: "PUBLISHED", fields: [], autoApprove: false, waitlistEnabled: true, pendingHoldHours: 1,
     waitlistPromotion: policy,
     days: { create: { date: new Date("2031-12-30T00:00:00.000Z"), maxSeats: 1 } },
   }, include: { days: true } });

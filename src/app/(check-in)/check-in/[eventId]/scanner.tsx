@@ -16,6 +16,9 @@ function subscribeOnline(callback: () => void) {
   return () => { window.removeEventListener("online", callback); window.removeEventListener("offline", callback); };
 }
 
+/** For values fixed for the page's lifetime (e.g. secure context): read once on the client, never re-notified. */
+const subscribeNever = () => () => {};
+
 type DisplayResult = ScanResult | { kind: "queued"; message: string; canOverride?: undefined };
 
 /** Desktop layout (mockup B v3 checkin-desktop): results render inline instead of as a bottom sheet. */
@@ -90,6 +93,9 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   const [overrideNote, setOverrideNote] = useState("");
   const [reviewItems, setReviewItems] = useState<ReviewScan[]>([]);
   const [cameraError, setCameraError] = useState("");
+  // Browsers expose the camera only on HTTPS or localhost; over http://<ip> navigator.mediaDevices is missing.
+  const cameraSupported = useSyncExternalStore(subscribeNever, () => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia, () => true);
+  const cameraMessage = cameraSupported ? cameraError : "เบราว์เซอร์เปิดกล้องได้เฉพาะหน้าเว็บ HTTPS หรือ localhost — หน้านี้เปิดผ่าน http:// จึงใช้กล้องไม่ได้ ใช้เครื่องยิง QR แทน หรือเปิดผ่าน HTTPS";
   const [pending, setPending] = useState(0);
   const [needsReview, setNeedsReview] = useState(0);
   const [otherPending, setOtherPending] = useState(0);
@@ -216,17 +222,25 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   }, [eventId, sessionId, operatorId]);
 
   useEffect(() => {
-    if (!camera || !video.current) return;
+    if (!camera || !cameraSupported || !video.current) return;
     let cancelled = false;
     let controls: { stop: () => void } | undefined;
     const reader = new BrowserQRCodeReader();
     reader.decodeFromVideoDevice(undefined, video.current, (scan) => {
       if (!cancelled && scan) void submit(scan.getText(), "camera");
-    }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch(() => setCameraError("เปิดกล้องไม่ได้ กรุณาอนุญาตสิทธิ์กล้องในเบราว์เซอร์ หรือสลับไปใช้เครื่องยิง QR"));
+    }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch((error: unknown) => {
+      const name = error instanceof Error ? error.name : "";
+      setCameraError(
+        name === "NotAllowedError" || name === "SecurityError" ? "ไม่ได้รับอนุญาตให้ใช้กล้อง — กดรูปกล้อง/แม่กุญแจที่แถบที่อยู่ของเบราว์เซอร์ อนุญาตกล้อง แล้วกด “ลองอีกครั้ง”"
+        : name === "NotFoundError" || name === "OverconstrainedError" ? "ไม่พบกล้องในเครื่องนี้ — ใช้เครื่องยิง QR แทน"
+        : name === "NotReadableError" || name === "AbortError" ? "กล้องถูกใช้อยู่โดยโปรแกรมหรือแท็บอื่น ปิดโปรแกรมนั้นแล้วกด “ลองอีกครั้ง”"
+        : "เปิดกล้องไม่ได้ กรุณาอนุญาตสิทธิ์กล้องในเบราว์เซอร์ หรือสลับไปใช้เครื่องยิง QR",
+      );
+    });
     return () => { cancelled = true; controls?.stop(); };
     // Camera lifecycle is tied to the selected session, the input mode and retries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, cameraAttempt, eventId, sessionId]);
+  }, [camera, cameraSupported, cameraAttempt, eventId, sessionId]);
 
   useEffect(() => {
     // autoFocus can land before hydration, so React never saw the focus event; sync the "ready" state once mounted.
@@ -286,11 +300,11 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
           <span className="absolute right-0 top-0 size-10 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
           <span className="absolute bottom-0 left-0 size-10 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
           <span className="absolute bottom-0 right-0 size-10 rounded-br-2xl border-b-4 border-r-4 border-primary" />
-          {!cameraError && <span className="absolute inset-x-[8%] top-1/2 h-0.5 bg-primary/80 shadow-[0_0_12px_var(--primary)] motion-safe:animate-pulse" />}
+          {!cameraMessage && <span className="absolute inset-x-[8%] top-1/2 h-0.5 bg-primary/80 shadow-[0_0_12px_var(--primary)] motion-safe:animate-pulse" />}
         </span>
       </div>
       <p className="text-center text-sm text-muted-foreground">{kiosk ? "ส่อง QR จากหน้าสถานะของคุณให้อยู่ในกรอบ" : "ส่อง QR ให้อยู่ในกรอบ"}</p>
-      {cameraError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="flex-1">{cameraError}</span><Button type="button" variant="secondary" size="sm" className="h-9" onClick={() => { setCameraError(""); setCameraAttempt((attempt) => attempt + 1); }}><RefreshCwIcon data-icon="inline-start" aria-hidden="true" />ลองอีกครั้ง</Button></div>}
+      {cameraMessage && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"><span className="flex-1">{cameraMessage}</span>{cameraSupported && <Button type="button" variant="secondary" size="sm" className="h-9" onClick={() => { setCameraError(""); setCameraAttempt((attempt) => attempt + 1); }}><RefreshCwIcon data-icon="inline-start" aria-hidden="true" />ลองอีกครั้ง</Button>}</div>}
     </div>}
 
     <div className="flex flex-col gap-3 rounded-2xl bg-card p-4">

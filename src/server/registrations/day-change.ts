@@ -6,7 +6,7 @@ import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle
 import { canSelfEdit } from "@/server/registrations/self-edit";
 import { statusTokenWhere } from "@/server/registrations/status-token";
 
-export type DayChangeResult = "saved" | "unchanged" | "invalid" | "closed" | "day-closed" | "checked-in" | "not-found" | "unavailable";
+export type DayChangeResult = "saved" | "unchanged" | "invalid" | "closed" | "day-closed" | "full" | "checked-in" | "not-found" | "unavailable";
 
 const active: RegistrantStatus[] = ["PENDING", "APPROVED", "WAITLISTED"];
 export const todayInBangkok = () => new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -28,7 +28,7 @@ export async function changeOwnDays(slug: string, token: string, requested: Form
       return await db.$transaction(async (tx) => {
         const registrant = await tx.registrant.findUnique({
           where: tokenWhere,
-          select: { id: true, eventId: true, status: true, anonymizedAt: true, event: { select: { id: true, slug: true, status: true, deletedAt: true, registrationDeadline: true, seatMode: true, maxSeats: true, autoApprove: true } } },
+          select: { id: true, eventId: true, status: true, anonymizedAt: true, event: { select: { id: true, slug: true, status: true, deletedAt: true, registrationDeadline: true, seatMode: true, maxSeats: true, autoApprove: true, waitlistEnabled: true } } },
         });
         if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found" as const;
         if (registrant.event.seatMode !== "per_day") return "invalid" as const;
@@ -57,14 +57,17 @@ export async function changeOwnDays(slug: string, token: string, requested: Form
         }
         if (toRemove.length && await tx.checkIn.count({ where: { registrantId: registrant.id, voidedAt: null, session: { eventDayId: { in: toRemove } } } })) return "checked-in" as const;
 
+        // Checked before any write: returning from the callback commits whatever ran before it.
+        const availability = await getSeatAvailability(tx, registrant.event, toAdd);
+        const isFull = (id: string) => availability.mode === "per_day" && availability.days.get(id)?.remaining === 0;
+        if (!registrant.event.waitlistEnabled && toAdd.some(isFull)) return "full" as const;
+
         if (toRemove.length) {
           await tx.registrantEventDay.updateMany({ where: { registrantId: registrant.id, eventDayId: { in: toRemove }, status: { in: active } }, data: { status: "CANCELLED", waitlistedAt: null, pendingSince: null } });
         }
-        const availability = await getSeatAvailability(tx, registrant.event, toAdd);
         const added: { eventDayId: string; status: RegistrantStatus }[] = [];
         for (const id of toAdd) {
-          const full = availability.mode === "per_day" && availability.days.get(id)?.remaining === 0;
-          const status: RegistrantStatus = full ? "WAITLISTED" : registrant.event.autoApprove ? "APPROVED" : "PENDING";
+          const status: RegistrantStatus = isFull(id) ? "WAITLISTED" : registrant.event.autoApprove ? "APPROVED" : "PENDING";
           const data = { status, waitlistedAt: status === "WAITLISTED" ? new Date() : null, pendingSince: status === "PENDING" ? new Date() : null };
           const existing = rows.get(id);
           if (existing) await tx.registrantEventDay.update({ where: { id: existing.id }, data });

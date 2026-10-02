@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { EyeIcon, EyeOffIcon, LoaderCircleIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, LoaderCircleIcon, LockIcon, UserIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -21,18 +21,22 @@ export function LoginForm({ next, ldap }: { next: string | null; ldap: boolean }
   const [showPassword, setShowPassword] = useState(false);
   const invalid = ldap && state.error === "invalid" ? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" : state.error && messages[state.error];
 
-  return <form action={action} className="flex flex-col gap-6" noValidate={false}>
+  return <form action={action} className="flex flex-col gap-5" noValidate={false}>
     {next && <input type="hidden" name="next" value={next} />}
     <FieldGroup>
       <Field>
-        <FieldLabel htmlFor="email">{ldap ? "ชื่อผู้ใช้ AD หรืออีเมล" : "อีเมล"}</FieldLabel>
-        {/* The field keeps name="email" for Auth.js; with AD it also takes a username, so it cannot be type="email". */}
-        <Input id="email" name="email" type={ldap ? "text" : "email"} autoComplete="username" autoCapitalize="none" spellCheck={false} defaultValue={state.email} autoFocus required aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
+        <FieldLabel htmlFor="email">{ldap ? "ชื่อผู้ใช้" : "อีเมล"}</FieldLabel>
+        <div className="relative">
+          <UserIcon className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary" aria-hidden="true" />
+          {/* The field keeps name="email" for Auth.js; with AD it also takes a username, so it cannot be type="email". */}
+          <Input id="email" name="email" type={ldap ? "text" : "email"} placeholder={ldap ? "ชื่อผู้ใช้ Active Directory" : "กรอกอีเมล"} autoComplete="username" autoCapitalize="none" spellCheck={false} defaultValue={state.email} autoFocus required className="h-12 pl-11" aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
+        </div>
       </Field>
       <Field>
         <FieldLabel htmlFor="password">รหัสผ่าน</FieldLabel>
         <div className="relative">
-          <Input id="password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required className="pr-11" aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
+          <LockIcon className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-primary" aria-hidden="true" />
+          <Input id="password" name="password" type={showPassword ? "text" : "password"} placeholder={ldap ? "รหัสผ่าน Active Directory" : "กรอกรหัสผ่าน"} autoComplete="current-password" required className="h-12 px-11" aria-invalid={!!state.error} aria-describedby={state.error ? "login-error" : undefined} />
           <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"} aria-pressed={showPassword}
             className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
             {showPassword ? <EyeOffIcon className="size-4" aria-hidden="true" /> : <EyeIcon className="size-4" aria-hidden="true" />}
@@ -41,6 +45,6 @@ export function LoginForm({ next, ldap }: { next: string | null; ldap: boolean }
       </Field>
     </FieldGroup>
     {state.error && <p id="login-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{invalid}</p>}
-    <Button type="submit" size="lg" disabled={pending}>{pending && <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden="true" />}{pending ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}</Button>
+    <Button type="submit" size="lg" disabled={pending} className="h-12 w-full font-semibold shadow-md">{pending ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" aria-hidden="true" /> : <LockIcon data-icon="inline-start" aria-hidden="true" />}{pending ? "กำลังตรวจสอบ…" : "เข้าสู่ระบบ"}</Button>
   </form>;
 }

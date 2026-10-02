@@ -15,7 +15,7 @@ import { isFeatureEnabled } from "@/server/settings/features";
 export const newBearerCode = () => randomBytes(32).toString("base64url");
 export const hashBearerCode = (code: string) => createHash("sha256").update(code).digest("hex");
 
-export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired";
+export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired" | "full";
 export type RegistrationResult =
   | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null }
   | { ok: false; reason: RegistrationFailure };
@@ -106,10 +106,13 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
           await tx.$queryRaw(Prisma.sql`SELECT id FROM EventDay WHERE eventId = ${event.id} AND id IN (${Prisma.join(selectedIds)}) ORDER BY id FOR UPDATE`);
           if (selectedDays.some((day) => day.isClosed)) return { ok: false, reason: "not-open" } as const;
         }
-        const currentEvent = await tx.event.findUniqueOrThrow({ where: { id: event.id }, select: { status: true, registrationDeadline: true, autoApprove: true } });
+        const currentEvent = await tx.event.findUniqueOrThrow({ where: { id: event.id }, select: { status: true, registrationDeadline: true, autoApprove: true, waitlistEnabled: true } });
         if (currentEvent.status !== "PUBLISHED" || !currentEvent.registrationDeadline || currentEvent.registrationDeadline <= new Date()) return { ok: false, reason: "not-open" } as const;
 
         const availability = await getSeatAvailability(tx, event, selectedDays.map((day) => day.id));
+        // Waitlist off: a full course or any full selected day refuses the registration instead of queueing it.
+        const noSeat = availability.mode === "whole_course" ? availability.remaining === 0 : selectedDays.some((day) => availability.days.get(day.id)?.remaining === 0);
+        if (noSeat && !currentEvent.waitlistEnabled) return { ok: false, reason: "full" } as const;
         const wholeStatus: RegistrantStatus | null = availability.mode === "whole_course"
           ? availability.remaining === 0 ? "WAITLISTED" : currentEvent.autoApprove ? "APPROVED" : "PENDING"
           : null;

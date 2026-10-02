@@ -47,7 +47,7 @@ try {
   const owner = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" }, select: { id: true } });
   const event = await db.event.create({ data: {
     slug: `whole-course-smoke-${suffix}`, title: "Whole course smoke", ownerId: owner.id,
-    status: "PUBLISHED", autoApprove: true, waitlistPromotion: "AUTO", seatMode: "whole_course", maxSeats: SEATS, attendanceThreshold: 80,
+    status: "PUBLISHED", autoApprove: true, waitlistEnabled: true, waitlistPromotion: "AUTO", seatMode: "whole_course", maxSeats: SEATS, attendanceThreshold: 80,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"),
     fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
     days: { create: ["2031-12-01", "2031-12-02", "2031-12-03"].map((date) => ({ date: new Date(`${date}T00:00:00.000Z`) })) },

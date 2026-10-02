@@ -103,7 +103,7 @@ async function submitMany(label, slug, count, valuesFor) {
 async function perDayRegistrations(owner) {
   console.log(`\n■ สมัครพร้อมกัน — แยกรายวัน (3 วัน × 100 ที่, รออนุมัติ, ${registrations} คน)`);
   const event = await db.event.create({ data: {
-    slug: `load-perday-${suffix}`, title: "Load test · per day", ownerId: owner.id, status: "PUBLISHED", autoApprove: false,
+    slug: `load-perday-${suffix}`, title: "Load test · per day", ownerId: owner.id, status: "PUBLISHED", autoApprove: false, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-30T16:59:59.999Z"),
     fields: [{ key: "name", label: "ชื่อ", type: "text", required: true, showOnCheckin: true }, { key: "org", label: "หน่วยงาน", type: "select", required: true, options: ["ก", "ข", "ค"] }],
     days: { create: [1, 2, 3].map((day) => ({ date: new Date(`2031-12-0${day}T00:00:00Z`), maxSeats: 100 })) },
@@ -131,7 +131,7 @@ async function wholeCourseRegistrations(owner) {
   const seats = Math.ceil(count * 0.4);
   console.log(`\n■ สมัครพร้อมกัน — หลักสูตรต่อเนื่อง (${seats} ที่, อนุมัติอัตโนมัติ, ${count} คน)`);
   const event = await db.event.create({ data: {
-    slug: `load-course-${suffix}`, title: "Load test · whole course", ownerId: owner.id, status: "PUBLISHED", autoApprove: true,
+    slug: `load-course-${suffix}`, title: "Load test · whole course", ownerId: owner.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true,
     seatMode: "whole_course", maxSeats: seats, registrationDeadline: new Date("2031-12-30T16:59:59.999Z"),
     fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
     days: { create: [1, 2, 3, 4, 5].map((day) => ({ date: new Date(`2031-12-1${day}T00:00:00Z`) })) },

@@ -11,6 +11,7 @@ const db = new PrismaClient();
 const base = "http://localhost:3100";
 const smokeIp = `smoke-${randomUUID()}`;
 let eventId;
+let noQueueEventId;
 let staffId;
 let fullId;
 const uploadedKeys = [];
@@ -39,7 +40,7 @@ try {
   const admin = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" } });
   const event = await db.event.create({ data: {
     slug: `registration-smoke-${suffix}`, title: "Registration smoke", ownerId: admin.id, status: "PUBLISHED",
-    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), autoApprove: false, waitlistPromotion: "AUTO",
+    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), autoApprove: false, waitlistEnabled: true, waitlistPromotion: "AUTO",
     fields: [
       { key: "name", label: "ชื่อ", type: "text", required: true, showOnCheckin: true },
       { key: "secret", label: "ข้อมูลภายใน", type: "text", required: false, sensitive: true },
@@ -333,11 +334,48 @@ try {
   ensure(response.headers.get("location")?.includes("error=invalid") && await db.registrant.count({ where: { eventId, email: `docx-${suffix}@example.invalid` } }) === 0, "docx was accepted by a pdf-only field");
   response = await register({ email: `many-${suffix}@example.invalid`, [`answer:${docsField.key}`]: [pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"), pdf("d.pdf")] });
   ensure(response.headers.get("location")?.includes("error=invalid") && await db.registrant.count({ where: { eventId, email: `many-${suffix}@example.invalid` } }) === 0, "More files than maxFiles were accepted");
-  process.stdout.write("Registration, waitlist, wrong-day/concurrent check-in, undo, link rotation, role access, form edits after registration and multi-file uploads passed.\n");
+  // Waitlist switch off (the default for new events): a full day refuses the registration instead of queueing it.
+  const noQueue = await db.event.create({ data: {
+    slug: `no-queue-smoke-${suffix}`, title: "No waitlist smoke", ownerId: admin.id, status: "PUBLISHED",
+    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), autoApprove: true,
+    fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
+    days: { create: [{ date: new Date("2031-12-30T00:00:00.000Z"), maxSeats: 1 }, { date: new Date("2031-12-31T00:00:00.000Z"), maxSeats: 5 }] },
+  } });
+  noQueueEventId = noQueue.id;
+  ensure(noQueue.waitlistEnabled === false, "New events should start with the waitlist off");
+  const [fullDay, openDay] = await db.eventDay.findMany({ where: { eventId: noQueue.id }, orderBy: { date: "asc" } });
+  const noQueueUrl = `${base}/events/${noQueue.slug}`;
+  const noQueueIp = `smoke-${randomUUID()}`;
+  const noQueueForm = formsFrom(await (await fetch(noQueueUrl)).text()).find((form) => form.includes('name="consent"'));
+  await new Promise((resolve) => setTimeout(resolve, 3100));
+  const registerNoQueue = (email, dayId) => fetch(noQueueUrl, { method: "POST", headers: { origin: base, "x-forwarded-for": noQueueIp }, redirect: "manual",
+    body: formDataFrom(noQueueForm, { email: `${email}-${suffix}@example.invalid`, dayId, "answer:name": email, consent: "on" }) });
+  response = await registerNoQueue("seat", fullDay.id);
+  ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), "Last seat was not given out with the waitlist off");
+  response = await registerNoQueue("late", fullDay.id);
+  ensure(response.status === 303 && response.headers.get("location")?.includes("error=full"), `Full day without waitlist was not refused: ${response.headers.get("location")}`);
+  response = await registerNoQueue("both", [fullDay.id, openDay.id]);
+  ensure(response.headers.get("location")?.includes("error=full"), "A selection containing a full day was accepted with the waitlist off");
+  ensure(await db.registrant.count({ where: { eventId: noQueue.id } }) === 1 && await db.registrantEventDay.count({ where: { eventDay: { eventId: noQueue.id }, status: "WAITLISTED" } }) === 0, "Refused registration left a registrant or a queue entry behind");
+  const noQueuePage = await (await fetch(noQueueUrl)).text();
+  ensure(noQueuePage.includes("เต็มแล้ว · ไม่รับสมัครเพิ่ม") && !noQueuePage.includes("เลือกได้เพื่อเข้าคิวสำรอง"), "Public page still offers the waitlist on a full day");
+  ensure((await (await fetch(`${noQueueUrl}?error=full`)).text()).includes("ไม่เปิดรับรอคิว"), "Full error message missing");
+  response = await registerNoQueue("open", openDay.id);
+  ensure(response.headers.get("location")?.includes("/status/"), "Open day was refused with the waitlist off");
+  // Turning it on later queues the next person; people already queued are untouched by turning it off again.
+  await db.event.update({ where: { id: noQueue.id }, data: { waitlistEnabled: true } });
+  response = await registerNoQueue("queued", fullDay.id);
+  ensure(response.headers.get("location")?.includes("/status/") && (await db.registrant.findFirstOrThrow({ where: { eventId: noQueue.id, email: { startsWith: "queued-" } } })).status === "WAITLISTED", "Waitlist on did not queue the registration");
+
+  process.stdout.write("Registration, waitlist (on and off), wrong-day/concurrent check-in, undo, link rotation, role access, form edits after registration and multi-file uploads passed.\n");
 } finally {
   if (eventId) {
     await db.auditLog.deleteMany({ where: { eventId } });
     await db.event.delete({ where: { id: eventId } });
+  }
+  if (noQueueEventId) {
+    await db.auditLog.deleteMany({ where: { eventId: noQueueEventId } });
+    await db.event.delete({ where: { id: noQueueEventId } });
   }
   for (const key of uploadedKeys) { try { await unlink(join(process.cwd(), ".local-uploads", key)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
   if (staffId || fullId) await db.auditLog.deleteMany({ where: { actorId: { in: [staffId, fullId].filter(Boolean) } } });

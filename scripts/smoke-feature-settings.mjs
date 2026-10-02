@@ -68,7 +68,7 @@ try {
   ensure(location(response).includes("saved=emailNotifications") && !(await db.systemSetting.findUniqueOrThrow({ where: { key: "emailNotifications" } })).enabled, "Email feature could not be disabled");
 
   const event = await db.event.create({ data: {
-    slug: `feature-switch-${suffix}`, title: "Feature switch smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true,
+    slug: `feature-switch-${suffix}`, title: "Feature switch smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
     days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }, { date: new Date("2031-10-02T00:00:00.000Z") }] },
   } });

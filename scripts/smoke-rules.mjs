@@ -52,7 +52,7 @@ try {
   const suffix = randomUUID();
   const owner = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" }, select: { id: true } });
   const event = await db.event.create({ data: {
-    slug: `rules-smoke-${suffix}`, title: "Rules smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: false,
+    slug: `rules-smoke-${suffix}`, title: "Rules smoke", ownerId: owner.id, status: "PUBLISHED", autoApprove: false, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"),
     fields: [{ key: "name", label: "ชื่อ", type: "text", required: true, showOnCheckin: true }],
     days: { create: [{ date: new Date("2031-11-01T00:00:00.000Z"), maxSeats: 1 }, { date: new Date("2031-11-02T00:00:00.000Z"), maxSeats: 5 }] },

@@ -53,7 +53,7 @@ function person(eventId, name, status, days, extra = {}) {
 async function makeEvent(title, data, dayDefs) {
   const event = await db.event.create({ data: {
     slug: `wp-${randomUUID()}`, title, ownerId: (await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" } })).id, status: "PUBLISHED",
-    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields, ...data,
+    registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields, waitlistEnabled: true, ...data,
     days: { create: dayDefs.map((maxSeats, index) => ({ date: new Date(Date.UTC(2031, 9, index + 1)), maxSeats })) },
   } });
   eventIds.push(event.id);

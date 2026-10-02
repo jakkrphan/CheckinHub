@@ -47,6 +47,7 @@ export default async function PublicEventPage({
       location: true,
       eventType: true,
       autoApprove: true,
+      waitlistEnabled: true,
       seatMode: true,
       maxSeats: true,
       status: true,
@@ -102,6 +103,7 @@ export default async function PublicEventPage({
   const errorMessage: Record<string, string> = {
     paused: "ขณะนี้ปิดรับลงทะเบียนออนไลน์ชั่วคราว กรุณาลองใหม่ภายหลัง",
     "not-open": "โครงการนี้ยังไม่เปิดรับลงทะเบียน",
+    full: "ที่นั่งเต็มแล้ว โครงการนี้ไม่เปิดรับรอคิว — ถ้าเลือกหลายวัน ลองเลือกเฉพาะวันที่ยังว่าง",
     invalid: "กรุณาตรวจสอบข้อมูล วันที่เลือก และการยินยอมก่อนส่ง",
     "form-changed": "ผู้จัดเพิ่งแก้แบบฟอร์มระหว่างที่คุณกรอก — หน้านี้เป็นแบบฟอร์มล่าสุดแล้ว กรุณากรอกและส่งอีกครั้ง",
     duplicate: "อีเมลนี้ลงทะเบียนโครงการนี้แล้ว กรุณาใช้ลิงก์สถานะที่ได้รับตอนลงทะเบียน",
@@ -121,7 +123,7 @@ export default async function PublicEventPage({
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
         {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} waitlistEnabled={event.waitlistEnabled} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
     );
   }

@@ -9,7 +9,7 @@ const weekdayCard = ["อาทิตย์", "จันทร์", "อัง�
 const monthsShort = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 /** Step 1 of a whole-course signup: nothing to pick, just the course seats and the days the learner commits to. */
-export function CourseOverview({ days, remaining, maxSeats }: { days: CourseDay[]; remaining: number | null; maxSeats: number | null }) {
+export function CourseOverview({ days, remaining, maxSeats, waitlistEnabled }: { days: CourseDay[]; remaining: number | null; maxSeats: number | null; waitlistEnabled: boolean }) {
   const unlimited = remaining === null || maxSeats === null;
   const full = !unlimited && remaining === 0;
   const takenPercent = unlimited || maxSeats === 0 ? 0 : Math.min(100, Math.round(((maxSeats - remaining) / maxSeats) * 100));
@@ -28,7 +28,7 @@ export function CourseOverview({ days, remaining, maxSeats }: { days: CourseDay[
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="text-[13px] font-semibold">{full ? "ที่นั่งของหลักสูตรเต็มแล้ว" : unlimited ? "ที่นั่งของหลักสูตร" : "ที่นั่งคงเหลือของหลักสูตร"}</span>
         {!unlimited && <div className="flex h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className={cn("rounded-full", full ? "bg-destructive" : "bg-primary")} style={{ width: `${takenPercent}%` }} /></div>}
-        <span className={cn("text-xs", full ? "font-semibold text-destructive" : "text-muted-foreground")}>{full ? "ส่งใบสมัครได้ แต่จะเข้าคิวสำรองของหลักสูตร" : unlimited ? "รับผู้เข้าร่วมได้ไม่จำกัด ลงทะเบียนครั้งเดียวครบทุกวัน" : "นับรวมทั้งหลักสูตร ไม่ได้นับแยกรายวัน"}</span>
+        <span className={cn("text-xs", full ? "font-semibold text-destructive" : "text-muted-foreground")}>{full ? waitlistEnabled ? "ส่งใบสมัครได้ แต่จะเข้าคิวสำรองของหลักสูตร" : "ไม่รับสมัครเพิ่ม (โครงการนี้ไม่เปิดรับรอคิว)" : unlimited ? "รับผู้เข้าร่วมได้ไม่จำกัด ลงทะเบียนครั้งเดียวครบทุกวัน" : "นับรวมทั้งหลักสูตร ไม่ได้นับแยกรายวัน"}</span>
       </div>
     </div>
 

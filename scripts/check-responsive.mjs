@@ -49,7 +49,7 @@ async function seed() {
     { key: "doc", label: "หนังสืออนุมัติเข้าร่วม", type: "file", required: false, acceptedFileTypes: ["pdf", "jpg"], maxFileSizeMb: 5 },
   ];
   const event = await db.event.create({ data: {
-    slug: "responsive-check", ownerId: owner.id, status: "PUBLISHED", autoApprove: false,
+    slug: "responsive-check", ownerId: owner.id, status: "PUBLISHED", autoApprove: false, waitlistEnabled: true,
     // A long unbroken-ish title catches layouts that let text widen the page.
     title: "อบรมเชิงปฏิบัติการการใช้งานระบบสารสนเทศโรงพยาบาลสำหรับพยาบาลวิชาชีพที่เข้าปฏิบัติงานใหม่ ประจำปีงบประมาณ 2570 รุ่นที่ 3",
     description: "ทดสอบการแสดงผลทุกขนาดหน้าจอ", location: "ห้องประชุมใหญ่ ชั้น 9 อาคารเฉลิมพระเกียรติ 80 พรรษา",

@@ -48,7 +48,7 @@ try {
     { key: "person", label: "ผู้เข้าร่วม", type: "text", required: false },
   ];
   const event = await db.event.create({ data: {
-    slug: `fc-${randomUUID()}`, title: "Form changes smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true,
+    slug: `fc-${randomUUID()}`, title: "Form changes smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields,
     days: { create: [{ date: new Date("2031-10-01T00:00:00.000Z") }] },
   } });
@@ -105,7 +105,7 @@ try {
 
   // Same for the public registration form.
   const publicEvent = await db.event.create({ data: {
-    slug: `fc-public-${randomUUID()}`, title: "Form changes public smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true,
+    slug: `fc-public-${randomUUID()}`, title: "Form changes public smoke", ownerId: admin.id, status: "PUBLISHED", autoApprove: true, waitlistEnabled: true,
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
     days: { create: [{ date: new Date("2031-10-02T00:00:00.000Z") }] },
   } });

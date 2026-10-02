@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { publicEventUrl, registrationQrSvg } from "@/server/events/public-url";
+import { registrationQrSvg, shortEventUrl } from "@/server/events/public-url";
 
 export type PublishCheck = { label: string; detail?: string; ready: boolean; step?: number };
 type Member = { id: string; userId: string; role: "FULL" | "CHECKIN_ONLY"; user: { name: string; email: string } };
@@ -35,7 +35,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
   error?: string;
   saved?: string;
 }) {
-  const publicUrl = await publicEventUrl(event.slug);
+  const publicUrl = await shortEventUrl(event.slug);
   const qrSvg = await registrationQrSvg(publicUrl);
   const missing = checks.filter((check) => !check.ready);
   const [statusText, statusClass] = statusChip[event.status];
