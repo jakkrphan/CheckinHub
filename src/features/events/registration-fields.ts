@@ -9,7 +9,7 @@ const conditionalRuleSchema = z.object({
 export const registrationFieldSchema = z.object({
   key: z.string().min(1).max(191),
   label: z.string().trim().min(1).max(191),
-  type: z.enum(["text", "textarea", "email", "tel", "date", "select", "checkbox", "file"]),
+  type: z.enum(["text", "textarea", "email", "tel", "date", "select", "radio", "checkbox", "file"]),
   required: z.boolean(),
   showOnCheckin: z.boolean().default(false),
   sensitive: z.boolean().default(false),
@@ -21,9 +21,32 @@ export const registrationFieldSchema = z.object({
   conditional: conditionalRuleSchema.optional(),
 });
 
-export const registrationFieldsSchema = z.array(registrationFieldSchema).max(50);
+/**
+ * A page break in the stored form: the fields after it go on the next page of the public wizard. It is layout only —
+ * it never has an answer, so `readRegistrationFields` drops it and everything that stores, validates, lists or
+ * exports answers is unaware of pages.
+ */
+export const formPageBreakSchema = z.object({
+  key: z.string().min(1).max(191),
+  type: z.literal("page"),
+  /** Page title shown in the wizard; empty uses the default title. */
+  label: z.string().trim().max(191),
+});
+
+export const MAX_FORM_FIELDS = 50;
+export const MAX_FORM_PAGE_BREAKS = 10;
+const registrationFormSchema = z.array(z.union([formPageBreakSchema, registrationFieldSchema])).max(MAX_FORM_FIELDS + MAX_FORM_PAGE_BREAKS);
 
 export type RegistrationFieldConfig = z.infer<typeof registrationFieldSchema>;
+export type FormPageBreak = z.infer<typeof formPageBreakSchema>;
+export type RegistrationFormItem = RegistrationFieldConfig | FormPageBreak;
+export type FormPage = { title: string; fields: RegistrationFieldConfig[] };
+/** Page layout handed to client forms: titles and field keys only. */
+export type FormPageLayout = { title: string; keys: string[] };
+export const DEFAULT_FORM_PAGE_TITLE = "ข้อมูลผู้ลงทะเบียน";
+
+export const isPageBreak = (item: RegistrationFormItem): item is FormPageBreak => item.type === "page";
+export const fieldsOf = (items: RegistrationFormItem[]) => items.filter((item): item is RegistrationFieldConfig => !isPageBreak(item));
 export type RegistrationFileAnswer = { storageKey: string; originalName: string; contentType: string; size: number };
 export type RegistrationAnswerValue = string | string[] | RegistrationFileAnswer | RegistrationFileAnswer[];
 
@@ -40,10 +63,47 @@ export function readFileAnswers(value: unknown): RegistrationFileAnswer[] {
 
 export const maxFilesOf = (field: RegistrationFieldConfig) => field.type === "file" && field.maxFiles === 3 ? 3 : 1;
 
-export function readRegistrationFields(value: unknown): RegistrationFieldConfig[] {
-  const parsed = registrationFieldsSchema.safeParse(value);
+/** The stored form in order, page breaks included. Only the form builder and the page layout need this. */
+export function readRegistrationForm(value: unknown): RegistrationFormItem[] {
+  const parsed = registrationFormSchema.safeParse(value);
   if (!parsed.success) throw new Error("Invalid event registration field configuration");
   return parsed.data;
+}
+
+/** The answerable fields in order (page breaks removed). */
+export function readRegistrationFields(value: unknown): RegistrationFieldConfig[] {
+  return fieldsOf(readRegistrationForm(value));
+}
+
+/**
+ * Splits the form into wizard pages. A break starts a new page titled by its label; pages left without fields
+ * (a leading, trailing or doubled break) are dropped, so a leading break simply titles the first page.
+ */
+export function formPages(items: RegistrationFormItem[]): FormPage[] {
+  const pages: FormPage[] = [{ title: "", fields: [] }];
+  for (const item of items) {
+    if (isPageBreak(item)) pages.push({ title: item.label, fields: [] });
+    else pages.at(-1)!.fields.push(item);
+  }
+  return pages.filter((page) => page.fields.length > 0);
+}
+
+export const formPageLayout = (items: RegistrationFormItem[]): FormPageLayout[] =>
+  formPages(items).map((page) => ({ title: page.title, keys: page.fields.map((field) => field.key) }));
+
+/**
+ * For forms that stay on one screen (walk-in, self-edit): the heading to print above a field because it is the
+ * first visible field of its page. Empty for a form without page breaks.
+ */
+export function sectionHeadings(pages: FormPageLayout[], visibleKeys: string[]) {
+  const headings = new Map<string, string>();
+  if (pages.length < 2) return headings;
+  const visible = new Set(visibleKeys);
+  for (const page of pages) {
+    const first = page.keys.find((key) => visible.has(key));
+    if (first) headings.set(first, page.title || DEFAULT_FORM_PAGE_TITLE);
+  }
+  return headings;
 }
 
 export function validateRegistrationFields(fields: RegistrationFieldConfig[]) {
@@ -52,11 +112,11 @@ export function validateRegistrationFields(fields: RegistrationFieldConfig[]) {
   for (const field of fields) {
     if (seen.has(field.key)) return false;
     if (field.showOnCheckin && (field.sensitive || field.type === "file")) return false;
-    if ((field.type === "select" || field.type === "checkbox") && (!field.options?.length || new Set(field.options).size !== field.options.length)) return false;
+    if ((field.type === "select" || field.type === "radio" || field.type === "checkbox") && (!field.options?.length || new Set(field.options).size !== field.options.length)) return false;
     if (field.type === "file" && (!field.acceptedFileTypes?.length || field.acceptedFileTypes.some((type) => !(registrationFileTypes as readonly string[]).includes(type.toLowerCase().replace(/^\./, ""))) || !field.maxFileSizeMb || field.maxFileSizeMb > 5)) return false;
     if (field.conditional) {
       const parent = seen.get(field.conditional.field);
-      if (!parent || !["select", "checkbox"].includes(parent.type)) return false;
+      if (!parent || !["select", "radio", "checkbox"].includes(parent.type)) return false;
       const values = Array.isArray(field.conditional.value) ? field.conditional.value : [field.conditional.value];
       if (!values.length || values.some((value) => !parent.options?.includes(value))) return false;
     }
@@ -76,6 +136,25 @@ export function conditionMatches(field: RegistrationFieldConfig, answers: Record
 }
 
 export type AnswerProblem = { fieldKey: string | null; reason: "required" | "invalid" };
+
+/**
+ * Phone answers: digits, spaces and + - ( ) . only, 6–30 characters. The same rule runs in the browser (`pattern`),
+ * which compiles it with the `v` flag — there ( ) and - must be escaped inside a character class.
+ */
+export const TEL_ANSWER_PATTERN = "[+0-9\\(\\) .\\-]{6,30}";
+const telAnswer = new RegExp(`^${TEL_ANSWER_PATTERN}$`);
+
+/** What to tell the person filling the form in: which field, and what it expects. */
+export function answerProblemMessage(field: Pick<RegistrationFieldConfig, "label" | "type">, reason: AnswerProblem["reason"]) {
+  if (reason === "required") return `กรุณากรอก “${field.label}”`;
+  const expected = field.type === "tel" ? "ต้องเป็นเบอร์โทรศัพท์ 6–30 ตัว ใช้ได้เฉพาะตัวเลข เว้นวรรค และ + - ( )"
+    : field.type === "email" ? "ต้องเป็นอีเมล เช่น name@example.com"
+    : field.type === "date" ? "ต้องเป็นวันที่"
+    : field.type === "select" || field.type === "radio" || field.type === "checkbox" ? "ต้องเลือกจากตัวเลือกที่มี"
+    : field.type === "file" ? "ไฟล์ไม่ถูกต้อง"
+    : "ยาวเกิน 3,000 ตัวอักษรหรือรูปแบบไม่ถูกต้อง";
+  return `“${field.label}” ${expected}`;
+}
 
 /**
  * Validates submitted answers against the form. On failure returns which field failed and why, so the form can
@@ -110,9 +189,9 @@ export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], form
     const value = typeof values[0] === "string" ? values[0].trim() : "";
     if (field.required && !value) return fail(field, "required");
     if (value.length > 3000) return fail(field, "invalid");
-    if (field.type === "select" && value && !field.options?.includes(value)) return fail(field, "invalid");
+    if ((field.type === "select" || field.type === "radio") && value && !field.options?.includes(value)) return fail(field, "invalid");
     if (field.type === "email" && value && !z.email().safeParse(value).success) return fail(field, "invalid");
-    if (field.type === "tel" && value && !/^[+0-9() .-]{6,30}$/.test(value)) return fail(field, "invalid");
+    if (field.type === "tel" && value && !telAnswer.test(value)) return fail(field, "invalid");
     if (field.type === "date" && value && !z.iso.date().safeParse(value).success) return fail(field, "invalid");
     answers[field.key] = value;
   }

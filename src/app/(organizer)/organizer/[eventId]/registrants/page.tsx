@@ -94,7 +94,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   if (selectedField && answerValue) {
     const answerFilter = selectedField.type === "checkbox"
       ? { path: `$.${selectedField.key}`, array_contains: [answerValue] }
-      : ["select", "date"].includes(selectedField.type)
+      : ["select", "radio", "date"].includes(selectedField.type)
         ? { path: `$.${selectedField.key}`, equals: answerValue }
         : { path: `$.${selectedField.key}`, string_contains: answerValue, mode: "insensitive" as const };
     where.AND = [{ answers: answerFilter }];

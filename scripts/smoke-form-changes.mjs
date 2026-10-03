@@ -96,7 +96,7 @@ try {
   response = await post(`${statusUrl}/edit`, editForm, { "answer:org": "กรมใหม่", "answer:person": "สมศรี ใจดี" });
   let target = new URL(location(response), base);
   ensure(target.searchParams.get("error") === "invalid" && target.searchParams.get("field") === "position" && target.searchParams.get("reason") === "required", `Unexpected self-edit result: ${target}`);
-  ensure((await html(target.toString())).includes('กรุณากรอก &quot;ตำแหน่ง&quot;') || (await html(target.toString())).includes('กรุณากรอก "ตำแหน่ง"'), "Edit page does not name the missing field");
+  ensure((await html(target.toString())).includes("กรุณากรอก “ตำแหน่ง”"), "Edit page does not name the missing field");
   response = await post(`${statusUrl}/edit`, editForm, { "answer:org": "กรมใหม่", "answer:person": "สมศรี ใจดี", "answer:position": "นักวิชาการ" });
   ensure(location(response).includes("updated=1"), `Self-edit with the new answer failed (required file field must not block it): ${location(response)}`);
   // A page rendered before the change reports the form change instead of a generic error.

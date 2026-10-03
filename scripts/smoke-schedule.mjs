@@ -135,6 +135,9 @@ try {
 
   response = await submit(addFieldForm, { label: "ตัวเลือกผิด", type: "select", optionsText: "ค่าเดียว" });
   ensure(response.headers.get("location")?.includes("invalid-options"), "Invalid select options were not rejected");
+  ensure(addFieldForm.includes('value="radio"'), "Field builder does not offer the radio type");
+  response = await submit(addFieldForm, { label: "ปุ่มกลมผิด", type: "radio", optionsText: "ค่าเดียว" });
+  ensure(response.headers.get("location")?.includes("invalid-options"), "Radio field with one option was not rejected");
 
   // A browser only sends optionsText for select/checkbox; other types must still save.
   response = await submit(addFieldForm, { label: "เบอร์โทร", type: "tel" });
@@ -175,6 +178,26 @@ try {
   ensure(response.status === 303, "Field reorder failed");
   fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
   ensure(fields[0].label === "เบอร์โทร", "Field reorder was not saved");
+
+  // Page break: appended, titled, moved between the two fields, then removed. The fields themselves never change.
+  const addPageForm = formsFrom(await loadPage(3)).find((form) => form.includes("เพิ่มตัวแบ่งหน้า</button>"));
+  ensure(addPageForm, "Add page break button missing");
+  response = await submit(addPageForm);
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  const pageBreak = fields.at(-1);
+  ensure(fields.length === 3 && pageBreak.type === "page" && response.headers.get("location")?.includes(`field=${pageBreak.key}`), `Page break was not added: ${response.headers.get("location")}`);
+  const pagePanel = async () => formsFrom(await loadField(pageBreak.key)).find((form) => form.includes("บันทึกชื่อหน้า</button>"));
+  ensure(await pagePanel(), "Page break panel missing");
+  response = await submit(await pagePanel(), { label: "ข้อมูลหน่วยงาน" });
+  ensure(response.status === 303 && !response.headers.get("location")?.includes("error="), "Page title was not saved");
+  response = await clickButton(await pagePanel(), "เลื่อนตัวแบ่งหน้าขึ้น");
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  ensure(fields.map((field) => field.type).join(",") === "tel,page,select" && fields[1].label === "ข้อมูลหน่วยงาน", `Page break was not titled and moved: ${JSON.stringify(fields.map((field) => [field.type, field.label]))}`);
+  html = await loadPage(3);
+  ensure(html.includes("ขึ้นหน้า 2") && html.includes("ข้อมูลหน่วยงาน"), "Builder does not show where page 2 starts");
+  response = await clickButton(await pagePanel(), "ลบตัวแบ่งหน้า");
+  fields = (await db.event.findUniqueOrThrow({ where: { id: eventId } })).fields;
+  ensure(response.status === 303 && fields.length === 2 && fields.every((field) => field.type !== "page"), "Removing the page break changed the fields");
 
   for (const key of [phoneKey, unitKey]) {
     html = await loadField(key);
@@ -241,7 +264,7 @@ try {
   ensure(await db.eventDay.count({ where: { id: day.id } }) === 0, "Day was not removed");
 
   const auditCount = await db.auditLog.count({ where: { eventId, actorId: admin.id } });
-  ensure(auditCount === 17, `Expected 17 admin audit entries, got ${auditCount}`);
+  ensure(auditCount === 21, `Expected 21 admin audit entries, got ${auditCount}`);
 
   const publicPage = await (await fetch(`${base}/events/${event.slug}`)).text();
   ensure(publicPage.includes("ยังไม่เปิดรับลงทะเบียน") && publicPage.includes(event.title) && !publicPage.includes("Temporary event") && !publicPage.includes("Test room"), "Draft public gate exposed more than the event title");

@@ -6,7 +6,7 @@ import { CheckCircle2Icon, DownloadIcon, ExternalLinkIcon, ListIcon } from "luci
 
 import { WalkInForm } from "@/app/(organizer)/organizer/[eventId]/registrants/new/walk-in-form";
 import { Button } from "@/components/ui/button";
-import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
+import { formPageLayout, readRegistrationFields, readRegistrationForm, validateRegistrationFields } from "@/features/events/registration-fields";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { getSeatAvailability } from "@/server/registrations/day-status";
@@ -51,7 +51,7 @@ export default async function NewRegistrantPage({ params, searchParams }: PagePr
     <main className="flex w-full flex-1 justify-center bg-muted/40 px-4 py-8 sm:px-6">
       <div className="w-full max-w-2xl">
         {added && <AddedCard eventId={eventId} person={added} statusHref={statusHref} backHref={backHref} />}
-        {ready ? <WalkInForm key={added?.id ?? "new"} eventId={eventId} fields={fields} days={days} seatMode={event.seatMode === "whole_course" ? "whole_course" : "per_day"}
+        {ready ? <WalkInForm key={added?.id ?? "new"} eventId={eventId} fields={fields} pages={formPageLayout(readRegistrationForm(event.fields))} days={days} seatMode={event.seatMode === "whole_course" ? "whole_course" : "per_day"}
           courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} backHref={backHref}
           error={typeof error === "string" ? errorMessages[error] : undefined} />
           : <div className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6">

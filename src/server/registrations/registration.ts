@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { Prisma, type RegistrantStatus } from "@prisma/client";
 import { z } from "zod";
 
-import { parseRegistrationAnswers, readRegistrationFields } from "@/features/events/registration-fields";
+import { checkRegistrationAnswers, parseRegistrationAnswers, readRegistrationFields, type AnswerProblem } from "@/features/events/registration-fields";
 import { CURRENT_CONSENT_VERSION } from "@/features/registrations/consent";
 import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
@@ -18,7 +18,7 @@ export const hashBearerCode = (code: string) => createHash("sha256").update(code
 export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired" | "full";
 export type RegistrationResult =
   | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null }
-  | { ok: false; reason: RegistrationFailure };
+  | { ok: false; reason: RegistrationFailure; /** The answer that failed validation, when it is one field's fault. */ problem?: AnswerProblem };
 
 async function verifyTurnstile(response: FormDataEntryValue | null, ip: string) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
@@ -67,9 +67,17 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
   const selectedIds = [...new Set(dayIds as string[])].sort();
   if (selectedIds.length !== dayIds.length) return { ok: false, reason: "invalid" };
 
-  const eventForUpload = await db.event.findUnique({ where: { slug }, select: { status: true, deletedAt: true, registrationDeadline: true, fields: true } });
+  const eventForUpload = await db.event.findUnique({ where: { slug }, select: { status: true, deletedAt: true, registrationDeadline: true, fields: true, fieldsVersion: true } });
   if (!eventForUpload || eventForUpload.deletedAt || eventForUpload.status !== "PUBLISHED" || !eventForUpload.registrationDeadline || eventForUpload.registrationDeadline <= new Date()) return { ok: false, reason: "not-open" };
-  const stored = await storeLocalRegistrationFiles(readRegistrationFields(eventForUpload.fields), formData);
+  const uploadFields = readRegistrationFields(eventForUpload.fields);
+  // Checked before any file is stored, so a mistyped answer can be reported by field instead of a bare "invalid".
+  const typed = checkRegistrationAnswers(uploadFields.filter((field) => field.type !== "file"), formData);
+  if ("problem" in typed) {
+    // A page rendered from an older form version fails through no fault of the registrant: say the form changed.
+    if (formData.get("fieldsVersion") !== String(eventForUpload.fieldsVersion)) return { ok: false, reason: "form-changed" };
+    return { ok: false, reason: "invalid", ...(typed.problem.fieldKey ? { problem: typed.problem } : {}) };
+  }
+  const stored = await storeLocalRegistrationFiles(uploadFields, formData);
   if (!stored.ok) return { ok: false, reason: "invalid" };
 
   let fileAttachmentsCommitted = false;

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
+import { answerProblemMessage, formPageLayout, readFileAnswers, readRegistrationFields, readRegistrationForm } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { canSelfEdit } from "@/server/registrations/self-edit";
 import { isFeatureEnabled } from "@/server/settings/features";
@@ -38,7 +38,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
   // Required questions this person never answered were added by the organizer after they registered.
   const newFields = fields.filter((field) => field.required && field.type !== "file" && !(field.key in stored)).map((field) => field.key);
   const problemField = typeof problemKey === "string" ? fields.find((field) => field.key === problemKey) : undefined;
-  const problem = problemField ? { key: problemField.key, message: reason === "required" ? `กรุณากรอก "${problemField.label}"` : `รูปแบบคำตอบของ "${problemField.label}" ไม่ถูกต้อง` } : undefined;
+  const problem = problemField ? { key: problemField.key, message: answerProblemMessage(problemField, reason === "required" ? "required" : "invalid") } : undefined;
 
   return <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">
     <header className="flex flex-col gap-2 bg-sidebar px-5 py-5 text-sidebar-foreground">
@@ -51,7 +51,7 @@ export default async function EditAnswersPage({ params, searchParams }: PageProp
         <p className="text-sm text-muted-foreground">แก้ไขได้จนถึง {deadlineFormatter.format(registrant.event.registrationDeadline!)}</p>
         {(error === "invalid" || error === "form-changed") && <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error === "form-changed" ? "ผู้จัดเพิ่งแก้แบบฟอร์มระหว่างที่คุณเปิดหน้านี้ — แบบฟอร์มด้านล่างเป็นฉบับล่าสุดแล้ว กรุณาตรวจแล้วบันทึกอีกครั้ง" : "บันทึกไม่ได้ กรุณาตรวจคำตอบอีกครั้ง"}{problem ? ` · ${problem.message}` : ""}</p>}
         {newFields.length > 0 && <p className="rounded-lg border bg-muted/60 p-3 text-sm">{`ผู้จัดเพิ่มคำถามบังคับหลังจากคุณลงทะเบียน ${newFields.length} ข้อ (ทำเครื่องหมาย "ใหม่") — ต้องตอบก่อนบันทึกการแก้ไข`}</p>}
-        <EditAnswersForm action={updateOwnAnswersAction.bind(null, slug, token)} fields={fields} initial={initial} files={files} fieldsVersion={registrant.event.fieldsVersion} newFields={newFields} problem={problem} />
+        <EditAnswersForm action={updateOwnAnswersAction.bind(null, slug, token)} fields={fields} pages={formPageLayout(readRegistrationForm(registrant.event.fields))} initial={initial} files={files} fieldsVersion={registrant.event.fieldsVersion} newFields={newFields} problem={problem} />
       </>}
     </div>
   </main>;

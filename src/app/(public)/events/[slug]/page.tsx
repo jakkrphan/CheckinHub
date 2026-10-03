@@ -7,7 +7,7 @@ import { ImageIcon, LockKeyholeIcon, MapPinIcon } from "lucide-react";
 import { PublicRegistrationWizard } from "@/app/(public)/events/[slug]/public-registration-wizard";
 import { Badge } from "@/components/ui/badge";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
+import { answerProblemMessage, formPageLayout, readRegistrationFields, readRegistrationForm, validateRegistrationFields } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { getSeatAvailability } from "@/server/registrations/day-status";
 import { issueFormTicket } from "@/server/registrations/form-ticket";
@@ -36,7 +36,7 @@ export default async function PublicEventPage({
   searchParams,
 }: PageProps<"/events/[slug]">) {
   const { slug } = await params;
-  const { error } = await searchParams;
+  const { error, field: problemKey, problem: problemReason } = await searchParams;
   const event = await db.event.findUnique({
     where: { slug, deletedAt: null },
     select: {
@@ -117,13 +117,16 @@ export default async function PublicEventPage({
   const typeLabel = event.eventType === "INTERNAL" ? "ภายใน" : event.eventType === "EXTERNAL" ? "ภายนอก" : "ผสม";
   const cover = event.coverImageUrl ? <div className="relative aspect-[16/6] min-h-44 bg-muted"><Image src={event.coverImageUrl} alt={`รูปปก ${event.title}`} fill priority unoptimized className="object-cover" sizes="(max-width: 480px) 100vw, 480px" /></div> : <div role="img" aria-label="พื้นที่รูปปกโครงการ" className="flex aspect-[16/6] min-h-44 flex-col items-center justify-center gap-2 bg-muted text-muted-foreground"><ImageIcon className="size-8" aria-hidden="true" /><span className="text-sm">รูปปกโครงการ</span></div>;
   const details = (event.description || event.location) ? <div className="flex flex-col gap-2">{event.description && <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{event.description}</p>}{event.location && <p className="flex items-center gap-2 text-xs text-muted-foreground"><MapPinIcon className="size-4 shrink-0" aria-hidden="true" />{event.location}</p>}</div> : null;
-  const notice = typeof error === "string" && errorMessage[error] ? errorMessage[error] : null;
+  // A rejected answer names its field; the wizard restarts at step 1, so the message has to say where to look.
+  const problemField = error === "invalid" && typeof problemKey === "string" ? fields.find((field) => field.key === problemKey) : undefined;
+  const notice = problemField ? `ส่งใบสมัครไม่ได้: ${answerProblemMessage(problemField, problemReason === "required" ? "required" : "invalid")} — กรุณากรอกใหม่อีกครั้ง`
+    : typeof error === "string" && errorMessage[error] ? errorMessage[error] : null;
 
   if (available) {
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
         {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} waitlistEnabled={event.waitlistEnabled} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} pages={formPageLayout(readRegistrationForm(event.fields))} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} waitlistEnabled={event.waitlistEnabled} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
     );
   }

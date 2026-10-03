@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { CheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 
@@ -9,18 +9,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { conditionMatches, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { conditionMatches, sectionHeadings, TEL_ANSWER_PATTERN, type FormPageLayout, type RegistrationFieldConfig } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 
 export type WalkInDay = { id: string; number: number; label: string; remaining: number | null; isClosed: boolean };
 
 const switchClass = "relative h-7 w-12 shrink-0 cursor-pointer appearance-none rounded-full bg-input transition-colors before:absolute before:left-1 before:top-1 before:size-5 before:rounded-full before:bg-card before:shadow before:transition-transform checked:bg-primary checked:before:translate-x-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
-const wide = (field: RegistrationFieldConfig) => field.type === "textarea" || field.type === "checkbox" || field.type === "file";
+const wide = (field: RegistrationFieldConfig) => field.type === "textarea" || field.type === "checkbox" || field.type === "radio" || field.type === "file";
 
 /** Walk-in / phone registration by an organizer (mockup B organizer-registrant-add), using the public form's fields. */
-export function WalkInForm({ eventId, fields, days, seatMode, courseRemaining, backHref, error }: {
+export function WalkInForm({ eventId, fields, pages, days, seatMode, courseRemaining, backHref, error }: {
   eventId: string;
   fields: RegistrationFieldConfig[];
+  /** Pages of the public form; shown here as section headings on one screen. */
+  pages: FormPageLayout[];
   days: WalkInDay[];
   seatMode: "per_day" | "whole_course";
   courseRemaining: number | null;
@@ -28,6 +30,7 @@ export function WalkInForm({ eventId, fields, days, seatMode, courseRemaining, b
   error?: string;
 }) {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const headings = sectionHeadings(pages, fields.filter((field) => conditionMatches(field, answers)).map((field) => field.key));
   const [picked, setPicked] = useState<string[]>(() => days.filter((day) => !day.isClosed).length === 1 ? days.filter((day) => !day.isClosed).map((day) => day.id) : []);
   const [approve, setApprove] = useState(true);
   const set = (key: string, value: string | string[]) => setAnswers((previous) => ({ ...previous, [key]: value }));
@@ -60,21 +63,23 @@ export function WalkInForm({ eventId, fields, days, seatMode, courseRemaining, b
       <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
         {fields.map((field) => {
           if (!conditionMatches(field, answers)) return null;
+          const heading = headings.get(field.key);
           const id = `answer-${field.key}`;
           const name = `answer:${field.key}`;
           const values = field.conditional ? [field.conditional.value].flat() : [];
-          return <div key={field.key} className={cn("flex flex-col gap-2", wide(field) && "sm:col-span-2")}>
-            <label htmlFor={field.type === "checkbox" ? undefined : id} className="text-sm font-semibold">{field.label}{field.required && <span className="text-destructive"> *</span>}</label>
+          return <Fragment key={field.key}>{heading && <h3 className="border-b pb-1.5 font-heading text-base font-bold sm:col-span-2">{heading}</h3>}<div className={cn("flex flex-col gap-2", wide(field) && "sm:col-span-2")}>
+            <label htmlFor={field.type === "checkbox" || field.type === "radio" ? undefined : id} className="text-sm font-semibold">{field.label}{field.required && <span className="text-destructive"> *</span>}</label>
             {field.type === "textarea" ? <Textarea id={id} name={name} required={field.required} maxLength={3000} rows={3} onChange={(event) => set(field.key, event.target.value)} />
               : field.type === "select" ? <NativeSelect id={id} name={name} required={field.required} defaultValue="" className="h-11" onChange={(event) => set(field.key, event.target.value)}><option value="">เลือกคำตอบ</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</NativeSelect>
+              : field.type === "radio" ? <div role="radiogroup" aria-label={field.label} aria-required={field.required} className="flex flex-wrap gap-x-5 gap-y-2">{field.options?.map((option) => <label key={option} className="flex min-h-9 items-center gap-2 text-sm"><input type="radio" name={name} value={option} required={field.required} className="size-4 accent-primary" onChange={() => set(field.key, option)} />{option}</label>)}</div>
               : field.type === "checkbox" ? <div role="group" aria-label={field.label} className="flex flex-wrap gap-x-5 gap-y-2">{field.options?.map((option) => <label key={option} className="flex items-center gap-2 text-sm"><input type="checkbox" name={name} value={option} className="size-4 accent-primary" onChange={(event) => {
                   const selected = Array.isArray(answers[field.key]) ? answers[field.key] as string[] : [];
                   set(field.key, event.target.checked ? [...selected, option] : selected.filter((item) => item !== option));
                 }} />{option}</label>)}</div>
               : field.type === "file" ? <><Input id={id} name={name} type="file" multiple={(field.maxFiles ?? 1) > 1} required={field.required} accept={field.acceptedFileTypes?.map((type) => `.${type.replace(/^\./, "")}`).join(",")} /><span className="text-xs text-muted-foreground">ไฟล์ {field.acceptedFileTypes?.join(", ")} · ไม่เกิน {field.maxFileSizeMb} MB{(field.maxFiles ?? 1) > 1 ? ` ต่อไฟล์ · สูงสุด ${field.maxFiles} ไฟล์` : ""}</span></>
-              : <Input id={id} name={name} type={field.type} required={field.required} maxLength={field.type === "tel" ? 30 : 3000} className="h-11" onChange={(event) => set(field.key, event.target.value)} />}
+              : <Input id={id} name={name} type={field.type} required={field.required} pattern={field.type === "tel" ? TEL_ANSWER_PATTERN : undefined} title={field.type === "tel" ? "เบอร์โทรศัพท์ 6–30 ตัว: ตัวเลข เว้นวรรค และ + - ( )" : undefined} maxLength={field.type === "tel" ? 30 : 3000} className="h-11" onChange={(event) => set(field.key, event.target.value)} />}
             {field.conditional && <span className="text-xs text-muted-foreground">ฟิลด์เงื่อนไข — แสดงเพราะ {labelOf(field.conditional.field)} = {values.join(" / ")}</span>}
-          </div>;
+          </div></Fragment>;
         })}
         <div className="flex flex-col gap-2 sm:col-span-2">
           <label htmlFor="walkin-email" className="text-sm font-semibold">อีเมลสำหรับส่ง QR</label>

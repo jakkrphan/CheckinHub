@@ -338,7 +338,7 @@ try {
   const noQueue = await db.event.create({ data: {
     slug: `no-queue-smoke-${suffix}`, title: "No waitlist smoke", ownerId: admin.id, status: "PUBLISHED",
     registrationDeadline: new Date("2031-12-31T16:59:59.999Z"), autoApprove: true,
-    fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }],
+    fields: [{ key: "name", label: "ชื่อ", type: "text", required: true }, { key: "page_gift", type: "page", label: "ของที่ระลึก" }, { key: "shirt", label: "ไซซ์เสื้อ", type: "radio", required: true, options: ["S", "M", "L"] }],
     days: { create: [{ date: new Date("2031-12-30T00:00:00.000Z"), maxSeats: 1 }, { date: new Date("2031-12-31T00:00:00.000Z"), maxSeats: 5 }] },
   } });
   noQueueEventId = noQueue.id;
@@ -348,8 +348,17 @@ try {
   const noQueueIp = `smoke-${randomUUID()}`;
   const noQueueForm = formsFrom(await (await fetch(noQueueUrl)).text()).find((form) => form.includes('name="consent"'));
   await new Promise((resolve) => setTimeout(resolve, 3100));
-  const registerNoQueue = (email, dayId) => fetch(noQueueUrl, { method: "POST", headers: { origin: base, "x-forwarded-for": noQueueIp }, redirect: "manual",
-    body: formDataFrom(noQueueForm, { email: `${email}-${suffix}@example.invalid`, dayId, "answer:name": email, consent: "on" }) });
+  const registerNoQueue = (email, dayId, shirt = "M") => fetch(noQueueUrl, { method: "POST", headers: { origin: base, "x-forwarded-for": noQueueIp }, redirect: "manual",
+    body: formDataFrom(noQueueForm, { email: `${email}-${suffix}@example.invalid`, dayId, "answer:name": email, ...(shirt ? { "answer:shirt": shirt } : {}), consent: "on" }) });
+  // Page break: the public form renders two pages, and the break is never treated as a question.
+  ensure(noQueueForm.includes('data-form-page="1"') && noQueueForm.includes('aria-label="ของที่ระลึก"') && !noQueueForm.includes("answer:page_gift"), "Form pages are not rendered from the page break");
+  // Radio field: rendered as radio inputs, required, and only its own options are accepted.
+  ensure(noQueueForm.includes('type="radio"') && noQueueForm.includes('role="radiogroup"'), "Radio field is not rendered as radio buttons");
+  response = await registerNoQueue("no-shirt", openDay.id, "");
+  ensure(response.headers.get("location")?.includes("error=invalid&field=shirt&problem=required"), `Required radio field was accepted empty, or the error does not name the field: ${response.headers.get("location")}`);
+  response = await registerNoQueue("bad-shirt", openDay.id, "XL");
+  ensure(response.headers.get("location")?.includes("error=invalid&field=shirt&problem=invalid"), `Radio answer outside its options was accepted, or the error does not name the field: ${response.headers.get("location")}`);
+  ensure((await (await fetch(new URL(response.headers.get("location"), base))).text()).replaceAll("<!-- -->", "").includes("ส่งใบสมัครไม่ได้: “ไซซ์เสื้อ”"), "Public page does not say which answer was rejected");
   response = await registerNoQueue("seat", fullDay.id);
   ensure(response.status === 303 && response.headers.get("location")?.includes("/status/"), "Last seat was not given out with the waitlist off");
   response = await registerNoQueue("late", fullDay.id);
@@ -362,6 +371,8 @@ try {
   ensure((await (await fetch(`${noQueueUrl}?error=full`)).text()).includes("ไม่เปิดรับรอคิว"), "Full error message missing");
   response = await registerNoQueue("open", openDay.id);
   ensure(response.headers.get("location")?.includes("/status/"), "Open day was refused with the waitlist off");
+  const openAnswers = (await db.registrant.findFirstOrThrow({ where: { eventId: noQueue.id, email: { startsWith: "open-" } } })).answers;
+  ensure(openAnswers?.shirt === "M" && !("page_gift" in openAnswers), "Radio answer was not stored, or the page break was stored as an answer");
   // Turning it on later queues the next person; people already queued are untouched by turning it off again.
   await db.event.update({ where: { id: noQueue.id }, data: { waitlistEnabled: true } });
   response = await registerNoQueue("queued", fullDay.id);

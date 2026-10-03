@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { readRegistrationFields, registrationFieldSchema, registrationFileTypes, validateRegistrationFields, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { fieldsOf, formPageBreakSchema, isPageBreak, MAX_FORM_FIELDS, MAX_FORM_PAGE_BREAKS, readRegistrationForm, registrationFieldSchema, registrationFileTypes, validateRegistrationFields, type RegistrationFieldConfig, type RegistrationFormItem } from "@/features/events/registration-fields";
 import { displayNameRulesKey, registrantDisplayName } from "@/features/registrations/display-name";
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
@@ -22,6 +22,9 @@ import { countAnswersByField } from "@/server/events/field-answers";
  *   needs an explicit `confirmAnswers=on`.
  * - A parent field cannot be deleted while conditional children point at it, and its options cannot drop a value
  *   a child's condition uses; change the children first.
+ * - Page breaks are items in the same ordered list (type "page"): they only split the public wizard into pages and
+ *   never hold answers, so they are added, renamed, moved and removed freely. `form.items` is the stored list,
+ *   `form.fields` the answerable fields in it.
  * - Every change bumps `fieldsVersion`. Once the event is published or has registrants, each change is audited
  *   as EVENT_FIELDS_CHANGED with the field key and kind of change only (never answer values).
  */
@@ -68,11 +71,16 @@ async function loadForm(tx: Tx, eventId: string) {
   // Lock the event row so two editors cannot interleave schema changes and version bumps.
   await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
   const current = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { status: true, fields: true, fieldsVersion: true, _count: { select: { registrants: true } } } });
-  return { ...current, fields: readRegistrationFields(current.fields), audited: current.status !== "DRAFT" || current._count.registrants > 0 };
+  const items = readRegistrationForm(current.fields);
+  return { ...current, items, fields: fieldsOf(items), audited: current.status !== "DRAFT" || current._count.registrants > 0 };
 }
 
-async function saveForm(tx: Tx, access: Access, eventId: string, form: Awaited<ReturnType<typeof loadForm>>, fields: RegistrationFieldConfig[], fieldKey: string, change: FieldChange, adminAction: string, details: Record<string, string | number | boolean> = {}) {
-  await tx.event.update({ where: { id: eventId }, data: { fields, fieldsVersion: { increment: 1 } } });
+/** Field rules apply to the answerable fields in list order; page breaks in between do not matter. */
+const formValid = (items: RegistrationFormItem[]) => validateRegistrationFields(fieldsOf(items)) && conditionDepthValid(fieldsOf(items));
+
+async function saveForm(tx: Tx, access: Access, eventId: string, form: Awaited<ReturnType<typeof loadForm>>, items: RegistrationFormItem[], fieldKey: string, change: FieldChange, adminAction: string, details: Record<string, string | number | boolean> = {}) {
+  const fields = fieldsOf(items);
+  await tx.event.update({ where: { id: eventId }, data: { fields: items, fieldsVersion: { increment: 1 } } });
   if (form._count.registrants && displayNameRulesKey(form.fields) !== displayNameRulesKey(fields)) await refreshDisplayNames(tx, eventId, fields);
   if (requiresAdminAudit(access.membership)) await tx.auditLog.create({ data: { eventId, actorId: access.user.id, action: adminAction, target: fieldKey } });
   if (form.audited) {
@@ -101,7 +109,7 @@ const confirmed = (formData?: FormData) => formData?.get("confirmAnswers") === "
 
 const newFieldInput = z.object({
   label: z.string().trim().min(1).max(191),
-  type: z.enum(["text", "textarea", "email", "tel", "date", "select", "checkbox", "file"]),
+  type: z.enum(["text", "textarea", "email", "tel", "date", "select", "radio", "checkbox", "file"]),
   required: z.boolean(),
   showOnCheckin: z.boolean(),
   sensitive: z.boolean(),
@@ -128,10 +136,10 @@ export async function addRegistrationField(eventId: string, formData: FormData) 
   });
   if (!parsed.success) redirect(`${back}&error=invalid-field&step=3`);
 
-  const options = ["select", "checkbox"].includes(parsed.data.type)
+  const options = ["select", "radio", "checkbox"].includes(parsed.data.type)
     ? parsed.data.optionsText.split(/\r?\n|,/).map((option) => option.trim()).filter(Boolean)
     : undefined;
-  if (["select", "checkbox"].includes(parsed.data.type) && (
+  if (["select", "radio", "checkbox"].includes(parsed.data.type) && (
     !options || options.length < 2 || options.length > 30 ||
     new Set(options).size !== options.length || options.some((option) => option.length > 191)
   )) redirect(`${back}&error=invalid-options&step=3`);
@@ -158,8 +166,8 @@ export async function addRegistrationField(eventId: string, formData: FormData) 
 
   const updated = await db.$transaction(async (tx) => {
     const form = await loadForm(tx, eventId);
-    const next = [...form.fields, field];
-    if (form.fields.length >= 50 || !validateRegistrationFields(next) || !conditionDepthValid(next)) return false;
+    const next = [...form.items, field];
+    if (form.fields.length >= MAX_FORM_FIELDS || !formValid(next)) return false;
     await saveForm(tx, access, eventId, form, next, field.key, "added", "EVENT_FIELD_ADDED_BY_ADMIN", { type: field.type });
     return true;
   }, FORM_TX);
@@ -176,11 +184,17 @@ export async function removeRegistrationField(eventId: string, fieldKey: string,
 
   const removed = await db.$transaction(async (tx) => {
     const form = await loadForm(tx, eventId);
-    if (!form.fields.some((field) => field.key === fieldKey)) return "invalid" as const;
+    const target = form.items.find((item) => item.key === fieldKey);
+    if (!target) return "invalid" as const;
+    const next = form.items.filter((item) => item.key !== fieldKey);
+    if (isPageBreak(target)) {
+      await saveForm(tx, access, eventId, form, next, fieldKey, "removed", "EVENT_FIELD_REMOVED_BY_ADMIN", { type: "page" });
+      return "ok" as const;
+    }
     if (form.fields.some((field) => field.conditional?.field === fieldKey)) return "children" as const;
     const answered = (await countAnswersByField(eventId, [fieldKey], tx)).get(fieldKey) ?? 0;
     if (answered > 0 && !confirmed(formData)) return "confirm" as const;
-    await saveForm(tx, access, eventId, form, form.fields.filter((field) => field.key !== fieldKey), fieldKey, "removed", "EVENT_FIELD_REMOVED_BY_ADMIN", { answered, answersKept: answered > 0 });
+    await saveForm(tx, access, eventId, form, next, fieldKey, "removed", "EVENT_FIELD_REMOVED_BY_ADMIN", { answered, answersKept: answered > 0 });
     return "ok" as const;
   }, FORM_TX);
 
@@ -210,14 +224,13 @@ export async function updateRegistrationField(eventId: string, fieldKey: string,
   if (!parsed.success) redirect(`${back}&error=invalid-field&step=3`);
   const updated = await db.$transaction(async (tx) => {
     const form = await loadForm(tx, eventId);
-    const fields = form.fields;
-    const index = fields.findIndex((field) => field.key === fieldKey);
-    if (index < 0) return "invalid" as const;
-    const target = fields[index];
+    const index = form.items.findIndex((item) => item.key === fieldKey);
+    const target = form.items[index];
+    if (!target || isPageBreak(target)) return "invalid" as const;
     // Keys and types are fixed for the life of a field so stored answers always keep their meaning.
     const requestedType = formData.get("type");
     if (typeof requestedType === "string" && requestedType && requestedType !== target.type) return "type" as const;
-    const options = target.type === "select" || target.type === "checkbox"
+    const options = target.type === "select" || target.type === "radio" || target.type === "checkbox"
       ? parsed.data.optionsText.split(/\r?\n|,/).map((value) => value.trim()).filter(Boolean)
       : undefined;
     if (options && (options.length < 2 || options.length > 30 || new Set(options).size !== options.length || options.some((value) => value.length > 191))) return "options" as const;
@@ -228,17 +241,18 @@ export async function updateRegistrationField(eventId: string, fieldKey: string,
     const removedOptions = (target.options ?? []).filter((option) => !options?.includes(option));
     const answered = removedOptions.length ? (await countAnswersByField(eventId, [fieldKey], tx)).get(fieldKey) ?? 0 : 0;
     if (answered > 0 && !confirmed(formData)) return "confirm" as const;
-    const next = [...fields];
-    next[index] = {
+    const updatedField: RegistrationFieldConfig = {
       ...target, label: parsed.data.label, required: parsed.data.required, showOnCheckin: parsed.data.showOnCheckin, sensitive: parsed.data.sensitive, options, conditional,
       ...(target.type === "file" ? { acceptedFileTypes, maxFileSizeMb: parsed.data.maxFileSizeMb, maxFiles } : {}),
     };
+    const next = [...form.items];
+    next[index] = updatedField;
     // Changing options or the condition must keep every child's condition pointing at existing parent options.
-    if (!validateRegistrationFields(next) || !conditionDepthValid(next)) return "invalid" as const;
-    if (JSON.stringify(next[index]) === JSON.stringify(target)) return "ok" as const;
+    if (!formValid(next)) return "invalid" as const;
+    if (JSON.stringify(updatedField) === JSON.stringify(target)) return "ok" as const;
     await saveForm(tx, access, eventId, form, next, fieldKey, "updated", "EVENT_FIELD_UPDATED_BY_ADMIN", {
       changed: (["label", "required", "showOnCheckin", "sensitive", "options", "conditional", "acceptedFileTypes", "maxFileSizeMb", "maxFiles"] as const)
-        .filter((key) => JSON.stringify(next[index][key]) !== JSON.stringify(target[key])).join(","),
+        .filter((key) => JSON.stringify(updatedField[key]) !== JSON.stringify(target[key])).join(","),
       ...(removedOptions.length ? { optionsRemoved: removedOptions.length, answered } : {}),
     });
     return "ok" as const;
@@ -251,13 +265,13 @@ export async function updateRegistrationField(eventId: string, fieldKey: string,
   redirect(`/organizer/${eventId}?saved=field&field=${encodeURIComponent(fieldKey)}`);
 }
 
-async function moveField(eventId: string, fieldKey: string, reorder: (fields: RegistrationFieldConfig[], index: number) => RegistrationFieldConfig[] | null) {
+async function moveField(eventId: string, fieldKey: string, reorder: (items: RegistrationFormItem[], index: number) => RegistrationFormItem[] | null) {
   const access = await requireEventAccess(eventId, "manage");
   const moved = await db.$transaction(async (tx) => {
     const form = await loadForm(tx, eventId);
-    const index = form.fields.findIndex((field) => field.key === fieldKey);
-    const next = index < 0 ? null : reorder([...form.fields], index);
-    if (!next || !validateRegistrationFields(next)) return false;
+    const index = form.items.findIndex((item) => item.key === fieldKey);
+    const next = index < 0 ? null : reorder([...form.items], index);
+    if (!next || !validateRegistrationFields(fieldsOf(next))) return false;
     await saveForm(tx, access, eventId, form, next, fieldKey, "moved", "EVENT_FIELD_MOVED_BY_ADMIN");
     return true;
   }, FORM_TX);
@@ -267,21 +281,61 @@ async function moveField(eventId: string, fieldKey: string, reorder: (fields: Re
 }
 
 export async function moveRegistrationField(eventId: string, fieldKey: string, direction: "up" | "down") {
-  await moveField(eventId, fieldKey, (fields, index) => {
+  await moveField(eventId, fieldKey, (items, index) => {
     const adjacent = index + (direction === "up" ? -1 : 1);
-    if (adjacent < 0 || adjacent >= fields.length) return null;
-    [fields[index], fields[adjacent]] = [fields[adjacent], fields[index]];
-    return fields;
+    if (adjacent < 0 || adjacent >= items.length) return null;
+    [items[index], items[adjacent]] = [items[adjacent], items[index]];
+    return items;
   });
 }
 
 export async function moveRegistrationFieldTo(eventId: string, fieldKey: string, targetIndex: number) {
-  const parsedIndex = z.number().int().min(0).max(49).safeParse(targetIndex);
+  const parsedIndex = z.number().int().min(0).max(MAX_FORM_FIELDS + MAX_FORM_PAGE_BREAKS - 1).safeParse(targetIndex);
   if (!parsedIndex.success) redirect(`/organizer/${eventId}?error=invalid-field&step=3`);
-  await moveField(eventId, fieldKey, (fields, index) => {
-    if (parsedIndex.data >= fields.length) return null;
-    const [field] = fields.splice(index, 1);
-    fields.splice(parsedIndex.data, 0, field);
-    return fields;
+  await moveField(eventId, fieldKey, (items, index) => {
+    if (parsedIndex.data >= items.length) return null;
+    const [item] = items.splice(index, 1);
+    items.splice(parsedIndex.data, 0, item);
+    return items;
   });
+}
+
+const pageLabelInput = z.string().trim().max(191);
+
+/** Appends a page break; the organizer then drags it to where the next page should start. */
+export async function addFormPageBreak(eventId: string, formData: FormData) {
+  const access = await requireEventAccess(eventId, "manage");
+  const label = pageLabelInput.safeParse(formData.get("label") ?? "");
+  if (!label.success) redirect(`/organizer/${eventId}?error=invalid-field&step=3`);
+  const page = formPageBreakSchema.parse({ key: `page_${randomUUID().replaceAll("-", "")}`, type: "page", label: label.data });
+  const added = await db.$transaction(async (tx) => {
+    const form = await loadForm(tx, eventId);
+    if (form.items.filter(isPageBreak).length >= MAX_FORM_PAGE_BREAKS) return false;
+    await saveForm(tx, access, eventId, form, [...form.items, page], page.key, "added", "EVENT_FIELD_ADDED_BY_ADMIN", { type: "page" });
+    return true;
+  }, FORM_TX);
+  if (!added) redirect(`/organizer/${eventId}?error=too-many-pages&step=3`);
+  revalidatePath(`/organizer/${eventId}`);
+  redirect(`/organizer/${eventId}?saved=field&field=${page.key}`);
+}
+
+export async function updateFormPageBreak(eventId: string, pageKey: string, formData: FormData) {
+  const access = await requireEventAccess(eventId, "manage");
+  const back = `/organizer/${eventId}?field=${encodeURIComponent(pageKey)}`;
+  const label = pageLabelInput.safeParse(formData.get("label") ?? "");
+  if (!label.success) redirect(`${back}&error=invalid-field&step=3`);
+  const updated = await db.$transaction(async (tx) => {
+    const form = await loadForm(tx, eventId);
+    const index = form.items.findIndex((item) => item.key === pageKey);
+    const target = form.items[index];
+    if (!target || !isPageBreak(target)) return false;
+    if (target.label === label.data) return true;
+    const next = [...form.items];
+    next[index] = { ...target, label: label.data };
+    await saveForm(tx, access, eventId, form, next, pageKey, "updated", "EVENT_FIELD_UPDATED_BY_ADMIN", { type: "page", changed: "label" });
+    return true;
+  }, FORM_TX);
+  if (!updated) redirect(`${back}&error=invalid-field&step=3`);
+  revalidatePath(`/organizer/${eventId}`);
+  redirect(`/organizer/${eventId}?saved=field&field=${encodeURIComponent(pageKey)}`);
 }

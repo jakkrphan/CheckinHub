@@ -11,7 +11,7 @@ import { SessionsPlanner, type PlannerSession } from "@/app/(organizer)/organize
 import { FieldBuilderStep } from "@/app/(organizer)/organizer/[eventId]/field-builder-step";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
+import { readRegistrationFields, readRegistrationForm, validateRegistrationFields } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
 import { captchaReadyToPublish, isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
@@ -184,7 +184,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         </form>
       </>}
 
-      {step === 3 && <FieldBuilderStep eventId={eventId} fields={registrationFields} fieldsVersion={event.fieldsVersion} editable selectedField={typeof selectedField === "string" ? selectedField : undefined} errorCode={typeof error === "string" ? error : undefined} error={typeof error === "string" ? errorMessage[error] : undefined} />}
+      {step === 3 && <FieldBuilderStep eventId={eventId} items={readRegistrationForm(event.fields)} fieldsVersion={event.fieldsVersion} editable selectedField={typeof selectedField === "string" ? selectedField : undefined} errorCode={typeof error === "string" ? error : undefined} error={typeof error === "string" ? errorMessage[error] : undefined} />}
 
       {step === 2 && <section className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">

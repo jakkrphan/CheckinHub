@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Loaded by Node at runtime instead of bundled, as in portalrpp (it opens raw TCP/TLS sockets).
   serverExternalPackages: ["ldapts"],
+  // Dev only: lets other machines on the LAN open `next dev` by IP (comma-separated hostnames, no scheme or port).
+  // Unset = localhost only. Has no effect on `next start`.
+  allowedDevOrigins: process.env.DEV_ALLOWED_ORIGINS?.split(",").map((host) => host.trim()).filter(Boolean),
   experimental: {
     serverActions: { bodySizeLimit: "6mb" },
     // Enables forbidden() / forbidden.tsx for a real 403 on admin-only pages.

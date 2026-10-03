@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -7,6 +8,7 @@ import { ClipboardListIcon, CopyIcon, ExternalLinkIcon, ImageIcon, LayoutDashboa
 import { cloneEvent } from "@/app/(organizer)/organizer/actions";
 import { deleteOwnedEvent } from "@/app/(organizer)/organizer/[eventId]/delete-action";
 import { CopyButton } from "@/components/copy-button";
+import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -14,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { readRegistrationFields, validateRegistrationFields } from "@/features/events/registration-fields";
 import { formatDayNumber, formatMonth } from "@/lib/format";
+import { pageWindow, readPage } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
@@ -22,6 +25,9 @@ import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 export const metadata: Metadata = {
   title: "โครงการของฉัน",
 };
+
+const EVENTS_PAGE_SIZE = 20;
+const CLONE_PICKER_LIMIT = 50;
 
 const statusLabel = { DRAFT: "ฉบับร่าง", PUBLISHED: "เผยแพร่แล้ว", CLOSED: "ปิดรับแล้ว" } as const;
 const statusTone = { DRAFT: "bg-amber-100 text-amber-900", PUBLISHED: "bg-accent text-accent-foreground", CLOSED: "bg-muted text-muted-foreground" } as const;
@@ -69,9 +75,26 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
   const params = await searchParams;
   const status = typeof params.status === "string" && ["DRAFT", "PUBLISHED", "CLOSED"].includes(params.status) ? params.status : "ALL";
   const query = typeof params.q === "string" ? params.q.trim().slice(0, 100) : "";
+  const accessWhere: Prisma.EventWhereInput = user.role === "ADMIN" ? { deletedAt: null } : { deletedAt: null, OR: [{ ownerId: user.id }, { organizers: { some: { userId: user.id, role: "FULL" } } }] };
+  const listWhere: Prisma.EventWhereInput = { AND: [accessWhere, ...(status !== "ALL" ? [{ status: status as "DRAFT" | "PUBLISHED" | "CLOSED" }] : []), ...(query ? [{ title: { contains: query } }] : [])] };
+  const canCreate = await mayCreateEvents(user.role);
+  const canClone = canCreate && await isFeatureEnabled("eventClone");
+  // Tab counts cover every project the user can manage; the table loads one page of the filtered list.
+  const [byStatus, listTotal, cloneSources] = await Promise.all([
+    db.event.groupBy({ by: ["status"], where: accessWhere, _count: { _all: true } }),
+    db.event.count({ where: listWhere }),
+    canClone ? db.event.findMany({ where: accessWhere, orderBy: { createdAt: "desc" }, take: CLONE_PICKER_LIMIT, select: { id: true, title: true, status: true, fields: true, _count: { select: { days: true } } } }) : Promise.resolve([]),
+  ]);
+  const statusTotal = (value: string) => byStatus.find((row) => row.status === value)?._count._all ?? 0;
+  const totalEvents = byStatus.reduce((sum, row) => sum + row._count._all, 0);
+  const paging = pageWindow(readPage(params.page), EVENTS_PAGE_SIZE, listTotal);
+  const pageHref = (target: number) => {
+    const next = new URLSearchParams({ ...(status !== "ALL" ? { status } : {}), ...(query ? { q: query } : {}), ...(target > 1 ? { page: String(target) } : {}) });
+    return `/organizer${next.size ? `?${next}` : ""}`;
+  };
   const events = await db.event.findMany({
-    where: user.role === "ADMIN" ? { deletedAt: null } : { deletedAt: null, OR: [{ ownerId: user.id }, { organizers: { some: { userId: user.id, role: "FULL" } } }] },
-    orderBy: { createdAt: "desc" },
+    where: listWhere,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: paging.skip, take: paging.take,
     include: {
       days: { orderBy: { date: "asc" }, select: { id: true, date: true, maxSeats: true } },
       sessions: { select: { eventDayId: true } },
@@ -87,37 +110,35 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
   ]);
   const countOf = (eventId: string, key: string) => statusCounts.find((row) => row.eventId === eventId && row.status === key)?._count._all ?? 0;
   const occupiedSeatsByDay = new Map(occupiedSeatCounts.map((item) => [item.eventDayId, item._count._all]));
-  const filteredEvents = events.filter((event) => (status === "ALL" || event.status === status) && (!query || event.title.toLocaleLowerCase("th-TH").includes(query.toLocaleLowerCase("th-TH"))));
   const statusFilters = [
-    { value: "ALL", label: "ทั้งหมด", count: events.length },
-    { value: "DRAFT", label: "ฉบับร่าง", count: events.filter((event) => event.status === "DRAFT").length },
-    { value: "PUBLISHED", label: "เผยแพร่", count: events.filter((event) => event.status === "PUBLISHED").length },
-    { value: "CLOSED", label: "ปิดรับ", count: events.filter((event) => event.status === "CLOSED").length },
+    { value: "ALL", label: "ทั้งหมด", count: totalEvents },
+    { value: "DRAFT", label: "ฉบับร่าง", count: statusTotal("DRAFT") },
+    { value: "PUBLISHED", label: "เผยแพร่", count: statusTotal("PUBLISHED") },
+    { value: "CLOSED", label: "ปิดรับ", count: statusTotal("CLOSED") },
   ];
   const requestHeaders = await headers();
   const origin = process.env.APP_BASE_URL ?? `${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`;
-  const canCreate = await mayCreateEvents(user.role);
-  const canClone = canCreate && await isFeatureEnabled("eventClone");
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-5 py-8 lg:px-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className="font-heading text-3xl font-bold tracking-tight">โครงการของฉัน</h1>
-          <p className="text-sm text-muted-foreground">{events.length.toLocaleString("th-TH")} โครงการที่คุณ{user.role === "ADMIN" ? "ดูแลได้ในฐานะผู้ดูแลระบบ" : "เป็นเจ้าของหรือผู้ร่วมจัด"}</p>
+          <p className="text-sm text-muted-foreground">{totalEvents.toLocaleString("th-TH")} โครงการที่คุณ{user.role === "ADMIN" ? "ดูแลได้ในฐานะผู้ดูแลระบบ" : "เป็นเจ้าของหรือผู้ร่วมจัด"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {canClone && events.length > 0 && <>
+          {canClone && cloneSources.length > 0 && <>
             <Button type="button" variant="outline" size="lg" popoverTarget="clone-picker"><CopyIcon data-icon="inline-start" aria-hidden="true" />ทำสำเนาจากโครงการเดิม</Button>
             <div id="clone-picker" popover="auto" className="m-auto w-[min(92vw,480px)] rounded-xl border bg-card p-5 shadow-xl backdrop:bg-black/30">
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-heading text-lg font-bold">ทำสำเนาจากโครงการเดิม</p><p className="text-xs text-muted-foreground">คัดลอกข้อมูล ฟอร์ม รูปปก และรอบเช็คชื่อ · ไม่คัดลอกวันจัด ที่นั่ง ผู้ลงทะเบียน และผู้ร่วมจัด</p></div>
                 <Button type="button" variant="ghost" size="icon-sm" popoverTarget="clone-picker" popoverTargetAction="hide" aria-label="ปิด"><XIcon aria-hidden="true" /></Button>
               </div>
-              <ul className="mt-4 flex max-h-[60vh] flex-col divide-y overflow-y-auto">{events.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
-                <span className="flex min-w-0 flex-col"><span className="truncate font-semibold">{event.title}</span><span className="text-xs text-muted-foreground">{statusLabel[event.status]} · {event.days.length} วัน · {readRegistrationFields(event.fields).length} ฟิลด์</span></span>
+              <ul className="mt-4 flex max-h-[60vh] flex-col divide-y overflow-y-auto">{cloneSources.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 py-2.5">
+                <span className="flex min-w-0 flex-col"><span className="truncate font-semibold">{event.title}</span><span className="text-xs text-muted-foreground">{statusLabel[event.status]} · {event._count.days} วัน · {readRegistrationFields(event.fields).length} ฟิลด์</span></span>
                 <form action={cloneEvent.bind(null, event.id)}><Button type="submit" variant="outline" size="sm">ทำสำเนา</Button></form>
               </li>)}</ul>
+              {totalEvents > cloneSources.length && <p className="mt-3 text-xs text-muted-foreground">แสดง {cloneSources.length} โครงการล่าสุด · โครงการที่เก่ากว่านี้ทำสำเนาได้จากเมนู ⋮ ในรายการ</p>}
             </div>
           </>}
           {canCreate && <Button asChild size="lg"><Link href="/organizer/new"><PlusIcon data-icon="inline-start" aria-hidden="true" />สร้างโครงการ</Link></Button>}
@@ -140,14 +161,14 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
         </form>
       </div>
 
-      {filteredEvents.length === 0 ? (
+      {events.length === 0 ? (
         <Empty className="min-h-80 border bg-card">
           <EmptyHeader>
             <EmptyMedia variant="icon"><ClipboardListIcon aria-hidden="true" /></EmptyMedia>
-            <EmptyTitle>{events.length ? "ไม่พบโครงการที่ตรงเงื่อนไข" : "ยังไม่มีโครงการ"}</EmptyTitle>
-            <EmptyDescription>{events.length ? "ลองเปลี่ยนแท็บสถานะหรือคำค้นหา" : "เริ่มจากสร้างโครงการใหม่ แล้วตั้งวัน ฟอร์ม และรอบเช็คชื่อ ก่อนกดเผยแพร่"}</EmptyDescription>
+            <EmptyTitle>{totalEvents ? "ไม่พบโครงการที่ตรงเงื่อนไข" : "ยังไม่มีโครงการ"}</EmptyTitle>
+            <EmptyDescription>{totalEvents ? "ลองเปลี่ยนแท็บสถานะหรือคำค้นหา" : "เริ่มจากสร้างโครงการใหม่ แล้วตั้งวัน ฟอร์ม และรอบเช็คชื่อ ก่อนกดเผยแพร่"}</EmptyDescription>
           </EmptyHeader>
-          {!events.length && canCreate && <EmptyContent><Button asChild><Link href="/organizer/new"><PlusIcon data-icon="inline-start" aria-hidden="true" />สร้างโครงการแรก</Link></Button></EmptyContent>}
+          {!totalEvents && canCreate && <EmptyContent><Button asChild><Link href="/organizer/new"><PlusIcon data-icon="inline-start" aria-hidden="true" />สร้างโครงการแรก</Link></Button></EmptyContent>}
         </Empty>
       ) : (
         <section aria-label="รายการโครงการ" className="overflow-x-auto rounded-xl border bg-card">
@@ -165,7 +186,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
               </TableRow>
             </TableHeader>
             <TableBody className="max-xl:block">
-              {filteredEvents.map((event) => {
+              {events.map((event) => {
                 const owner = event.ownerId === user.id;
                 const canAdminister = owner || user.role === "ADMIN";
                 const setup = event.status === "DRAFT" ? nextSetupStep(event) : null;
@@ -232,6 +253,7 @@ export default async function OrganizerPage({ searchParams }: PageProps<"/organi
               })}
             </TableBody>
           </Table>
+          <Pagination label="หน้ารายการโครงการ" paging={paging} unit="โครงการ" hrefFor={pageHref} />
         </section>
       )}
     </main>

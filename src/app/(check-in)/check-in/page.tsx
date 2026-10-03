@@ -9,6 +9,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDayNumber, formatEventDay, formatMonth } from "@/lib/format";
+import { Pagination } from "@/components/pagination";
+import { pageWindow, readPage } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
@@ -24,6 +26,8 @@ const filters = [
   { value: "past", label: "จบแล้ว" },
 ] as const;
 type Filter = (typeof filters)[number]["value"];
+
+const CHECKIN_PAGE_SIZE = 20;
 
 /** Start of today in Bangkok as a UTC instant, and today's calendar key (event days are stored as UTC dates). */
 function bangkokToday() {
@@ -65,7 +69,11 @@ export default async function CheckInPage({ searchParams }: PageProps<"/check-in
     || (a.next && b.next ? keyOf(a.next.date).localeCompare(keyOf(b.next.date)) : a.next ? -1 : b.next ? 1 : b.last.localeCompare(a.last)));
   const counts: Record<Filter, number> = { all: ranked.length, today: 0, upcoming: 0, past: 0 };
   for (const item of ranked) counts[item.phase]++;
-  const visible = ranked.filter((item) => (show === "all" || item.phase === show) && (!query || item.event.title.toLocaleLowerCase("th-TH").includes(query.toLocaleLowerCase("th-TH"))));
+  const matching = ranked.filter((item) => (show === "all" || item.phase === show) && (!query || item.event.title.toLocaleLowerCase("th-TH").includes(query.toLocaleLowerCase("th-TH"))));
+  // The order (today first, then upcoming) is computed from the days, so the list is cut into pages after sorting;
+  // only the page on screen pays for the per-event progress counts below.
+  const paging = pageWindow(readPage(params.page), CHECKIN_PAGE_SIZE, matching.length);
+  const visible = matching.slice(paging.skip, paging.skip + paging.take);
 
   // Today's progress for events running today: approved for today vs distinct people checked in today.
   const progress = new Map(await Promise.all(visible.filter((item) => item.todayDay).map(async ({ event, todayDay }) => {
@@ -80,6 +88,10 @@ export default async function CheckInPage({ searchParams }: PageProps<"/check-in
 
   const roleOf = (event: (typeof events)[number]) => event.ownerId === user.id ? "เจ้าของ"
     : event.organizers[0]?.role === "FULL" ? "ผู้ร่วมจัด" : event.organizers[0]?.role === "CHECKIN_ONLY" ? "เช็คชื่ออย่างเดียว" : user.role === "ADMIN" ? "ผู้ดูแลระบบ" : "ผู้ร่วมจัด";
+  const pageHref = (target: number) => {
+    const next = new URLSearchParams({ ...(show !== "all" ? { show } : {}), ...(query ? { q: query } : {}), ...(target > 1 ? { page: String(target) } : {}) });
+    return `/check-in${next.size ? `?${next}` : ""}`;
+  };
   const hrefFor = (value: Filter) => `/check-in${value !== "all" || query ? `?${new URLSearchParams({ ...(value !== "all" ? { show: value } : {}), ...(query ? { q: query } : {}) })}` : ""}`;
 
   return <AppShell user={user}>
@@ -164,6 +176,7 @@ export default async function CheckInPage({ searchParams }: PageProps<"/check-in
               })}
             </TableBody>
           </Table>
+          <Pagination label="หน้ารายการโครงการเช็คชื่อ" paging={paging} unit="โครงการ" hrefFor={pageHref} />
         </section>
       )}
     </main>

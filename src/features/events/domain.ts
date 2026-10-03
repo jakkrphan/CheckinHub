@@ -16,7 +16,7 @@ export type ConditionalRule = {
 export type RegistrationField = {
   key: string;
   label: string;
-  type: "text" | "textarea" | "email" | "tel" | "date" | "select" | "checkbox" | "file";
+  type: "text" | "textarea" | "email" | "tel" | "date" | "select" | "radio" | "checkbox" | "file";
   required: boolean;
   options?: string[];
   acceptedFileTypes?: string[];

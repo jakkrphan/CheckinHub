@@ -3,12 +3,14 @@ import Link from "next/link";
 import { HistoryIcon, LayoutGridIcon, ShieldCheckIcon, SlidersHorizontalIcon, MoreHorizontalIcon, SearchIcon, ShieldIcon, UserPlusIcon, UsersIcon, XIcon } from "lucide-react";
 
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
+import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { auditToneClass, describeAudit } from "@/features/audit/labels";
+import { pageWindow, readPage } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 import type { Prisma, UserRole } from "@prisma/client";
 import { ldapEnabled } from "@/server/auth/ldap";
@@ -23,7 +25,9 @@ export const metadata: Metadata = { title: "ผู้ดูแลระบบ" }
 const statusLabel = { DRAFT: "ฉบับร่าง", PUBLISHED: "เผยแพร่แล้ว", CLOSED: "ปิดรับ" } as const;
 const dateFormatter = new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" });
 const relativeFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
-const AUDIT_PAGE_SIZE = 200;
+const AUDIT_PAGE_SIZE = 50;
+// Users and events: each row carries menus/forms, so pages stay small.
+const LIST_PAGE_SIZE = 25;
 // Below md, rows of read-only tables become cards; cells with data-label show that label in front of the value.
 const stackedTable = "max-md:block [&_thead]:max-md:hidden [&_tbody]:max-md:block";
 const stackedRow = "max-md:flex max-md:flex-col max-md:gap-1.5 max-md:px-4 max-md:py-3.5 [&>td]:max-md:max-w-none [&>td]:max-md:p-0 [&>td]:max-md:whitespace-normal [&>td[data-label]]:max-md:flex [&>td[data-label]]:max-md:items-baseline [&>td[data-label]]:max-md:gap-3 [&>td[data-label]]:max-md:before:w-24 [&>td[data-label]]:max-md:before:shrink-0 [&>td[data-label]]:max-md:before:text-xs [&>td[data-label]]:max-md:before:text-muted-foreground [&>td[data-label]]:max-md:before:content-[attr(data-label)]";
@@ -88,23 +92,39 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
     db.dataRequest.count({ where: { status: "OPEN" } }),
   ]);
   const ldap = ldapEnabled();
-  const [users, events, logs, recentLogs, counts] = await Promise.all([
+  const eventWhere: Prisma.EventWhereInput | undefined = query ? { OR: [{ title: { contains: query } }, { slug: { contains: query } }] } : undefined;
+  // Totals first: the tab badges need them, and the page window (which falls back to the last page) depends on them.
+  const counts = await Promise.all([
+    db.user.count(), db.event.count(), view === "audit" ? db.auditLog.count({ where: auditWhere }) : db.auditLog.count(),
+    view === "users" ? db.user.count({ where: userWhere }) : Promise.resolve(0), view === "events" ? db.event.count({ where: eventWhere }) : Promise.resolve(0),
+  ]);
+  const paging = pageWindow(readPage(params.page), view === "audit" ? AUDIT_PAGE_SIZE : LIST_PAGE_SIZE, view === "users" ? counts[3] : view === "events" ? counts[4] : view === "audit" ? counts[2] : 0);
+  /** Link to another page of the current tab, keeping its filters. */
+  const pageHref = (target: number) => {
+    const next = new URLSearchParams({ view });
+    for (const key of view === "audit" ? ["actor", "event", "scope", "from", "to"] : view === "users" ? ["q", "role"] : ["q"]) {
+      const value = params[key];
+      if (typeof value === "string" && value) next.set(key, value);
+    }
+    if (target > 1) next.set("page", String(target));
+    return `/admin?${next}`;
+  };
+  const [users, events, logs, recentLogs] = await Promise.all([
     view === "users" ? db.user.findMany({
       where: userWhere,
-      orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
+      orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }, { id: "asc" }], skip: paging.skip, take: paging.take,
       select: { id: true, name: true, email: true, role: true, isActive: true, passwordHash: true, ldapId: true, _count: { select: { ownedEvents: true, organizerOf: true } } },
     }) : Promise.resolve([]),
     view === "events" ? db.event.findMany({
-      where: query ? { OR: [{ title: { contains: query } }, { slug: { contains: query } }] } : undefined,
-      orderBy: { updatedAt: "desc" }, take: 100,
+      where: eventWhere,
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }], skip: paging.skip, take: paging.take,
       select: { id: true, title: true, slug: true, status: true, deletedAt: true, updatedAt: true, owner: { select: { name: true, email: true } }, _count: { select: { registrants: true, organizers: true } } },
     }) : Promise.resolve([]),
     view === "audit" ? db.auditLog.findMany({
-      where: auditWhere, orderBy: { createdAt: "desc" }, take: AUDIT_PAGE_SIZE,
+      where: auditWhere, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: paging.skip, take: paging.take,
       include: { actor: { select: { name: true, email: true } }, event: { select: { id: true, title: true } } },
     }) : Promise.resolve([]),
     view === "users" ? db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 6, include: { actor: { select: { name: true } }, event: { select: { title: true } } } }) : Promise.resolve([]),
-    Promise.all([db.user.count(), db.event.count(), view === "audit" ? db.auditLog.count({ where: auditWhere }) : db.auditLog.count(), view === "users" ? db.user.count({ where: userWhere }) : Promise.resolve(0)]),
   ]);
 
   const tabs = [
@@ -221,7 +241,8 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
           </Table>
         </div>
         {users.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">ไม่พบผู้ใช้ที่ตรงกับคำค้น</p>}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs text-muted-foreground"><span>แสดง {users.length.toLocaleString("th-TH")} จาก {counts[0].toLocaleString("th-TH")} บัญชี</span><span>เปลี่ยนสิทธิ์ / ปิดบัญชี = บันทึก audit log ทุกครั้ง</span></div>
+        <Pagination label="หน้ารายการผู้ใช้" paging={paging} unit="บัญชี" hrefFor={pageHref} />
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs text-muted-foreground"><span>{query || roleFilter ? `ตรงตัวกรอง ${counts[3].toLocaleString("th-TH")} จาก ${counts[0].toLocaleString("th-TH")} บัญชี` : `ทั้งหมด ${counts[0].toLocaleString("th-TH")} บัญชี`}</span><span>เปลี่ยนสิทธิ์ / ปิดบัญชี = บันทึก audit log ทุกครั้ง</span></div>
       </section>
 
       <aside className="flex flex-col gap-4 rounded-xl border bg-card p-5" aria-label="Audit log ล่าสุด">
@@ -256,6 +277,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
           </TableRow>)}</TableBody>
         </Table>
         {events.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">ไม่พบโครงการที่ตรงกับคำค้น</p>}
+        <Pagination label="หน้ารายการโครงการ" paging={paging} unit="โครงการ" hrefFor={pageHref} />
       </section>
     </>}
 
@@ -268,7 +290,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
         <Field><FieldLabel htmlFor="audit-from">ตั้งแต่วันที่</FieldLabel><Input id="audit-from" name="from" type="date" defaultValue={typeof params.from === "string" ? params.from : ""} /></Field>
         <Field><FieldLabel htmlFor="audit-to">ถึงวันที่</FieldLabel><Input id="audit-to" name="to" type="date" defaultValue={typeof params.to === "string" ? params.to : ""} /></Field>
       </FieldGroup>
-      <div className="flex flex-wrap items-center gap-2"><Button type="submit" size="sm" variant="outline">กรอง</Button><Link href="/admin?view=audit" className="inline-block py-1.5 text-sm text-muted-foreground underline-offset-4 hover:underline">ล้างตัวกรอง</Link><span className="text-xs text-muted-foreground">พบ {counts[2].toLocaleString("th-TH")} รายการ{counts[2] > AUDIT_PAGE_SIZE ? ` · แสดงล่าสุด ${AUDIT_PAGE_SIZE} รายการ` : ""} · เวลาเป็น Asia/Bangkok</span></div>
+      <div className="flex flex-wrap items-center gap-2"><Button type="submit" size="sm" variant="outline">กรอง</Button><Link href="/admin?view=audit" className="inline-block py-1.5 text-sm text-muted-foreground underline-offset-4 hover:underline">ล้างตัวกรอง</Link><span className="text-xs text-muted-foreground">พบ {counts[2].toLocaleString("th-TH")} รายการ{counts[2] > AUDIT_PAGE_SIZE ? ` · หน้าละ ${AUDIT_PAGE_SIZE} รายการ เรียงจากใหม่ไปเก่า` : ""} · เวลาเป็น Asia/Bangkok</span></div>
     </form>}
     {view === "requests" && <section aria-labelledby="requests-title" className="flex flex-col overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-col gap-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -311,6 +333,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/admin">) {
         })}</TableBody>
       </Table>
       {logs.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">ไม่พบ audit log ตามตัวกรอง</p>}
+      <Pagination label="หน้า audit log" paging={paging} unit="รายการ" hrefFor={pageHref} />
     </section>}
   </main>;
 }
