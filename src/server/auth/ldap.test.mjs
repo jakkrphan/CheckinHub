@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authenticateLdap, buildUserFilter, guidFromBuffer, isAccountDisabled, isUnderOu, ldapConfig } from "./ldap.ts";
+import { authenticateLdap, buildDirectorySearchFilter, buildUserFilter, guidFromBuffer, isAccountDisabled, isUnderOu, ldapConfig } from "./ldap.ts";
 
 test("login names are escaped before going into the search filter", () => {
   const filter = buildUserFilter("(|(sAMAccountName={{username}})(mail={{username}}))", "*)(objectClass=*");
@@ -53,4 +53,11 @@ test("an unreachable directory reports UNAVAILABLE, not a wrong password", async
   } finally {
     console.error = original;
   }
+});
+
+test("directory search text is escaped and only matches enabled people", () => {
+  const filter = buildDirectorySearchFilter("สม*)(cn=*");
+  assert.ok(filter.includes(String.raw`(displayName=*สม\2a\29\28cn=\2a*)`), filter);
+  assert.ok(filter.startsWith("(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))"));
+  assert.equal((filter.match(/\(/g) ?? []).length, (filter.match(/\)/g) ?? []).length);
 });

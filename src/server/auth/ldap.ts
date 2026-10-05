@@ -167,15 +167,70 @@ export async function authenticateLdap(config: LdapConfig, username: string, pas
   if (isAccountDisabled(text(entry.userAccountControl))) return { ok: false, code: "ACCOUNT_DISABLED" };
   if (!isUnderOu(dn, config.requiredOu)) return { ok: false, code: "NOT_AUTHORIZED" };
 
+  const identity = identityFrom(entry);
+  if (!identity) {
+    console.error("LDAP entry is missing objectGUID or userPrincipalName");
+    return { ok: false, code: "NOT_AUTHORIZED" };
+  }
+  return { ok: true, identity };
+}
+
+/** objectGUID, UPN and display name of an entry, or null when the entry cannot be an account here. */
+function identityFrom(entry: Record<string, unknown>): LdapIdentity | null {
   const rawGuid = first(entry.objectGUID);
   const guid = Buffer.isBuffer(rawGuid) ? guidFromBuffer(rawGuid) : null;
   // The UPN (e.g. somchai@rpphosp.local) is the account email, as in portalrpp; `mail` is optional and not unique in AD.
   const email = text(entry.userPrincipalName).trim().toLowerCase();
-  if (!guid || !email || email.length > 191) {
-    console.error("LDAP entry is missing objectGUID or userPrincipalName");
-    return { ok: false, code: "NOT_AUTHORIZED" };
-  }
-
+  if (!guid || !email || email.length > 191) return null;
   const name = (text(entry.displayName) || text(entry.cn) || text(entry.sAMAccountName) || email).trim().slice(0, 191);
-  return { ok: true, identity: { guid, email, name } };
+  return { guid, email, name };
+}
+
+// ---- Directory lookup for picking colleagues (event collaborators) ----
+
+export type DirectoryPerson = LdapIdentity & { department: string };
+
+const DIRECTORY_ATTRIBUTES = [...ATTRIBUTES, "department"];
+
+/**
+ * Enabled person accounts whose display name or cn contains the text, or whose login name / UPN starts with it.
+ * The text is RFC 4515-escaped, so `*` or `)` typed by the user cannot widen or break the query.
+ */
+export function buildDirectorySearchFilter(query: string) {
+  const value = escapeFilter`${query}`;
+  return `(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(displayName=*${value}*)(cn=*${value}*)(sAMAccountName=${value}*)(userPrincipalName=${value}*)))`;
+}
+
+/** Service-account search; entries outside the required OU, disabled or without GUID/UPN are dropped. null = directory unreachable. */
+async function searchPeople(config: LdapConfig, filter: string, sizeLimit: number): Promise<DirectoryPerson[] | null> {
+  const service = await open(config).catch((error) => { console.error("LDAP connect failed:", (error as Error)?.name, (error as Error)?.message); return null; });
+  if (!service) return null;
+  try {
+    await service.bind(config.bindDN, config.bindPassword);
+    // With a sizeLimit, ldapts returns the first entries instead of failing when more match.
+    const { searchEntries } = await service.search(config.baseDN, { scope: "sub", filter, attributes: DIRECTORY_ATTRIBUTES, explicitBufferAttributes: ["objectGUID"], sizeLimit });
+    return searchEntries.flatMap((entry) => {
+      if (isAccountDisabled(text(entry.userAccountControl)) || !isUnderOu(String(entry.dn), config.requiredOu)) return [];
+      const identity = identityFrom(entry);
+      return identity ? [{ ...identity, department: text(entry.department).trim().slice(0, 191) }] : [];
+    });
+  } catch (error) {
+    console.error("LDAP directory search failed:", (error as Error)?.name, (error as Error)?.message);
+    return null;
+  } finally {
+    await close(service);
+  }
+}
+
+/** Up to `limit` people matching what an organizer typed (at least 2 characters). Logs never carry the text (PDPA). */
+export async function searchDirectory(config: LdapConfig, query: string, limit = 8) {
+  const people = await searchPeople(config, buildDirectorySearchFilter(query), limit * 3);
+  return people && people.slice(0, limit);
+}
+
+/** The one enabled, allowed account with this UPN; null when there is none, "unavailable" when AD cannot be reached. */
+export async function findDirectoryPerson(config: LdapConfig, email: string): Promise<DirectoryPerson | null | "unavailable"> {
+  const people = await searchPeople(config, `(&(objectCategory=person)(objectClass=user)(userPrincipalName=${escapeFilter`${email}`}))`, 2);
+  if (!people) return "unavailable";
+  return people.length === 1 ? people[0]! : null;
 }

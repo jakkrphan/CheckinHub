@@ -21,6 +21,7 @@
     "test:integration:waitlist-privacy": "node scripts/smoke-waitlist-privacy.mjs",
     "test:integration:form-changes": "node scripts/smoke-form-changes.mjs",
     "test:integration:offline-checkin": "node scripts/smoke-offline-checkin.mjs",
+    "test:integration:members": "node scripts/smoke-members.mjs",
     "test:integration:line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/test/alias-loader.mjs scripts/smoke-line.mjs",
     "test:integration:email": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/test/alias-loader.mjs scripts/smoke-email.mjs",
     "test:responsive": "node scripts/check-responsive.mjs",

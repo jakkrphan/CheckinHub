@@ -9,8 +9,9 @@ const isUniqueViolation = (error: unknown) => !!error && typeof error === "objec
  * unlinked account an admin created with the same email (linked now, pending invite links revoked); else, only
  * when LDAP_AUTO_PROVISION is on, a new ORGANIZER account.
  * Returns null when there is no account to sign in to. isActive is checked by the caller.
+ * `actorId` is who the audit names when someone else triggers it (an organizer adding a colleague); default the person.
  */
-export async function resolveLdapUser(identity: LdapIdentity, autoProvision: boolean) {
+export async function resolveLdapUser(identity: LdapIdentity, autoProvision: boolean, actorId?: string) {
   const select = { id: true, name: true, email: true, isActive: true } as const;
 
   const linked = await db.user.findUnique({ where: { ldapId: identity.guid }, select });
@@ -24,7 +25,7 @@ export async function resolveLdapUser(identity: LdapIdentity, autoProvision: boo
       const updated = await tx.user.updateMany({ where: { id: byEmail.id, ldapId: null }, data: { ldapId: identity.guid } });
       if (!updated.count) return false;
       await tx.userToken.deleteMany({ where: { userId: byEmail.id, kind: "INVITE", usedAt: null } });
-      await tx.auditLog.create({ data: { actorId: byEmail.id, action: "ACCOUNT_LDAP_LINKED", target: byEmail.id } });
+      await tx.auditLog.create({ data: { actorId: actorId ?? byEmail.id, action: "ACCOUNT_LDAP_LINKED", target: byEmail.id } });
       return true;
     }).catch((error) => { if (isUniqueViolation(error)) return false; throw error; });
     if (!claimed) return db.user.findUnique({ where: { ldapId: identity.guid }, select });
@@ -35,7 +36,7 @@ export async function resolveLdapUser(identity: LdapIdentity, autoProvision: boo
   try {
     return await db.$transaction(async (tx) => {
       const user = await tx.user.create({ data: { name: identity.name, email: identity.email, ldapId: identity.guid, role: "ORGANIZER" }, select });
-      await tx.auditLog.create({ data: { actorId: user.id, action: "ACCOUNT_LDAP_PROVISIONED", target: user.id, metadata: { role: "ORGANIZER" } } });
+      await tx.auditLog.create({ data: { actorId: actorId ?? user.id, action: "ACCOUNT_LDAP_PROVISIONED", target: user.id, metadata: { role: "ORGANIZER", ...(actorId ? { via: "event-member" } : {}) } } });
       return user;
     });
   } catch (error) {

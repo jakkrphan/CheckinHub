@@ -1,15 +1,14 @@
 import Link from "next/link";
-import { CheckIcon, CircleAlertIcon, DownloadIcon, EyeOffIcon, PrinterIcon, SearchIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { CheckIcon, CircleAlertIcon, DownloadIcon, EyeOffIcon, PrinterIcon, XIcon } from "lucide-react";
 
 import { cloneEvent } from "@/app/(organizer)/organizer/actions";
 import { deleteOwnedEvent } from "@/app/(organizer)/organizer/[eventId]/delete-action";
-import { addEventMember, removeEventMember } from "@/app/(organizer)/organizer/[eventId]/member-actions";
+import { addEventMember, removeEventMember, searchMemberCandidates } from "@/app/(organizer)/organizer/[eventId]/member-actions";
+import { MemberPicker } from "@/app/(organizer)/organizer/[eventId]/member-picker";
 import { changeEventStatus } from "@/app/(organizer)/organizer/[eventId]/status-actions";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { registrationQrSvg, shortEventUrl } from "@/server/events/public-url";
 
@@ -42,17 +41,10 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
 
   return <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
     <section aria-label="ผู้ร่วมจัด" className="flex flex-col gap-4 rounded-xl border bg-card p-5">
-      {canAdminister ? <form action={addEventMember.bind(null, event.id)} className="flex flex-wrap gap-2">
-        <div className="relative min-w-52 flex-1">
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <label htmlFor="memberEmail" className="sr-only">อีเมลของผู้ใช้ในระบบ</label>
-          <Input id="memberEmail" name="email" type="email" required placeholder="อีเมลของผู้ใช้ในระบบ" className="h-10 pl-9" />
-        </div>
-        <label htmlFor="memberRole" className="sr-only">สิทธิ์</label>
-        <NativeSelect id="memberRole" name="role" defaultValue="FULL" className="h-10 w-40"><option value="FULL">เต็มสิทธิ์</option><option value="CHECKIN_ONLY">เช็คชื่ออย่างเดียว</option></NativeSelect>
-        <Button type="submit" size="lg" className="h-10"><UserPlusIcon data-icon="inline-start" aria-hidden="true" />เพิ่ม</Button>
-      </form> : <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">เฉพาะเจ้าของโครงการเพิ่ม/ลบผู้ร่วมจัดได้</p>}
-      {(error === "invalid-member" || error === "member-not-found") && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">ไม่พบบัญชีที่ใช้งานได้จากอีเมลนี้ (หรือเป็นเจ้าของโครงการอยู่แล้ว) — ให้ผู้ดูแลระบบสร้างบัญชีก่อน</p>}
+      {canAdminister ? <MemberPicker action={addEventMember.bind(null, event.id)} search={searchMemberCandidates.bind(null, event.id)} />
+        : <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">เฉพาะเจ้าของโครงการเพิ่ม/ลบผู้ร่วมจัดได้</p>}
+      {(error === "invalid-member" || error === "member-not-found") && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">เพิ่มคนนี้ไม่ได้ — ไม่พบบัญชีที่ใช้งานได้ หรือบัญชี AD ถูกปิด / อยู่นอกหน่วยงานที่อนุญาต (หรือเป็นเจ้าของโครงการอยู่แล้ว)</p>}
+      {error === "directory-unavailable" && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">เชื่อมต่อ AD ไม่ได้ขณะนี้ จึงสร้างบัญชีให้คนที่ยังไม่มีบัญชีไม่ได้ — ลองใหม่อีกครั้ง</p>}
       {saved === "member" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-3 py-2 text-sm text-accent-foreground">บันทึกผู้ร่วมจัดแล้ว</p>}
       <ul className="flex flex-col divide-y border-t">
         <li className="flex items-center gap-3 py-3.5">
@@ -73,7 +65,7 @@ export async function PublishStep({ event, owner, members, checks, canAdminister
           </> : <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold">{member.role === "FULL" ? "เต็มสิทธิ์" : "เช็คชื่ออย่างเดียว"}</span>}
         </li>)}
       </ul>
-      {members.length === 0 && <p className="text-sm text-muted-foreground">ยังไม่มีผู้ร่วมจัด เพิ่มจากอีเมลของบัญชีที่มีอยู่ในระบบ</p>}
+      {members.length === 0 && <p className="text-sm text-muted-foreground">ยังไม่มีผู้ร่วมจัด ค้นหาจากชื่อ-สกุลเพื่อเพิ่ม</p>}
       <p className="flex items-start gap-2 rounded-lg bg-muted px-4 py-3 text-xs leading-relaxed text-muted-foreground"><EyeOffIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />“เช็คชื่ออย่างเดียว” จะไม่เห็นคำตอบฟอร์ม ข้อมูลส่วนตัว แดชบอร์ด หรือ export — ระบบปฏิเสธทุกหน้า นอกเหนือจากหน้าเช็คชื่อ</p>
     </section>
 
