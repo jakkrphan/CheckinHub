@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { lineLoginUrl } from "@/server/line/link";
 import { registerForEvent } from "@/server/registrations/registration";
 
 export async function registerPublicEvent(slug: string, formData: FormData) {
@@ -14,5 +15,8 @@ export async function registerPublicEvent(slug: string, formData: FormData) {
     if (result.problem?.fieldKey) { params.set("field", result.problem.fieldKey); params.set("problem", result.problem.reason); }
     redirect(`/events/${slug}?${params}`);
   }
-  redirect(`/events/${slug}/status/${result.token}`);
+  const statusPath = `/events/${slug}/status/${result.token}`;
+  // Chose LINE: straight on to LINE Login (and the add-friend prompt); the callback returns to the status page.
+  if (result.notifyVia === "LINE") redirect(await lineLoginUrl(result.registrantId, statusPath));
+  redirect(statusPath);
 }

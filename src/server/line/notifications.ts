@@ -62,7 +62,16 @@ async function deliver(notificationId: string, enabled: boolean, origin: string)
     db.notificationLog.update({ where: { id: notificationId }, data: { status, error, ...(status === "SENT" ? { sentAt: new Date() } : {}) } }),
     ...(snapshot ? [db.registrant.update({ where: { id: person.id }, data: { lineNotifiedDays: snapshotOf(person) } })] : []),
   ]);
-  if (!enabled) { await finish("SKIPPED", "LINE ปิดอยู่หรือยังไม่ตั้งคีย์"); return "skipped"; }
+  if (!enabled) {
+    // LINE was the chosen channel: with LINE off the news would reach nobody, so email takes over.
+    const { queueEmailNotification } = await import("@/server/email/notifications");
+    await db.$transaction(async (tx) => {
+      await tx.notificationLog.update({ where: { id: notificationId }, data: { status: "SKIPPED", error: "LINE ปิดอยู่หรือยังไม่ตั้งคีย์" } });
+      const recipient = await tx.registrant.findUniqueOrThrow({ where: { id: person.id }, select: { id: true, eventId: true, email: true, anonymizedAt: true } });
+      if (recipient.email && !recipient.anonymizedAt) await queueEmailNotification(tx, recipient, "fallback");
+    });
+    return "skipped";
+  }
   if (!person.lineUserId || person.anonymizedAt || person.event.deletedAt) { await finish("SKIPPED", "ไม่ได้เชื่อม LINE แล้ว"); return "skipped"; }
   const text = buildLineMessage(notification.kind as LineNotificationKind, person, `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`);
   if (!text) { await finish("SKIPPED", "ไม่มีอะไรเปลี่ยน", true); return "skipped"; }

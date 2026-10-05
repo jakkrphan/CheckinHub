@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { Prisma, type RegistrantStatus } from "@prisma/client";
+import { type NotificationChannel, Prisma, type RegistrantStatus } from "@prisma/client";
 import { z } from "zod";
 
 import { checkRegistrationAnswers, parseRegistrationAnswers, readRegistrationFields, type AnswerProblem } from "@/features/events/registration-fields";
 import { CURRENT_CONSENT_VERSION } from "@/features/registrations/consent";
 import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
+import { lineConfigured } from "@/server/line/client";
 import { getSeatAvailability, summarizeDayStatuses } from "@/server/registrations/day-status";
 import { checkFormTicket, HONEYPOT_FIELD } from "@/server/registrations/form-ticket";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
@@ -17,7 +18,7 @@ export const hashBearerCode = (code: string) => createHash("sha256").update(code
 
 export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired" | "full";
 export type RegistrationResult =
-  | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null }
+  | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null; registrantId: string; notifyVia: NotificationChannel }
   | { ok: false; reason: RegistrationFailure; /** The answer that failed validation, when it is one field's fault. */ problem?: AnswerProblem };
 
 async function verifyTurnstile(response: FormDataEntryValue | null, ip: string) {
@@ -59,9 +60,13 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
   if (await isFeatureEnabled("turnstile") && !(await verifyTurnstile(formData.get("cf-turnstile-response"), ip))) return { ok: false, reason: "captcha" };
   if (formData.get("consent") !== "on") return { ok: false, reason: "invalid" };
 
-  const email = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
+  // One channel: email, or LINE (only while it is offered; anything else means email). A LINE chooser gives no email —
+  // their duplicate guard is set from the LINE account once it is connected (linkLineAccount).
+  const notifyVia: NotificationChannel = formData.get("notifyVia") === "LINE" && lineConfigured() && await isFeatureEnabled("lineLogin") ? "LINE" : "EMAIL";
+  const parsedEmail = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
+  const email = notifyVia === "LINE" ? null : parsedEmail.success ? parsedEmail.data : undefined;
   const dayIds = formData.getAll("dayId");
-  if (!email.success || dayIds.length > 60 || dayIds.some((id) => typeof id !== "string" || !id)) {
+  if (email === undefined || dayIds.length > 60 || dayIds.some((id) => typeof id !== "string" || !id)) {
     return { ok: false, reason: "invalid" };
   }
   const selectedIds = [...new Set(dayIds as string[])].sort();
@@ -100,8 +105,8 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
         // A page rendered from an older form version fails validation through no fault of the registrant.
         if (!answers) return { ok: false, reason: formData.get("fieldsVersion") === String(event.fieldsVersion) ? "invalid" : "form-changed" } as const;
 
-        const alreadyRegistered = await tx.registrant.findUnique({
-          where: { eventId_dedupeKey: { eventId: event.id, dedupeKey: email.data } },
+        const alreadyRegistered = email && await tx.registrant.findUnique({
+          where: { eventId_dedupeKey: { eventId: event.id, dedupeKey: email } },
           select: { id: true },
         });
         if (alreadyRegistered) return { ok: false, reason: "duplicate" } as const;
@@ -141,14 +146,14 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
         const person = await tx.registrant.create({
           data: {
             eventId: event.id,
-            email: email.data,
-            dedupeKey: email.data,
+            email,
+            dedupeKey: email,
             answers,
             displayName: registrantDisplayName(fields, answers),
             fieldsVersion: event.fieldsVersion,
             status,
             autoApproveAtRegistration: currentEvent.autoApprove,
-            notifyVia: "EMAIL",
+            notifyVia,
             consentedAt: new Date(),
             consentVersion: CURRENT_CONSENT_VERSION,
             consentIp: ip.slice(0, 64),
@@ -159,8 +164,8 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
           },
         });
         const { queueEmailNotification } = await import("@/server/email/notifications");
-        await queueEmailNotification(tx, person);
-        return { ok: true, status, token, qrCode } as const;
+        if (email) await queueEmailNotification(tx, person);
+        return { ok: true, status, token, qrCode, registrantId: person.id, notifyVia } as const;
         }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
         fileAttachmentsCommitted = result.ok;
         return result;

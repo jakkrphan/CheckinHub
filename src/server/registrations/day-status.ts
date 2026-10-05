@@ -57,7 +57,7 @@ export async function syncRegistrantStatus(tx: Prisma.TransactionClient, registr
     const { queueLineNotification } = await import("@/server/line/notifications");
     await queueLineNotification(tx, { id: registrantId, eventId: person.eventId }, "status");
   }
-  if (person.email && person.notifyVia !== "LINE") {
+  if (person.email && (person.notifyVia !== "LINE" || !person.lineUserId)) {
     const { queueEmailNotification } = await import("@/server/email/notifications");
     await queueEmailNotification(tx, { id: registrantId, eventId: person.eventId });
   }

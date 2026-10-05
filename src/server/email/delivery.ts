@@ -25,9 +25,12 @@ async function deliver(db: PrismaClient, id: string, options: DeliveryOptions): 
     });
   };
   if (!options.enabled) { await finish("SKIPPED", "EMAIL_DISABLED"); return "skipped"; }
-  if (!person.email || person.anonymizedAt || person.event.deletedAt || person.event.anonymizedAt || (notification.kind !== "fallback" && person.notifyVia === "LINE")) {
+  if (!person.email || person.anonymizedAt || person.event.deletedAt || person.event.anonymizedAt) {
     await finish("SKIPPED", "RECIPIENT_UNAVAILABLE"); return "skipped";
   }
+  // Chose LINE and connected it: LINE carries the news; email only steps in when a LINE push fails (kind "fallback").
+  // A LINE chooser who never connected still gets email.
+  if (notification.kind !== "fallback" && person.notifyVia === "LINE" && person.lineUserId) { await finish("SKIPPED", "SENT_VIA_LINE"); return "skipped"; }
   const snapshot = emailSnapshot(person);
   if (snapshot === person.emailNotifiedHash) { await finish("SKIPPED", "NO_CHANGE"); return "skipped"; }
   const origin = options.origin;

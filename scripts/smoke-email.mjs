@@ -64,8 +64,13 @@ try {
   await db.registrant.update({ where: { id: person.id }, data: { emailNotifiedHash: null } });
   await queue(); assert.equal((await run({ enabled: false })).skipped, 1);
   await queue(); assert.equal((await run({ origin: null })).failed, 1);
+  // LINE as the channel but not connected (any address on file still works): email carries the result.
   await db.registrant.update({ where: { id: person.id }, data: { notifyVia: "LINE" } });
-  await queue(); assert.equal((await run()).skipped, 1);
+  await queue(); assert.equal((await run()).sent, 1, "LINE choosers who never connected LINE get email");
+  // Connected LINE: email stays quiet except as the fallback for a failed LINE push.
+  await db.registrant.update({ where: { id: person.id }, data: { lineUserId: `U${"1".repeat(32)}`, emailNotifiedHash: null } });
+  row = await queue(); assert.equal((await run()).skipped, 1);
+  assert.equal((await db.notificationLog.findUniqueOrThrow({ where: { id: row.id } })).error, "SENT_VIA_LINE");
   await queue({ kind: "fallback" }); assert.equal((await run()).sent, 1, "LINE-only recipients receive fallback email");
   await db.registrant.update({ where: { id: person.id }, data: { anonymizedAt: new Date(), email: null } });
   await queue({ kind: "fallback" }); assert.equal((await run()).skipped, 1);

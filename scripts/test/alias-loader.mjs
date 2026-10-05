@@ -24,5 +24,7 @@ export async function resolve(specifier, context, next) {
   if ((specifier.startsWith("./") || specifier.startsWith("../")) && context.parentURL?.startsWith("file:") && !/\.[cm]?[jt]sx?$/.test(specifier)) {
     return { url: withExtension(new URL(specifier, context.parentURL).href), shortCircuit: true };
   }
+  // Next's entry points ("next/headers", "next/server", …) have no package exports map, so Node needs the file name.
+  if (/^next\/[a-z-]+$/.test(specifier)) return next(`${specifier}.js`, context);
   return next(specifier, context);
 }

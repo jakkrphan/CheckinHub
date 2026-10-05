@@ -87,33 +87,29 @@ export async function promoteNextManually(tx: Prisma.TransactionClient, eventId:
   return promoteNextForDay(tx, day);
 }
 
-export async function cancelOwnRegistration(slug: string, token: string, eventDayId?: string) {
-  const tokenWhere = await statusTokenWhere(token);
+/** Cancels the active days (one, or all), frees their seats and promotes the waitlist. Caller has checked the registrant is live. */
+async function cancelActiveDays(tx: Prisma.TransactionClient, registrant: { id: string; eventId: string }, eventDayId?: string) {
+  await lockEventDays(tx, registrant.eventId);
+  await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${registrant.id} FOR UPDATE`;
+  const current = await tx.registrant.findUniqueOrThrow({ where: { id: registrant.id }, select: { status: true } });
+  if (["CANCELLED", "REJECTED"].includes(current.status)) return "cancelled" as const;
+  if (eventDayId) {
+    const selected = await tx.registrantEventDay.findFirst({ where: { registrantId: registrant.id, eventDayId, status: { in: ["PENDING", "APPROVED", "WAITLISTED"] } }, select: { id: true } });
+    if (!selected) return "not-found" as const;
+  }
+  const checkedIn = await tx.checkIn.count({ where: { registrantId: registrant.id, voidedAt: null, ...(eventDayId ? { session: { eventDayId } } : {}) } });
+  if (checkedIn) return "already-checked-in" as const;
+  await tx.registrantEventDay.updateMany({ where: { registrantId: registrant.id, ...(eventDayId ? { eventDayId } : {}), status: { in: ["PENDING", "APPROVED", "WAITLISTED"] } }, data: { status: "CANCELLED", waitlistedAt: null, pendingSince: null } });
+  await syncRegistrantStatus(tx, registrant.id);
+  await promoteWaitlist(tx, registrant.eventId);
+  return "cancelled" as const;
+}
+
+/** Runs a seat-changing transaction, retrying MySQL deadlocks/write conflicts a few times. */
+async function withSeatRetry<T>(work: (tx: Prisma.TransactionClient) => Promise<T>) {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return await db.$transaction(async (tx) => {
-        const registrant = await tx.registrant.findUnique({
-          where: tokenWhere,
-          include: { event: { select: { id: true, slug: true, seatMode: true, deletedAt: true } } },
-        });
-        if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found" as const;
-        if (["CANCELLED", "REJECTED"].includes(registrant.status)) return "cancelled" as const;
-        if (eventDayId && registrant.event.seatMode === "whole_course") return "not-found" as const;
-        await lockEventDays(tx, registrant.eventId);
-        await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${registrant.id} FOR UPDATE`;
-        const current = await tx.registrant.findUniqueOrThrow({ where: { id: registrant.id }, select: { status: true } });
-        if (["CANCELLED", "REJECTED"].includes(current.status)) return "cancelled" as const;
-        if (eventDayId) {
-          const selected = await tx.registrantEventDay.findFirst({ where: { registrantId: registrant.id, eventDayId, status: { in: ["PENDING", "APPROVED", "WAITLISTED"] } }, select: { id: true } });
-          if (!selected) return "not-found" as const;
-        }
-        const checkedIn = await tx.checkIn.count({ where: { registrantId: registrant.id, voidedAt: null, ...(eventDayId ? { session: { eventDayId } } : {}) } });
-        if (checkedIn) return "already-checked-in" as const;
-        await tx.registrantEventDay.updateMany({ where: { registrantId: registrant.id, ...(eventDayId ? { eventDayId } : {}), status: { in: ["PENDING", "APPROVED", "WAITLISTED"] } }, data: { status: "CANCELLED", waitlistedAt: null, pendingSince: null } });
-        await syncRegistrantStatus(tx, registrant.id);
-        await promoteWaitlist(tx, registrant.eventId);
-        return "cancelled" as const;
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+      return await db.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError &&
         (error.code === "P2034" || (error.code === "P2010" && error.meta?.code === "1213"))) {
@@ -125,4 +121,31 @@ export async function cancelOwnRegistration(slug: string, token: string, eventDa
     }
   }
   return "unavailable" as const;
+}
+
+export async function cancelOwnRegistration(slug: string, token: string, eventDayId?: string) {
+  const tokenWhere = await statusTokenWhere(token);
+  return withSeatRetry(async (tx) => {
+    const registrant = await tx.registrant.findUnique({
+      where: tokenWhere,
+      include: { event: { select: { id: true, slug: true, seatMode: true, deletedAt: true } } },
+    });
+    if (!registrant || registrant.event.slug !== slug || registrant.event.deletedAt) return "not-found" as const;
+    if (["CANCELLED", "REJECTED"].includes(registrant.status)) return "cancelled" as const;
+    if (eventDayId && registrant.event.seatMode === "whole_course") return "not-found" as const;
+    return cancelActiveDays(tx, registrant, eventDayId);
+  });
+}
+
+/**
+ * System cancellation of a whole registration, e.g. a second one found when its LINE account is connected
+ * (the person already registered with that LINE). Frees the seats for the waitlist like a self-cancel.
+ */
+export async function cancelDuplicateRegistration(registrantId: string) {
+  return withSeatRetry(async (tx) => {
+    const registrant = await tx.registrant.findUnique({ where: { id: registrantId }, select: { id: true, eventId: true, status: true } });
+    if (!registrant) return "not-found" as const;
+    if (["CANCELLED", "REJECTED"].includes(registrant.status)) return "cancelled" as const;
+    return cancelActiveDays(tx, registrant);
+  });
 }

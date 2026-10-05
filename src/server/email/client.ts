@@ -1,6 +1,8 @@
 import nodemailer from "nodemailer";
 import { z } from "zod";
 
+import { QR_CONTENT_ID } from "@/server/email/message";
+
 /** SMTP secrets stay on the server and are never included in delivery errors. */
 export function smtpConfig(env: NodeJS.ProcessEnv = process.env) {
   const port = Number(env.SMTP_PORT || 465);
@@ -55,7 +57,8 @@ export async function sendEmail(message: { to: string; subject: string; text: st
       subject: message.subject, text: message.text, html: message.html,
       // Stable across retries; SMTP itself does not guarantee exactly-once delivery.
       messageId: `<${message.retryKey}@${config.from.split("@")[1]}>`,
-      attachments: message.qr ? [{ filename: "checkin-qr.png", content: message.qr, contentType: "image/png" }] : [],
+      // Inline (cid) so the ticket HTML shows it; clients that hide inline parts still offer it as a download.
+      attachments: message.qr ? [{ filename: "checkin-qr.png", content: message.qr, contentType: "image/png", cid: QR_CONTENT_ID }] : [],
     });
     return result.accepted.length ? { ok: true } : { ok: false, retry: false, error: "SMTP_RECIPIENT_REJECTED" };
   } catch (error) { return smtpFailure(error); }

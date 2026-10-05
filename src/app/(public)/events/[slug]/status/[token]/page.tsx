@@ -6,6 +6,7 @@ import { CalendarDaysIcon, CalendarPlusIcon, CheckCircle2Icon, Clock3Icon, Downl
 
 import { cancelRegistration, requestDeletionAction, startLineLinkAction, unlinkLineAction } from "@/app/(public)/events/[slug]/status/[token]/actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { lineConfigured, lineOaBasicId } from "@/server/line/client";
@@ -31,13 +32,16 @@ const dateFormatter = new Intl.DateTimeFormat("th-TH", {
 const shortDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "UTC" });
 
 const lineMessages: Record<string, string> = {
-  linked: "เชื่อม LINE แล้ว — ส่งสถานะล่าสุดไปที่ LINE ของคุณ",
-  unlinked: "เลิกรับแจ้งเตือนทาง LINE แล้ว",
-  "not-friend": "ยังไม่ได้เพิ่ม OA เป็นเพื่อน ระบบจึงส่งข้อความหาคุณไม่ได้ — เพิ่มเพื่อนแล้วกด \"รับแจ้งผลทาง LINE\" อีกครั้ง",
-  cancelled: "ยกเลิกการเชื่อม LINE — กดใหม่ได้ทุกเมื่อ",
+  linked: "เชื่อม LINE แล้ว — ต่อจากนี้ผลและ QR ส่งทาง LINE",
+  unlinked: "เปลี่ยนเป็นรับทางอีเมลแล้ว — ส่งสถานะล่าสุดไปที่อีเมลของคุณ",
+  "not-friend": "ยังไม่ได้เพิ่ม OA เป็นเพื่อน ระบบจึงส่งข้อความหาคุณไม่ได้ — เพิ่มเพื่อนแล้วกดเชื่อม LINE อีกครั้ง",
+  cancelled: "ยกเลิกการเชื่อม LINE — ระหว่างนี้ระบบส่งทางอีเมล กดเชื่อมใหม่ได้ทุกเมื่อ",
   error: "เชื่อม LINE ไม่สำเร็จ กรุณาลองใหม่",
   closed: "การลงทะเบียนนี้ถูกยกเลิกหรือไม่ได้รับอนุมัติแล้ว จึงไม่ต้องรับแจ้งเตือน",
   unavailable: "ขณะนี้ปิดการแจ้งเตือนทาง LINE ชั่วคราว",
+  duplicate: "บัญชี LINE นี้ลงทะเบียนโครงการนี้ไว้แล้ว — ระบบยกเลิกใบสมัครที่ซ้ำให้แล้ว นี่คือการลงทะเบียนเดิมของคุณ",
+  "email-invalid": "กรุณากรอกอีเมลให้ถูกต้อง",
+  "email-taken": "อีเมลนี้ลงทะเบียนโครงการนี้ไว้แล้ว",
 };
 
 function StatusChip({ status, queue }: { status: Status; queue?: number }) {
@@ -92,6 +96,10 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
   const oaId = showLine ? await lineOaBasicId() : null;
   const addFriendHref = oaId ? `https://line.me/R/ti/p/${encodeURIComponent(oaId)}` : null;
   const lineUndelivered = registrant.notifications[0]?.status === "FAILED";
+  // Chose LINE at registration (or on this page) but LINE Login did not finish: email still carries the news.
+  const lineAwaiting = !registrant.lineUserId && registrant.notifyVia === "LINE";
+  // Registered with LINE only: switching to email needs an address.
+  const emailInput = registrant.email ? null : <Input name="email" type="email" required autoComplete="email" inputMode="email" maxLength={191} placeholder="อีเมลสำหรับรับ QR" aria-label="อีเมลสำหรับรับ QR" className="h-11 bg-card" />;
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background">
@@ -159,17 +167,20 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
         {showLine && <section id="line" aria-labelledby="line-title" className="flex scroll-mt-4 flex-col gap-3 rounded-2xl border bg-card p-5">
           <div className="flex items-center gap-3">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#06C755] text-white"><MessageCircleIcon className="size-5" aria-hidden="true" /></span>
-            <div className="flex min-w-0 flex-col"><h3 id="line-title" className="font-heading text-lg font-semibold">รับแจ้งผลทาง LINE</h3><p className="text-xs text-muted-foreground">{registrant.lineUserId ? "เชื่อมแล้ว · ผลอนุมัติ การเลื่อนคิว และลิงก์ QR จะส่งไปที่ LINE ของคุณ" : "ผลอนุมัติ การเลื่อนคิว และลิงก์ QR ส่งถึง LINE ของคุณ"}</p></div>
+            <div className="flex min-w-0 flex-col"><h3 id="line-title" className="font-heading text-lg font-semibold">ช่องทางรับ QR และผล</h3><p className="text-xs text-muted-foreground">{registrant.lineUserId ? "LINE · เชื่อมแล้ว — ผลอนุมัติ การเลื่อนคิว และลิงก์ QR ส่งไปที่ LINE ของคุณ" : lineAwaiting ? (registrant.email ? "เลือก LINE ไว้ แต่ยังเชื่อมไม่สำเร็จ — ระหว่างนี้ระบบส่งทางอีเมล" : "เลือก LINE ไว้ แต่ยังเชื่อมไม่สำเร็จ — ระบบยังส่งผลหาคุณไม่ได้ เชื่อม LINE หรือเปลี่ยนเป็นอีเมล และบันทึกลิงก์หน้านี้ไว้") : `อีเมล${registrant.email ? ` · ${registrant.email}` : ""}`}</p></div>
           </div>
           {typeof line === "string" && lineMessages[line] && <p role={line === "linked" || line === "unlinked" ? "status" : "alert"} className={cn("rounded-lg px-3 py-2 text-sm", line === "linked" || line === "unlinked" ? "bg-accent text-accent-foreground" : "bg-[var(--status-warning-background)] text-[var(--status-warning)]")}>{lineMessages[line]}</p>}
           {registrant.lineUserId && lineUndelivered && <p role="alert" className="rounded-lg bg-[var(--status-warning-background)] px-3 py-2 text-sm text-[var(--status-warning)]">ส่งข้อความล่าสุดไม่ถึง — ตรวจว่ายังเป็นเพื่อนกับ OA และไม่ได้บล็อกไว้ ข้อมูลล่าสุดดูได้ที่หน้านี้เสมอ</p>}
           {(line === "not-friend" || (registrant.lineUserId && lineUndelivered)) && addFriendHref && <Button asChild variant="outline" className="h-11"><a href={addFriendHref} target="_blank" rel="noopener noreferrer">เพิ่ม {oaId} เป็นเพื่อนใน LINE</a></Button>}
           {registrant.lineUserId
-            ? <form action={unlinkLineAction.bind(null, slug, token)}><Button type="submit" variant="ghost" className="h-11 w-full text-muted-foreground">เลิกรับแจ้งเตือนทาง LINE</Button></form>
-            : <form action={startLineLinkAction.bind(null, slug, token)} className="flex flex-col gap-2">
-              <p className="text-sm leading-relaxed text-muted-foreground">กดแล้วจะไปหน้า LINE ให้เข้าสู่ระบบและ<strong className="text-foreground">เพิ่ม {oaId ?? "OA ของระบบ"} เป็นเพื่อน</strong> — ระบบส่งข้อความได้เฉพาะเพื่อนของ OA และไม่เห็นแชตหรือรายชื่อเพื่อนของคุณ</p>
-              <Button type="submit" className="h-12 bg-[#06C755] text-base font-bold text-white hover:bg-[#05b34c]">รับแจ้งผลทาง LINE</Button>
-            </form>}
+            ? <form action={unlinkLineAction.bind(null, slug, token)} className="flex flex-col gap-2">{emailInput}<Button type="submit" variant="outline" className="h-11 w-full">เปลี่ยนเป็นรับทางอีเมล</Button></form>
+            : <>
+              <form action={startLineLinkAction.bind(null, slug, token)} className="flex flex-col gap-2">
+                <p className="text-sm leading-relaxed text-muted-foreground">กดแล้วจะไปหน้า LINE ให้เข้าสู่ระบบและ<strong className="text-foreground">เพิ่ม {oaId ?? "OA ของระบบ"} เป็นเพื่อน</strong> — ระบบส่งข้อความได้เฉพาะเพื่อนของ OA และไม่เห็นแชตหรือรายชื่อเพื่อนของคุณ</p>
+                <Button type="submit" className="h-12 bg-[#06C755] text-base font-bold text-white hover:bg-[#05b34c]">{lineAwaiting ? "เชื่อม LINE อีกครั้ง" : "เปลี่ยนเป็นรับทาง LINE"}</Button>
+              </form>
+              {lineAwaiting && <form action={unlinkLineAction.bind(null, slug, token)} className="flex flex-col gap-2 border-t pt-3">{emailInput}<Button type="submit" variant="outline" className="h-11 w-full">ใช้อีเมลแทน</Button></form>}
+            </>}
         </section>}
 
         {flags.selfCancel && registrant.event.seatMode !== "whole_course" && activeDays.length > 1 && <section className="flex flex-col gap-3 rounded-2xl border bg-card p-5">

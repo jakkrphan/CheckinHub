@@ -53,7 +53,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   captchaSiteKey: string;
   /** Admin switch; off hides the local-testing note as well as the widget. */
   captchaEnabled: boolean;
-  /** LINE notifications are on: the status page after submitting offers "รับแจ้งผลทาง LINE". */
+  /** LINE notifications are on: the confirm step offers LINE as the channel for the QR and results. */
   lineEnabled: boolean;
   deadline: string;
   autoApprove: boolean;
@@ -72,6 +72,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [wizardError, setWizardError] = useState("");
+  const [channel, setChannel] = useState<"EMAIL" | "LINE">("EMAIL");
   const form = useRef<HTMLFormElement>(null);
   const emailInput = useRef<HTMLInputElement>(null);
   const consentInput = useRef<HTMLInputElement>(null);
@@ -122,7 +123,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (step !== lastStep) { event.preventDefault(); nextStep(); return; }
     if (seatMode !== "whole_course" && selectedDays.length === 0) { event.preventDefault(); goTo(1); setWizardError("กรุณาเลือกวันที่เข้าร่วม"); return; }
-    if (!emailInput.current?.checkValidity()) { event.preventDefault(); emailInput.current?.reportValidity(); return; }
+    if (channel === "EMAIL" && !emailInput.current?.checkValidity()) { event.preventDefault(); emailInput.current?.reportValidity(); return; }
     if (!consentInput.current?.checked) { event.preventDefault(); consentInput.current?.reportValidity(); }
   }
 
@@ -197,11 +198,21 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
       </section>)}
 
       <section className={cn("flex flex-col gap-3 px-5 py-5", step !== lastStep && "hidden")} aria-label="ยืนยันการลงทะเบียน">
-        <div className="flex flex-col gap-3 rounded-xl border-2 border-primary bg-card p-4">
-          <div className="flex items-center gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><MailIcon className="size-5" aria-hidden="true" /></span><div className="flex flex-col"><label htmlFor="public-email" className="font-semibold">อีเมลสำหรับติดต่อ <span className="text-destructive" aria-hidden="true">*</span></label><span className="text-xs text-muted-foreground">ใช้ระบุตัวตนผู้ลงทะเบียนและติดต่อกลับ</span></div></div>
+        {lineEnabled && <fieldset className="flex flex-col gap-2.5">
+          <legend className="mb-1 font-semibold">รับ QR และผลการลงทะเบียนทาง <span className="text-destructive" aria-hidden="true">*</span></legend>
+          <div className="grid grid-cols-2 gap-3">
+            {([["EMAIL", "อีเมล", MailIcon, "ส่งบัตรพร้อม QR ไปที่อีเมล"], ["LINE", "LINE", MessageCircleIcon, "ส่งผลและลิงก์ QR ทาง LINE"]] as const).map(([value, label, Icon, hint]) => <label key={value} className="flex cursor-pointer flex-col gap-1.5 rounded-xl border bg-card p-4 has-checked:border-2 has-checked:border-primary has-checked:bg-accent">
+              <span className="flex items-center gap-2.5 font-semibold"><input type="radio" name="notifyVia" value={value} checked={channel === value} onChange={() => setChannel(value)} className="size-4 accent-primary" /><Icon className={cn("size-4", value === "LINE" ? "text-[#06C755]" : "text-primary")} aria-hidden="true" />{label}</span>
+              <span className="text-xs leading-relaxed text-muted-foreground">{hint}</span>
+            </label>)}
+          </div>
+          {channel === "LINE" && <p className="rounded-lg bg-muted px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">ไม่ต้องกรอกอีเมล — กดยืนยันแล้วระบบจะพาไปเข้าสู่ระบบ LINE และ<strong className="text-foreground">เพิ่ม OA ของระบบเป็นเพื่อน</strong> (ส่งข้อความได้เฉพาะเพื่อน) ถ้าเชื่อมไม่สำเร็จ เชื่อมใหม่หรือเปลี่ยนเป็นอีเมลได้ที่หน้าสถานะ</p>}
+        </fieldset>}
+        {channel === "EMAIL" && <div className="flex flex-col gap-3 rounded-xl border-2 border-primary bg-card p-4">
+          <div className="flex items-center gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><MailIcon className="size-5" aria-hidden="true" /></span><div className="flex flex-col"><label htmlFor="public-email" className="font-semibold">อีเมล <span className="text-destructive" aria-hidden="true">*</span></label><span className="text-xs text-muted-foreground">ใช้ระบุตัวตนและรับบัตร QR</span></div></div>
           <Input ref={emailInput} id="public-email" name="email" type="email" autoComplete="email" inputMode="email" placeholder="name@example.com" maxLength={191} required className={controlClass} />
-        </div>
-        <div className="flex items-start gap-3 rounded-xl border bg-card p-4"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><MessageCircleIcon className="size-5" aria-hidden="true" /></span><p className="text-sm leading-relaxed text-muted-foreground">{lineEnabled ? "ต้องการรับผลทาง LINE? หลังส่งใบสมัคร กด \"รับแจ้งผลทาง LINE\" ในหน้าสถานะ และบันทึกลิงก์หน้าสถานะไว้ดูผลและ QR" : "หลังส่งใบสมัคร กรุณาบันทึกลิงก์หน้าสถานะที่ระบบแสดงไว้ เพื่อดูผลการอนุมัติและ QR"}</p></div>
+        </div>}
+        <p className="px-1 text-xs leading-relaxed text-muted-foreground">หลังส่งใบสมัคร ระบบจะแสดงหน้าสถานะ บันทึกลิงก์หน้านั้นไว้เพื่อดูผลและ QR ได้ทุกเมื่อ</p>
         <div className="flex items-start gap-3 rounded-xl border bg-card p-4 has-[:checked]:border-primary"><input ref={consentInput} id="public-consent" name="consent" type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" required /><label htmlFor="public-consent" className="text-sm leading-relaxed">{CURRENT_CONSENT_TEXT} <span className="text-destructive" aria-hidden="true">*</span></label></div>
         {captchaSiteKey ? <div className="cf-turnstile" data-sitekey={captchaSiteKey} /> : captchaEnabled && <div className="flex items-center gap-3 rounded-xl border bg-card p-4"><ShieldCheckIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><p className="text-xs text-muted-foreground">โหมดทดสอบในเครื่อง: ยังไม่ได้เชื่อม Cloudflare Turnstile</p></div>}
       </section>

@@ -3,14 +3,14 @@ import test from "node:test";
 import nodemailer from "nodemailer";
 
 import { emailOrigin, sendEmail, smtpConfig, smtpFailure } from "./client.ts";
-import { buildEmailMessage, emailSnapshot } from "./message.ts";
+import { buildEmailMessage, emailSnapshot, QR_CONTENT_ID } from "./message.ts";
 
 const env = { SMTP_HOST: "mail.example.test", SMTP_USER: "sender", SMTP_PASS: "test-secret", SMTP_FROM: "sender@example.test" };
 const person = (overrides = {}) => ({
-  id: "r1", email: "recipient@example.test", status: "APPROVED", statusTokenHash: "hash", qrCode: "private-qr", rejectReason: null,
+  id: "r1", email: "recipient@example.test", displayName: "สมชาย ใจดี", status: "APPROVED", statusTokenHash: "hash", qrCode: "private-qr", rejectReason: null,
   emailNotifiedHash: null, notifyVia: "EMAIL", anonymizedAt: null,
   days: [{ eventDayId: "d1", status: "APPROVED" }, { eventDayId: "d2", status: "WAITLISTED" }],
-  event: { title: "อบรมทดสอบ", slug: "demo", seatMode: "per_day", deletedAt: null, anonymizedAt: null, days: [{ id: "d1", date: new Date("2031-12-01") }, { id: "d2", date: new Date("2031-12-02") }] },
+  event: { title: "อบรมทดสอบ", location: "อาคารภูมิพัฒน์ ชั้น 9", slug: "demo", seatMode: "per_day", deletedAt: null, anonymizedAt: null, days: [{ id: "d1", date: new Date("2031-12-01") }, { id: "d2", date: new Date("2031-12-02") }] },
   ...overrides,
 });
 const url = "https://example.test/events/demo/status/private-link";
@@ -44,9 +44,18 @@ test("mixed approval and waitlist show both dates and only approved days may use
   assert.equal(mail.attachQr, true);
 });
 
+test("approved HTML is a ticket with the inline QR, name, place and approved dates", () => {
+  const html = buildEmailMessage(person(), url).html;
+  assert.ok(html.includes(`src="cid:${QR_CONTENT_ID}"`));
+  for (const part of ["บัตรเข้าร่วมอบรม", "สมชาย ใจดี", "อาคารภูมิพัฒน์ ชั้น 9", "private-qr", "(วันที่ 1)", "คิวสำรอง", url]) assert.ok(html.includes(part), part);
+  assert.ok(!html.includes("(วันที่ 2)"), "waitlisted day is not printed on the ticket");
+});
+
 test("pending, waitlist, rejected and cancelled results never attach QR even if a stale code exists", () => {
   for (const status of ["PENDING", "WAITLISTED", "REJECTED", "CANCELLED"]) {
-    assert.equal(buildEmailMessage(person({ status, days: [{ eventDayId: "d1", status }] }), url).attachQr, false);
+    const mail = buildEmailMessage(person({ status, days: [{ eventDayId: "d1", status }] }), url);
+    assert.equal(mail.attachQr, false);
+    assert.ok(!mail.html.includes("cid:") && !mail.html.includes("private-qr"));
   }
 });
 
@@ -88,6 +97,7 @@ test("SMTP sends one recipient with a PNG attachment, stable message ID, and alw
   assert.deepEqual(sent.to, { address: "recipient@example.test", name: "" });
   assert.equal(sent.messageId, "<fixed-id@example.test>");
   assert.equal(sent.attachments[0].content, png);
+  assert.equal(sent.attachments[0].cid, QR_CONTENT_ID);
   assert.equal(closed, 1);
   assert.equal((await sendEmail({ to: "a@example.test,b@example.test", subject: "", text: "", html: "", retryKey: "id" })).ok, false);
 });

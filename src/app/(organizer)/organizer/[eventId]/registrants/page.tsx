@@ -330,7 +330,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
                     {lineHistory.length > 0 && <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">{lineHistory.map((item) => <li key={item.id}>{lineKinds[item.kind] ?? item.kind} · {formatDateTime(item.sentAt ?? item.createdAt)} · <span className={cn(item.status === "FAILED" && "font-semibold text-destructive", item.status === "SENT" && "text-foreground")}>{lineStatuses[item.status]}</span>{item.status === "FAILED" && item.error ? ` (${item.error})` : ""}</li>)}</ul>}
                     {lineHistory[0]?.status === "FAILED" && <span className="text-xs text-muted-foreground">มักเกิดจากผู้สมัครบล็อก OA หรือโควตาข้อความของเดือนหมด · ผู้สมัครยังดูผลได้จากลิงก์หน้าสถานะ</span>}
                     {lineOn && canEdit && <form action={resendLineNotification.bind(null, eventId, person.id)}><input type="hidden" name="returnTo" value={returnTo} /><Button size="xs" variant="outline">ส่งสถานะทาง LINE อีกครั้ง</Button></form>}
-                  </> : <span className="text-muted-foreground">ยังไม่เชื่อม — ผู้สมัครกด &ldquo;รับแจ้งผลทาง LINE&rdquo; ได้ในหน้าสถานะของตัวเอง</span>}
+                  </> : <span className="text-muted-foreground">ยังไม่เชื่อม — ผู้สมัครเลือกรับทาง LINE ได้ตอนสมัครหรือในหน้าสถานะของตัวเอง</span>}
                 </dd>
               </>}
               {fields.map((field) => {

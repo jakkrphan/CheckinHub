@@ -1,12 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies, headers } from "next/headers";
+import { z } from "zod";
 import { notFound, redirect } from "next/navigation";
 
-import { lineAuthorizeUrl, lineCallbackUrl } from "@/server/line/client";
-import { lineAvailable, lineLinkTarget, unlinkLineAccount } from "@/server/line/link";
-import { encodeLineLinkState, LINE_LINK_COOKIE, LINE_LINK_MAX_AGE, newLineLinkState } from "@/server/line/link-state";
+import { lineAvailable, lineLinkTarget, lineLoginUrl, unlinkLineAccount } from "@/server/line/link";
 
 import { requestOwnDeletion } from "@/server/registrations/data-requests";
 import { changeOwnDays } from "@/server/registrations/day-change";
@@ -59,24 +57,29 @@ export async function requestDeletionAction(slug: string, token: string, formDat
   redirect(`/events/${slug}/status/${token}?deletion=requested#delete-request`);
 }
 
-/** "รับแจ้งผลทาง LINE": sends the person to LINE Login (with the add-friend prompt); /api/line/callback finishes. */
+/** "เปลี่ยนเป็นรับทาง LINE": sends the person to LINE Login (with the add-friend prompt); /api/line/callback finishes. */
 export async function startLineLinkAction(slug: string, token: string) {
   const back = `/events/${slug}/status/${token}`;
   if (!(await lineAvailable())) redirect(`${back}?line=unavailable#line`);
   const registrant = await lineLinkTarget(slug, token);
   if (!registrant) notFound();
   if (registrant.status === "CANCELLED" || registrant.status === "REJECTED") redirect(`${back}?line=closed#line`);
-  const requestHeaders = await headers();
-  const redirectUri = lineCallbackUrl(`${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`);
-  const state = newLineLinkState(registrant.id, back, redirectUri);
-  (await cookies()).set(LINE_LINK_COOKIE, encodeLineLinkState(state), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/api/line", maxAge: LINE_LINK_MAX_AGE });
-  redirect(lineAuthorizeUrl({ redirectUri, state: state.state, nonce: state.nonce }));
+  redirect(await lineLoginUrl(registrant.id, back));
 }
 
-export async function unlinkLineAction(slug: string, token: string) {
+/** "เปลี่ยนเป็นรับทางอีเมล" / "ใช้อีเมลแทน"; someone who registered with LINE only types their email here. */
+export async function unlinkLineAction(slug: string, token: string, formData: FormData) {
+  const back = `/events/${slug}/status/${token}`;
   const registrant = await lineLinkTarget(slug, token);
   if (!registrant) notFound();
-  if (registrant.lineUserId) await unlinkLineAccount(registrant);
+  let email: string | undefined;
+  if (!registrant.email) {
+    const parsed = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
+    if (!parsed.success) redirect(`${back}?line=email-invalid#line`);
+    email = parsed.data;
+  }
+  // Also covers "use email instead" for someone who chose LINE but never connected it.
+  if ((registrant.lineUserId || registrant.notifyVia !== "EMAIL") && await unlinkLineAccount(registrant, email) === "duplicate") redirect(`${back}?line=email-taken#line`);
   revalidatePath(`/events/${slug}/status/${token}`);
   redirect(`/events/${slug}/status/${token}?line=unlinked#line`);
 }
