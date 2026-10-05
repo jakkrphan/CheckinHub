@@ -32,17 +32,8 @@ const isDesktop = () => window.matchMedia("(min-width: 1024px)").matches;
 /** How this device reads QR codes; defaults to a USB/Bluetooth scanner and is remembered per device. */
 type InputMode = "scanner" | "camera";
 const MODE_KEY = "checkin-input-mode";
-const modeListeners = new Set<() => void>();
 function readMode(): InputMode {
   try { return localStorage.getItem(MODE_KEY) === "camera" ? "camera" : "scanner"; } catch { return "scanner"; }
-}
-function writeMode(mode: InputMode) {
-  try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage may be blocked; the choice then lasts for this page only */ }
-  for (const listener of modeListeners) listener();
-}
-function subscribeMode(listener: () => void) {
-  modeListeners.add(listener);
-  return () => { modeListeners.delete(listener); };
 }
 
 /** A scanner can fire twice for one QR: true when `value` repeats the last scan within 3 seconds, otherwise records it. */
@@ -83,7 +74,9 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
   const keys = useRef({ at: 0, burst: false });
   const autoSubmit = useRef<number | undefined>(undefined);
   const last = useRef({ code: "", at: 0 });
-  const inputMode = useSyncExternalStore(subscribeMode, readMode, () => "scanner" as InputMode);
+  const savedMode = useSyncExternalStore(subscribeNever, readMode, () => "scanner" as InputMode);
+  const [selectedMode, setSelectedMode] = useState<InputMode | null>(null);
+  const inputMode = selectedMode ?? savedMode;
   const camera = allowCamera && inputMode === "camera";
   const desktop = useSyncExternalStore(subscribeDesktop, isDesktop, () => false);
   const [cameraAttempt, setCameraAttempt] = useState(0);
@@ -255,7 +248,8 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
 
   function chooseMode(next: InputMode) {
     setCameraError("");
-    writeMode(next);
+    setSelectedMode(next);
+    try { localStorage.setItem(MODE_KEY, next); } catch { /* The choice still works for this page. */ }
     if (next === "scanner") window.setTimeout(() => codeInput.current?.focus(), 0);
   }
 
