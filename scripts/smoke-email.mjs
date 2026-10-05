@@ -72,6 +72,19 @@ try {
   row = await queue(); assert.equal((await run()).skipped, 1);
   assert.equal((await db.notificationLog.findUniqueOrThrow({ where: { id: row.id } })).error, "SENT_VIA_LINE");
   await queue({ kind: "fallback" }); assert.equal((await run()).sent, 1, "LINE-only recipients receive fallback email");
+  // Organizer resend: goes out although nothing changed and LINE is the channel; three per hour.
+  const sentBefore = delivered.length;
+  await queue({ kind: "resend" }); assert.equal((await run()).sent, 1, "A resend is sent even when the result is unchanged");
+  assert.equal(delivered.length, sentBefore + 1);
+  const { queueEmailResend } = await import("../src/server/email/notifications.ts");
+  await db.notificationLog.deleteMany({ where: { registrantId: person.id, kind: "resend" } });
+  for (let attempt = 1; attempt <= 4; attempt++) assert.equal(await queueEmailResend({ id: person.id, eventId }), attempt <= 3 ? "queued" : "rate-limited", `resend ${attempt}`);
+  // Simultaneous clicks with two resends already this hour: exactly one more gets through.
+  await db.notificationLog.deleteMany({ where: { registrantId: person.id, kind: "resend" } });
+  await queueEmailResend({ id: person.id, eventId }); await queueEmailResend({ id: person.id, eventId });
+  const together = await Promise.all(Array.from({ length: 4 }, () => queueEmailResend({ id: person.id, eventId })));
+  assert.equal(together.filter((outcome) => outcome === "queued").length, 1, `Concurrent resends passed the limit: ${together}`);
+  await db.notificationLog.updateMany({ where: { registrantId: person.id, status: "QUEUED" }, data: { status: "SKIPPED" } });
   await db.registrant.update({ where: { id: person.id }, data: { anonymizedAt: new Date(), email: null } });
   await queue({ kind: "fallback" }); assert.equal((await run()).skipped, 1);
   console.log("Email integration passed: concurrent claims, QR, state deduplication, retry/backoff, permanent errors, crash recovery, channel isolation, switch, fallback and privacy. No real email sent.");

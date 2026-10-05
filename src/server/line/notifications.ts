@@ -37,10 +37,15 @@ export function scheduleLineDelivery() {
 
 /** The organizer's "send again": at most three per person per hour, so an OA's monthly quota cannot be burnt. */
 export async function queueLineResend(registrant: { id: string; eventId: string }) {
-  const recent = await db.notificationLog.count({ where: { registrantId: registrant.id, kind: "resend", createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } } });
-  if (recent >= RESEND_LIMIT_PER_HOUR) return "rate-limited" as const;
-  await db.$transaction((tx) => queueLineNotification(tx, registrant, "resend"));
-  return "queued" as const;
+  // Row lock: count-then-insert is atomic, so simultaneous clicks cannot exceed the limit.
+  const queued = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${registrant.id} FOR UPDATE`;
+    const recent = await tx.notificationLog.count({ where: { registrantId: registrant.id, channel: "LINE", kind: "resend", createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } } });
+    if (recent >= RESEND_LIMIT_PER_HOUR) return false;
+    await queueLineNotification(tx, registrant, "resend");
+    return true;
+  });
+  return queued ? "queued" as const : "rate-limited" as const;
 }
 
 async function publicOrigin() {

@@ -3,16 +3,20 @@
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
+import { emailConfigured } from "@/server/email/client";
+import { queueEmailResend } from "@/server/email/notifications";
 import { lineAvailable } from "@/server/line/link";
 import { queueLineResend } from "@/server/line/notifications";
 import { getSeatAvailability, seatsTaken, syncRegistrantStatus } from "@/server/registrations/day-status";
 import { completeDeletionRequest, rejectDeletionRequest } from "@/server/registrations/data-requests";
 import { lockEventDays, promoteNextManually, promoteWaitlist } from "@/server/registrations/lifecycle";
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
+import { isFeatureEnabled } from "@/server/settings/features";
 
 /** Returns to the list view the organizer acted from (filters + selected person), adding the result flags. */
 function backTo(eventId: string, formData: FormData | undefined, flags: Record<string, string | number | undefined>) {
@@ -221,6 +225,40 @@ export async function resolveDeletionRequest(eventId: string, requestId: string,
   }
   revalidatePath(`/organizer/${eventId}`, "layout");
   redirect(backTo(eventId, formData, { result }));
+}
+
+/**
+ * "ส่งอีเมลอีกครั้ง" (spec: resend, with the chance to fix a mistyped address first): emails the current result and QR,
+ * at most three per person per hour. A changed address becomes the person's duplicate guard while they are registered.
+ */
+export async function resendEmailNotification(eventId: string, registrantId: string, formData: FormData) {
+  const { user } = await requireEventAccess(eventId, "manage");
+  if (!emailConfigured() || !(await isFeatureEnabled("emailNotifications"))) redirect(backTo(eventId, formData, { result: "email-unavailable" }));
+  const parsed = z.email().max(191).safeParse(formData.get("email")?.toString().trim().toLowerCase());
+  if (!parsed.success) redirect(backTo(eventId, formData, { result: "email-invalid" }));
+  const email = parsed.data;
+  let person: { id: string; eventId: string } | null;
+  try {
+    person = await db.$transaction(async (tx) => {
+      const current = await tx.registrant.findFirst({ where: { id: registrantId, eventId, anonymizedAt: null }, select: { id: true, eventId: true, email: true, dedupeKey: true, status: true } });
+      if (!current) return null;
+      if (current.email !== email) {
+        // The guard follows the email unless it is a LINE one (line:<id>); cancelled/rejected people have none.
+        const guarded = current.dedupeKey === current.email || (current.dedupeKey === null && ["PENDING", "APPROVED", "WAITLISTED"].includes(current.status));
+        await tx.registrant.update({ where: { id: current.id }, data: { email, emailNotifiedHash: null, ...(guarded ? { dedupeKey: email } : {}) } });
+        // Ids only: no addresses in the audit trail (PDPA logging rule).
+        await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "REGISTRANT_EMAIL_CHANGED", target: current.id } });
+      }
+      return { id: current.id, eventId: current.eventId };
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") redirect(backTo(eventId, formData, { result: "email-taken" }));
+    throw error;
+  }
+  if (!person) redirect(backTo(eventId, formData, { result: "missing" }));
+  if (await queueEmailResend(person) === "rate-limited") redirect(backTo(eventId, formData, { result: "email-limit" }));
+  revalidatePath(`/organizer/${eventId}/registrants`);
+  redirect(backTo(eventId, formData, { result: "email-resent" }));
 }
 
 /** "ส่งทาง LINE อีกครั้ง": queues the full status summary with a fresh link; at most three per person per hour. */

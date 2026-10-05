@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Prisma, type RegistrantStatus } from "@prisma/client";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, ShieldIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
 
-import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resendLineNotification, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
+import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resendEmailNotification, resendLineNotification, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,11 @@ const resultMessages: Record<string, [string, "ok" | "warn" | "error"]> = {
   "delete-rejected": ["ปฏิเสธคำขอลบข้อมูลแล้ว ผู้สมัครจะเห็นเหตุผลในหน้าสถานะ", "ok"],
   "delete-confirm": ["กรุณาติ๊กยืนยันก่อนลบข้อมูล", "error"],
   "delete-note": ["กรุณาระบุเหตุผลที่ต้องเก็บข้อมูลไว้ (อย่างน้อย 3 ตัวอักษร)", "error"],
+  "email-resent": ["ส่งอีเมลผลและ QR อีกครั้งแล้ว (ส่งจริงภายในไม่กี่วินาที ดูผลในแถวอีเมล) · ถ้าผู้สมัครหาไม่เจอ ให้ดูในโฟลเดอร์ Spam", "ok"],
+  "email-limit": ["ส่งอีเมลซ้ำได้ไม่เกิน 3 ครั้งต่อชั่วโมงต่อคน", "warn"],
+  "email-invalid": ["กรุณากรอกอีเมลให้ถูกต้อง", "error"],
+  "email-taken": ["อีเมลนี้มีผู้ลงทะเบียนโครงการนี้แล้ว", "error"],
+  "email-unavailable": ["การส่งอีเมลปิดอยู่ (ตั้งค่าระบบ) หรือยังไม่ได้ตั้งค่า SMTP", "error"],
   "line-resent": ["ส่งสถานะล่าสุดทาง LINE แล้ว (ส่งจริงภายในไม่กี่วินาที ดูผลในแถว LINE)", "ok"],
   "line-limit": ["ส่งทาง LINE ซ้ำได้ไม่เกิน 3 ครั้งต่อชั่วโมงต่อคน", "warn"],
   "line-not-linked": ["ผู้สมัครคนนี้ยังไม่ได้เชื่อม LINE", "error"],
@@ -166,7 +171,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
   const flags = await getFeatureFlags();
   const lineOn = flags.lineLogin && lineConfigured();
   const emailOn = emailConfigured() && flags.emailNotifications;
-  const emailHistory = person ? await db.notificationLog.findMany({ where: { registrantId: person.id, channel: "EMAIL" }, orderBy: { createdAt: "desc" }, take: 3, select: { id: true, status: true, createdAt: true, sentAt: true } }) : [];
+  const emailHistory = person ? await db.notificationLog.findMany({ where: { registrantId: person.id, channel: "EMAIL" }, orderBy: { createdAt: "desc" }, take: 3, select: { id: true, kind: true, status: true, createdAt: true, sentAt: true } }) : [];
   // LINE delivery: the latest sent/failed message per person on this page (list badge) and a short history for the detail.
   const lineResults = await db.notificationLog.findMany({ where: { registrantId: { in: registrants.map((item) => item.id) }, channel: "LINE", status: { in: ["SENT", "FAILED"] } }, orderBy: { createdAt: "desc" }, select: { registrantId: true, status: true } });
   const lineFailed = new Set(registrants.filter((item) => lineResults.find((row) => row.registrantId === item.id)?.status === "FAILED").map((item) => item.id));
@@ -320,7 +325,12 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
               <dd className="flex min-w-0 flex-col gap-2 border-b py-3">
                 <span className="break-all">{person.email ?? "—"}</span>
                 {person.email && !emailOn && <span className="text-xs text-destructive">การส่งอีเมลปิดอยู่หรือยังไม่ได้ตั้งค่า</span>}
-                {emailHistory.length > 0 && <ul className="flex flex-col gap-1 text-xs text-muted-foreground">{emailHistory.map((item) => <li key={item.id}>{formatDateTime(item.sentAt ?? item.createdAt)} · <span className={cn(item.status === "FAILED" && "font-semibold text-destructive")}>{item.status === "SENT" ? "เซิร์ฟเวอร์รับอีเมลแล้ว" : item.status === "FAILED" ? "ส่งอีเมลไม่สำเร็จ" : item.status === "SKIPPED" ? "ไม่ได้ส่ง (สถานะเดิม / ปิดอยู่ / ไม่มีผู้รับ)" : item.status === "SENDING" ? "กำลังส่งอีเมล" : "รอส่งอีเมล"}</span></li>)}</ul>}
+                {emailHistory.length > 0 && <ul className="flex flex-col gap-1 text-xs text-muted-foreground">{emailHistory.map((item) => <li key={item.id}>{item.kind === "resend" ? "ส่งซ้ำ · " : ""}{formatDateTime(item.sentAt ?? item.createdAt)} · <span className={cn(item.status === "FAILED" && "font-semibold text-destructive")}>{item.status === "SENT" ? "เซิร์ฟเวอร์รับอีเมลแล้ว" : item.status === "FAILED" ? "ส่งอีเมลไม่สำเร็จ" : item.status === "SKIPPED" ? "ไม่ได้ส่ง (สถานะเดิม / ปิดอยู่ / ไม่มีผู้รับ)" : item.status === "SENDING" ? "กำลังส่งอีเมล" : "รอส่งอีเมล"}</span></li>)}</ul>}
+                {emailOn && canEdit && <form action={resendEmailNotification.bind(null, eventId, person.id)} className="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <Input name="email" type="email" required maxLength={191} defaultValue={person.email ?? ""} placeholder="อีเมลผู้สมัคร" aria-label="อีเมลที่จะส่งซ้ำ (แก้ได้ถ้ากรอกผิด)" className="h-8 min-w-0 flex-1 basis-48 text-sm" />
+                  <Button size="xs" variant="outline">{person.email ? "ส่งอีเมลอีกครั้ง" : "เพิ่มอีเมลและส่ง"}</Button>
+                </form>}
               </dd>
               {(lineOn || person.lineUserId) && <>
                 <dt className="border-b py-3 text-sm text-muted-foreground">LINE</dt>

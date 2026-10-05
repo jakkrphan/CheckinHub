@@ -40,7 +40,7 @@ export function mergeAnswers(currentFields: RegistrationFieldConfig[], stored: u
       for (const value of values) if (typeof value === "string") source.append(name, value);
     }
   }
-  const checked = checkRegistrationAnswers(fields, source, existingFiles);
+  const checked = checkRegistrationAnswers(fields, source, existingFiles, previous);
   if ("problem" in checked) return checked;
   const parsed = checked.answers;
   const known = new Set(fields.map((field) => field.key));

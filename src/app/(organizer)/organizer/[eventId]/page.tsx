@@ -178,7 +178,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
         {(error === "invalid" || error === "invalid-cover") && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage[error]}{error === "invalid" && event.status !== "DRAFT" ? " · เปลี่ยนรูปแบบที่นั่งหรือลดที่นั่งทั้งหลักสูตรต่ำกว่าจำนวนที่จองแล้วไม่ได้" : ""}</p>}
         {saved === "1" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">บันทึกข้อมูลโครงการแล้ว</p>}
         {saved === "cloned" && <p role="status" className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-sm text-accent-foreground">ทำสำเนาโครงการแล้ว — คัดลอกข้อมูล ฟอร์ม รูปปก และรอบเช็คชื่อ (แบบไม่ผูกวัน) มาให้ ต้องกำหนดวันที่จัด ที่นั่ง วันปิดรับ และผู้ร่วมจัดใหม่</p>}
-        <form id="event-info" action={save} encType="multipart/form-data" className="flex flex-col gap-6">
+        <form id="event-info" action={save} className="flex flex-col gap-6">
           <EventInfoFields event={event} deadlineDate={deadlineDate} seatModeLocked={event.status !== "DRAFT" || registrantCount > 0} registrantCount={registrantCount} />
           <div className="flex justify-end"><Button type="submit" variant="outline" size="lg">บันทึก</Button></div>
         </form>

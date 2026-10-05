@@ -12,7 +12,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { answerProblemMessage, conditionMatches, DEFAULT_FORM_PAGE_TITLE, TEL_ANSWER_PATTERN, type FormPageLayout, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { answerMaxLength, answerProblemMessage, conditionMatches, DEFAULT_FORM_PAGE_TITLE, TEL_ANSWER_PATTERN, type FormPageLayout, type RegistrationFieldConfig } from "@/features/events/registration-fields";
 import { CURRENT_CONSENT_TEXT } from "@/features/registrations/consent";
 import { cn } from "@/lib/utils";
 
@@ -133,12 +133,12 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
     const setAnswer = (value: string) => setAnswers((current) => ({ ...current, [field.key]: value }));
     return <Field key={field.key} className="gap-1.5">
       <FieldLabel htmlFor={field.type === "checkbox" || field.type === "radio" ? undefined : id} className="gap-1 text-sm font-semibold">{field.label}{field.required && <span className="text-destructive" aria-hidden="true">*</span>}{field.required && <span className="sr-only">(จำเป็น)</span>}</FieldLabel>
-      {field.type === "textarea" ? <Textarea id={id} name={name} required={field.required} maxLength={3000} rows={3} className="min-h-24 rounded-lg bg-card px-3.5 py-3 text-base md:text-base" onChange={(event) => setAnswer(event.target.value)} />
+      {field.type === "textarea" ? <Textarea id={id} name={name} required={field.required} maxLength={answerMaxLength(field.type)} rows={3} className="min-h-24 rounded-lg bg-card px-3.5 py-3 text-base md:text-base" onChange={(event) => setAnswer(event.target.value)} />
         : field.type === "select" ? <NativeSelect id={id} name={name} required={field.required} defaultValue="" className="h-12 bg-card px-3 text-base" onChange={(event) => setAnswer(event.target.value)}><option value="">เลือกคำตอบ</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</NativeSelect>
         : field.type === "radio" ? <div role="radiogroup" aria-label={field.label} aria-required={field.required} className="flex flex-col gap-2">{field.options?.map((option) => <label key={option} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border bg-card px-3.5 text-base has-[:checked]:border-primary"><input type="radio" name={name} value={option} required={field.required} className="size-5 accent-primary" onChange={() => setAnswer(option)} />{option}</label>)}</div>
         : field.type === "checkbox" ? <div role="group" aria-label={field.label} className="flex flex-col gap-2">{field.options?.map((option) => <label key={option} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border bg-card px-3.5 text-base has-[:checked]:border-primary"><input type="checkbox" name={name} value={option} className="size-5 accent-primary" onChange={(event) => setAnswers((current) => { const selected = Array.isArray(current[field.key]) ? current[field.key] as string[] : []; return { ...current, [field.key]: event.target.checked ? [...selected, option] : selected.filter((item) => item !== option) }; })} />{option}</label>)}{field.required && <FieldDescription>เลือกอย่างน้อยหนึ่งข้อ</FieldDescription>}</div>
         : field.type === "file" ? <PublicFileField id={id} name={name} required={field.required} acceptedFileTypes={field.acceptedFileTypes ?? []} maxFileSizeMb={field.maxFileSizeMb ?? 5} maxFiles={field.maxFiles ?? 1} />
-        : <Input id={id} name={name} type={field.type} required={field.required} maxLength={field.type === "tel" ? 30 : 3000} pattern={field.type === "tel" ? TEL_ANSWER_PATTERN : undefined} inputMode={field.type === "tel" ? "tel" : undefined} placeholder={field.type === "tel" ? "เช่น 081-234-5678" : undefined} className={controlClass} onChange={(event) => setAnswer(event.target.value)} />}
+        : <Input id={id} name={name} type={field.type} required={field.required} maxLength={answerMaxLength(field.type)} pattern={field.type === "tel" ? TEL_ANSWER_PATTERN : undefined} inputMode={field.type === "tel" ? "tel" : undefined} placeholder={field.type === "tel" ? "เช่น 081-234-5678" : undefined} className={controlClass} onChange={(event) => setAnswer(event.target.value)} />}
     </Field>;
   }
 

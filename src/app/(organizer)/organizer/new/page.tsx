@@ -20,7 +20,7 @@ export default async function NewEventPage({ searchParams }: PageProps<"/organiz
   const { error } = await searchParams;
 
   return (
-    <form action={createEvent} encType="multipart/form-data" className="flex min-h-[calc(100svh-60px)] flex-1 flex-col lg:flex-row">
+    <form action={createEvent} className="flex min-h-[calc(100svh-60px)] flex-1 flex-col lg:flex-row">
       <aside className="flex w-full shrink-0 flex-col gap-6 border-b bg-card px-5 py-6 lg:min-h-[calc(100svh-60px)] lg:w-[300px] lg:gap-6 lg:border-b-0 lg:border-r lg:px-8 lg:py-9">
         <div className="flex flex-col gap-1">
           <Link href="/organizer" className="-my-2.5 flex w-fit items-center gap-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"><ChevronLeftIcon className="size-4" aria-hidden="true" />โครงการของฉัน</Link>

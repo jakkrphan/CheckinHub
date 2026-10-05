@@ -17,6 +17,23 @@ export async function queueEmailNotification(tx: Prisma.TransactionClient, perso
   try { after(() => processEmailNotifications(10, person.id)); } catch { /* Outside requests the maintenance job delivers. */ }
 }
 
+const RESEND_LIMIT_PER_HOUR = 3;
+
+/** The organizer's "send the email again" (spec: resend): the current result in full, at most three per person per hour. */
+export async function queueEmailResend(person: { id: string; eventId: string }) {
+  // The registrant row lock makes count-then-insert atomic: two clicks at once cannot both pass the limit.
+  const queued = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${person.id} FOR UPDATE`;
+    const recent = await tx.notificationLog.count({ where: { registrantId: person.id, channel: "EMAIL", kind: "resend", createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } } });
+    if (recent >= RESEND_LIMIT_PER_HOUR) return false;
+    await tx.notificationLog.create({ data: { eventId: person.eventId, registrantId: person.id, channel: "EMAIL", kind: "resend", retryKey: randomUUID() } });
+    return true;
+  });
+  if (!queued) return "rate-limited" as const;
+  try { after(() => processEmailNotifications(10, person.id)); } catch { /* Outside requests the maintenance job delivers. */ }
+  return "queued" as const;
+}
+
 export async function processEmailNotifications(limit = 25, registrantId?: string) {
   return processEmailQueue(db, { enabled: await isFeatureEnabled("emailNotifications"), origin: emailOrigin(), statusToken: lineStatusToken }, limit, registrantId);
 }

@@ -30,9 +30,11 @@ async function deliver(db: PrismaClient, id: string, options: DeliveryOptions): 
   }
   // Chose LINE and connected it: LINE carries the news; email only steps in when a LINE push fails (kind "fallback").
   // A LINE chooser who never connected still gets email.
-  if (notification.kind !== "fallback" && person.notifyVia === "LINE" && person.lineUserId) { await finish("SKIPPED", "SENT_VIA_LINE"); return "skipped"; }
+  // An organizer's resend is explicit: it goes out even when LINE is the channel or nothing changed since the last email.
+  const resend = notification.kind === "resend";
+  if (!resend && notification.kind !== "fallback" && person.notifyVia === "LINE" && person.lineUserId) { await finish("SKIPPED", "SENT_VIA_LINE"); return "skipped"; }
   const snapshot = emailSnapshot(person);
-  if (snapshot === person.emailNotifiedHash) { await finish("SKIPPED", "NO_CHANGE"); return "skipped"; }
+  if (!resend && snapshot === person.emailNotifiedHash) { await finish("SKIPPED", "NO_CHANGE"); return "skipped"; }
   const origin = options.origin;
   if (!origin) { await finish("FAILED", "APP_BASE_URL_INVALID"); return "failed"; }
   const url = `${origin}/events/${person.event.slug}/status/${options.statusToken(person)}`;

@@ -32,6 +32,7 @@ const labels: Record<string, string> = {
   MANUAL_REGISTRATION_CREATED: "เพิ่มผู้สมัครเอง",
   WAITLIST_PROMOTED_MANUALLY: "เลื่อนคิวสำรอง (ผู้จัดกดเอง)",
   STATUS_LINK_REISSUED: "ออกลิงก์สถานะใหม่",
+  REGISTRANT_EMAIL_CHANGED: "แก้อีเมลผู้สมัคร (ก่อนส่งอีเมลซ้ำ)",
   DATA_DELETION_REQUESTED: "ผู้สมัครขอลบข้อมูล",
   DATA_DELETION_COMPLETED: "ลบข้อมูลตามคำขอ",
   DATA_DELETION_REJECTED: "ปฏิเสธคำขอลบข้อมูล",

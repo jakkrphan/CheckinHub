@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LiveRefresh } from "@/components/live-refresh";
 import { Input } from "@/components/ui/input";
-import { readRegistrationFields } from "@/features/events/registration-fields";
+import { answerMaxLength, readRegistrationFields } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
 import { currentStation } from "@/server/checkin/station";
@@ -122,7 +122,7 @@ export default async function EventCheckInPage({ params, searchParams }: PagePro
                       {field.type === "select" ? <select id={id} name={name} defaultValue={typeof current === "string" ? current : ""} className="h-11 rounded-md border bg-background px-2 text-base"><option value="">—</option>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                         : field.type === "radio" ? <div id={id} role="radiogroup" aria-label={field.label} className="flex flex-wrap gap-3">{field.options?.map((option) => <label key={option} className="flex min-h-9 items-center gap-1 text-xs"><input type="radio" name={name} value={option} defaultChecked={current === option} />{option}</label>)}</div>
                         : field.type === "checkbox" ? <div id={id} className="flex flex-wrap gap-3">{field.options?.map((option) => <label key={option} className="flex items-center gap-1 text-xs"><input type="checkbox" name={name} value={option} defaultChecked={Array.isArray(current) && current.includes(option)} />{option}</label>)}</div>
-                        : <Input id={id} name={name} type={field.type === "textarea" ? "text" : field.type} defaultValue={typeof current === "string" ? current : ""} maxLength={3000} className="h-10" />}
+                        : <Input id={id} name={name} type={field.type === "textarea" ? "text" : field.type} defaultValue={typeof current === "string" ? current : ""} maxLength={answerMaxLength(field.type)} className="h-10" />}
                     </div>;
                   })}
                   <Button type="submit" size="sm" variant="outline" className="w-fit">บันทึกการแก้ไข</Button>

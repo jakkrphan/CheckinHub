@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { answerProblemMessage, checkRegistrationAnswers, formPageLayout, formPages, readRegistrationFields, readRegistrationForm, sectionHeadings, TEL_ANSWER_PATTERN } from "./registration-fields.ts";
+import { answerMaxLength, answerProblemMessage, checkRegistrationAnswers, formPageLayout, formPages, readRegistrationFields, readRegistrationForm, sectionHeadings, TEL_ANSWER_PATTERN } from "./registration-fields.ts";
 
 const text = (key) => ({ key, label: key, type: "text", required: true });
 const page = (key, label = "") => ({ key, type: "page", label });
@@ -55,4 +55,21 @@ test("phone answers: one rule for the server and the browser pattern", () => {
 test("problem messages name the field and what it expects", () => {
   assert.equal(answerProblemMessage({ label: "ชื่อ", type: "text" }, "required"), "กรุณากรอก “ชื่อ”");
   assert.match(answerProblemMessage({ label: "ความคิดเห็น", type: "tel" }, "invalid"), /^“ความคิดเห็น” ต้องเป็นเบอร์โทรศัพท์/);
+});
+
+test("answer length: short text 500, long text 5,000, shown in the message", () => {
+  const fields = [{ key: "name", label: "ชื่อ", type: "text", required: false }, { key: "note", label: "หมายเหตุ", type: "textarea", required: false }];
+  const check = (name, note) => { const data = new FormData(); data.set("answer:name", name); data.set("answer:note", note); return checkRegistrationAnswers(fields, data); };
+  assert.equal(answerMaxLength("text"), 500);
+  assert.equal(answerMaxLength("textarea"), 5000);
+  assert.ok("answers" in check("ก".repeat(500), "ข".repeat(5000)));
+  assert.deepEqual(check("ก".repeat(501), ""), { problem: { fieldKey: "name", reason: "invalid" } });
+  assert.deepEqual(check("", "ข".repeat(5001)), { problem: { fieldKey: "note", reason: "invalid" } });
+  assert.equal(answerProblemMessage({ label: "หมายเหตุ", type: "textarea" }, "invalid"), "“หมายเหตุ” ยาวได้ไม่เกิน 5,000 ตัวอักษร");
+  // Saved under the old 3,000 limit: sent back unchanged it passes, any edit must fit the new limit.
+  const old = "ก".repeat(1200);
+  const data = new FormData(); data.set("answer:name", old); data.set("answer:note", "");
+  assert.ok("answers" in checkRegistrationAnswers(fields, data, {}, { name: old }));
+  data.set("answer:name", `${old}ข`);
+  assert.deepEqual(checkRegistrationAnswers(fields, data, {}, { name: old }), { problem: { fieldKey: "name", reason: "invalid" } });
 });

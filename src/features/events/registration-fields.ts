@@ -144,6 +144,14 @@ export type AnswerProblem = { fieldKey: string | null; reason: "required" | "inv
 export const TEL_ANSWER_PATTERN = "[+0-9\\(\\) .\\-]{6,30}";
 const telAnswer = new RegExp(`^${TEL_ANSWER_PATTERN}$`);
 
+/** The single limit before 5 Oct 2026; stored answers up to this length stay valid when sent back unchanged. */
+const LEGACY_ANSWER_MAX_LENGTH = 3000;
+
+/** Longest answer per field type (spec A6): long text 5,000, phone 30 (its pattern), everything else 500. Browser and server share it. */
+export function answerMaxLength(type: RegistrationFieldConfig["type"]) {
+  return type === "textarea" ? 5000 : type === "tel" ? 30 : 500;
+}
+
 /** What to tell the person filling the form in: which field, and what it expects. */
 export function answerProblemMessage(field: Pick<RegistrationFieldConfig, "label" | "type">, reason: AnswerProblem["reason"]) {
   if (reason === "required") return `กรุณากรอก “${field.label}”`;
@@ -152,15 +160,17 @@ export function answerProblemMessage(field: Pick<RegistrationFieldConfig, "label
     : field.type === "date" ? "ต้องเป็นวันที่"
     : field.type === "select" || field.type === "radio" || field.type === "checkbox" ? "ต้องเลือกจากตัวเลือกที่มี"
     : field.type === "file" ? "ไฟล์ไม่ถูกต้อง"
-    : "ยาวเกิน 3,000 ตัวอักษรหรือรูปแบบไม่ถูกต้อง";
+    : `ยาวได้ไม่เกิน ${answerMaxLength(field.type).toLocaleString("en-US")} ตัวอักษร`;
   return `“${field.label}” ${expected}`;
 }
 
 /**
  * Validates submitted answers against the form. On failure returns which field failed and why, so the form can
  * say more than "invalid" (`fieldKey` is null when the form configuration itself is broken).
+ * `previous` (self-edit, check-in corrections) holds the stored answers: one sent back unchanged is not held to
+ * the length limit, so answers saved under the old 3,000-character limit do not block editing other fields.
  */
-export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}): { answers: Record<string, RegistrationAnswerValue> } | { problem: AnswerProblem } {
+export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], formData: FormData, uploads: Record<string, RegistrationFileAnswer | RegistrationFileAnswer[]> = {}, previous: Record<string, unknown> = {}): { answers: Record<string, RegistrationAnswerValue> } | { problem: AnswerProblem } {
   if (!validateRegistrationFields(fields)) return { problem: { fieldKey: null, reason: "invalid" } };
   const fail = (field: RegistrationFieldConfig, reason: AnswerProblem["reason"]) => ({ problem: { fieldKey: field.key, reason } });
   const answers: Record<string, RegistrationAnswerValue> = {};
@@ -188,7 +198,7 @@ export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], form
     if (values.length > 1 || (values[0] !== undefined && typeof values[0] !== "string")) return fail(field, "invalid");
     const value = typeof values[0] === "string" ? values[0].trim() : "";
     if (field.required && !value) return fail(field, "required");
-    if (value.length > 3000) return fail(field, "invalid");
+    if (value.length > answerMaxLength(field.type) && !(value.length <= LEGACY_ANSWER_MAX_LENGTH && value === previous[field.key])) return fail(field, "invalid");
     if ((field.type === "select" || field.type === "radio") && value && !field.options?.includes(value)) return fail(field, "invalid");
     if (field.type === "email" && value && !z.email().safeParse(value).success) return fail(field, "invalid");
     if (field.type === "tel" && value && !telAnswer.test(value)) return fail(field, "invalid");
