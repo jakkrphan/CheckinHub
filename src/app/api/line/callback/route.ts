@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { completeLineLogin } from "@/server/line/client";
-import { lineAvailable, linkLineAccount } from "@/server/line/link";
+import { lineAvailable, lineLinkFromState, linkLineAccount } from "@/server/line/link";
 import { decodeLineLinkState, LINE_LINK_COOKIE } from "@/server/line/link-state";
 import { db } from "@/server/db";
 import { lineStatusToken } from "@/server/registrations/status-token";
@@ -11,12 +11,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * LINE Login comes back here after a registrant chooses LINE (registration form or status page). The LINE account is stored only when the
- * login is verified (state + nonce + ID token) and the person is a friend of the OA — pushes reach friends only.
+ * login is verified (signed state + nonce + ID token) and the person is a friend of the OA — pushes reach friends only.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const store = await cookies();
-  const link = decodeLineLinkState(store.get(LINE_LINK_COOKIE)?.value);
+  // No cookie when LINE opened the callback in its in-app browser: fall back to the signed `state`.
+  const link = decodeLineLinkState(store.get(LINE_LINK_COOKIE)?.value) ?? await lineLinkFromState(url.searchParams.get("state"));
   store.delete({ name: LINE_LINK_COOKIE, path: "/api/line" });
   const origin = (process.env.APP_BASE_URL ?? url.origin).replace(/\/$/, "");
   if (!link) {

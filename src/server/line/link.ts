@@ -4,10 +4,10 @@ import { cookies, headers } from "next/headers";
 import { db } from "@/server/db";
 import { queueEmailNotification } from "@/server/email/notifications";
 import { lineAuthorizeUrl, lineCallbackUrl, lineConfigured } from "@/server/line/client";
-import { encodeLineLinkState, LINE_LINK_COOKIE, LINE_LINK_MAX_AGE, newLineLinkState } from "@/server/line/link-state";
+import { encodeLineLinkState, LINE_LINK_COOKIE, LINE_LINK_MAX_AGE, lineNonceFor, newLineLinkState, verifyLineState, type LineLinkState } from "@/server/line/link-state";
 import { cancelDuplicateRegistration } from "@/server/registrations/lifecycle";
 import { queueLineNotification } from "@/server/line/notifications";
-import { statusTokenWhere } from "@/server/registrations/status-token";
+import { lineStatusToken, statusTokenWhere } from "@/server/registrations/status-token";
 import { isFeatureEnabled } from "@/server/settings/features";
 
 /** LINE is offered only when the admin switch is on and both channels have their keys. */
@@ -85,9 +85,33 @@ export async function unlinkLineAccount(registrant: { id: string; eventId: strin
  * /api/line/callback verifies it and sends the person back to `returnPath`.
  */
 export async function lineLoginUrl(registrantId: string, returnPath: string) {
-  const requestHeaders = await headers();
-  const redirectUri = lineCallbackUrl(`${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`);
+  const redirectUri = await requestCallbackUrl();
   const state = newLineLinkState(registrantId, returnPath, redirectUri);
   (await cookies()).set(LINE_LINK_COOKIE, encodeLineLinkState(state), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/api/line", maxAge: LINE_LINK_MAX_AGE });
   return lineAuthorizeUrl({ redirectUri, state: state.state, nonce: state.nonce });
+}
+
+/** The callback URL for the host this request came in on; the authorize request and the code exchange must agree. */
+async function requestCallbackUrl() {
+  const requestHeaders = await headers();
+  return lineCallbackUrl(`${requestHeaders.get("x-forwarded-proto") ?? "http"}://${requestHeaders.get("host")}`);
+}
+
+/**
+ * The attempt behind a callback that arrived without the state cookie (LINE's in-app browser), rebuilt from the
+ * signed `state`. It returns to the registrant's LINE-signed status link, since the bearer code is not in the state.
+ */
+export async function lineLinkFromState(state: string | null): Promise<LineLinkState | null> {
+  const verified = verifyLineState(state);
+  if (!verified || !state) return null;
+  const registrant = await db.registrant.findUnique({ where: { id: verified.registrantId }, select: { id: true, statusTokenHash: true, event: { select: { slug: true } } } });
+  if (!registrant) return null;
+  return {
+    state,
+    nonce: lineNonceFor(state),
+    registrantId: registrant.id,
+    returnPath: `/events/${registrant.event.slug}/status/${lineStatusToken(registrant)}`,
+    redirectUri: await requestCallbackUrl(),
+    expiresAt: verified.expiresAt,
+  };
 }
