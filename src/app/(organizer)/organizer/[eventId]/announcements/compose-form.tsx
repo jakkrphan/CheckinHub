@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { SendIcon } from "lucide-react";
+import { MailIcon, MessageCircleIcon, SendIcon, UsersIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,13 @@ import { AUDIENCE_STATUSES, audienceLabels, type AudienceStatus, BODY_MAX, type 
 
 const number = (value: number) => value.toLocaleString("th-TH");
 
-function SubmitButton({ disabled }: { disabled: boolean }) {
+/** The dialog's buttons: sending shows progress and locks both until the page moves on. */
+function ConfirmButtons({ onCancel }: { onCancel: () => void }) {
   const { pending } = useFormStatus();
-  return <Button type="submit" disabled={disabled || pending} className="self-start"><SendIcon data-icon="inline-start" aria-hidden="true" />{pending ? "กำลังส่ง…" : "ส่งประกาศ"}</Button>;
+  return <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+    <Button type="button" variant="outline" onClick={onCancel} disabled={pending} autoFocus>ยกเลิก</Button>
+    <Button type="submit" disabled={pending}><SendIcon data-icon="inline-start" aria-hidden="true" />{pending ? "กำลังส่ง…" : "ยืนยันส่งประกาศ"}</Button>
+  </div>;
 }
 
 /** Compose an announcement: who gets it (by status), what it says, and how many people each channel will reach. */
@@ -27,14 +31,24 @@ export function ComposeForm({ action, reach, lineOn, emailOn, defaults }: {
   const [audience, setAudience] = useState<AudienceStatus[]>(["APPROVED"]);
   const [subject, setSubject] = useState(defaults.subject);
   const [body, setBody] = useState(defaults.body);
+  const dialog = useRef<HTMLDialogElement>(null);
   const total = audience.reduce((sum, status) => ({
     people: sum.people + reach[status].people, line: sum.line + reach[status].line,
     email: sum.email + reach[status].email, unreachable: sum.unreachable + reach[status].unreachable,
   }), { people: 0, line: 0, email: 0, unreachable: 0 });
   const nobody = total.line + total.email === 0;
+  const close = () => dialog.current?.close();
+  const tiles = [
+    { Icon: UsersIcon, label: "ผู้รับ", value: total.people, unit: "คน" },
+    { Icon: MessageCircleIcon, label: "LINE", value: total.line, unit: "ข้อความ" },
+    { Icon: MailIcon, label: "อีเมล", value: total.email, unit: "ฉบับ" },
+  ];
 
+  // Every submit (the button, or Enter in the subject) stops at the confirmation first; only its own button sends.
   return <form action={action} className="flex flex-col gap-5" onSubmit={(event) => {
-    if (!window.confirm(`ส่งประกาศ “${subject.trim()}” ถึงผู้ลงทะเบียน ${number(total.people)} คน?\nทาง LINE ${number(total.line)} · ทางอีเมล ${number(total.email)}\nส่งแล้วยกเลิกไม่ได้`)) event.preventDefault();
+    if (dialog.current?.open) return;
+    event.preventDefault();
+    dialog.current?.showModal();
   }}>
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-sm font-semibold">ส่งถึง</legend>
@@ -67,6 +81,36 @@ export function ComposeForm({ action, reach, lineOn, emailOn, defaults }: {
       {!emailOn && total.email > 0 && <p className="text-amber-800">ระบบอีเมลปิดอยู่หรือยังไม่ได้ตั้งค่า — ผู้รับทางอีเมลจะไม่ได้รับประกาศนี้</p>}
     </div>
 
-    <SubmitButton disabled={nobody || !subject.trim() || !body.trim()} />
+    <Button type="submit" disabled={nobody || !subject.trim() || !body.trim()} className="self-start"><SendIcon data-icon="inline-start" aria-hidden="true" />ส่งประกาศ</Button>
+
+    <dialog ref={dialog} aria-labelledby="confirmAnnouncementTitle" aria-describedby="confirmAnnouncementNote"
+      onClick={(event) => { if (event.target === event.currentTarget) close(); }}
+      className="m-auto w-[min(30rem,calc(100%-2rem))] rounded-2xl border bg-card p-0 text-card-foreground shadow-xl backdrop:bg-black/50">
+      <div className="flex flex-col gap-5 p-6">
+        <div className="flex flex-col gap-1">
+          <h2 id="confirmAnnouncementTitle" className="font-heading text-lg font-bold">ส่งประกาศนี้?</h2>
+          <p id="confirmAnnouncementNote" className="text-sm text-muted-foreground">ส่งแล้วแก้ไขหรือยกเลิกไม่ได้ ตรวจข้อความให้เรียบร้อยก่อน</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5 rounded-xl border bg-background px-4 py-3">
+          <p className="text-xs font-semibold text-amber-700">ประกาศจากผู้จัด</p>
+          <p className="font-semibold leading-snug break-words">{subject.trim()}</p>
+          <p className="line-clamp-4 whitespace-pre-line text-sm break-words text-muted-foreground">{body.trim()}</p>
+        </div>
+
+        <dl className="grid grid-cols-3 gap-2 text-center">
+          {tiles.map(({ Icon, label, value, unit }) => <div key={label} className="flex flex-col items-center gap-0.5 rounded-xl bg-muted px-2 py-3">
+            <dt className="flex items-center gap-1 text-xs text-muted-foreground"><Icon className="size-3.5" aria-hidden="true" />{label}</dt>
+            <dd className="text-xl font-bold tabular-nums">{number(value)} <span className="text-xs font-normal text-muted-foreground">{unit}</span></dd>
+          </div>)}
+        </dl>
+        {(total.unreachable > 0 || (!emailOn && total.email > 0)) && <ul className="flex flex-col gap-1 text-sm text-amber-800">
+          {total.unreachable > 0 && <li>ติดต่อไม่ได้ {number(total.unreachable)} คน (ไม่มีอีเมลและยังไม่ได้เชื่อม LINE)</li>}
+          {!emailOn && total.email > 0 && <li>ระบบอีเมลปิดอยู่ — {number(total.email)} คนที่รับทางอีเมลจะไม่ได้รับ</li>}
+        </ul>}
+
+        <ConfirmButtons onCancel={close} />
+      </div>
+    </dialog>
   </form>;
 }
