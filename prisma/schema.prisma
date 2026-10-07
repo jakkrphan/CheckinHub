@@ -69,6 +69,7 @@ model User {
   issuedTokens        UserToken[]      @relation("TokenIssuer")
   updatedSettings     SystemSetting[]  @relation("SettingUpdater")
   resolvedDataRequests DataRequest[]   @relation("DataRequestResolver")
+  announcements        Announcement[]  @relation("AnnouncementAuthor")
 }
 
 enum UserTokenKind {
@@ -138,6 +139,7 @@ model Event {
   auditLogs            AuditLog[]
   dataRequests         DataRequest[]
   notifications        NotificationLog[]
+  announcements        Announcement[]
 
   @@index([ownerId])
   @@index([status, registrationDeadline])
@@ -355,8 +357,11 @@ model NotificationLog {
   registrantId  String
   registrant    Registrant          @relation(fields: [registrantId], references: [id], onDelete: Cascade)
   channel       NotificationChannel
-  /// linked | status | resend | fallback
+  /// linked | status | resend | fallback | announcement
   kind          String              @db.VarChar(32)
+  /// Set for kind "announcement": the organizer's message this row delivers.
+  announcementId String?
+  announcement  Announcement?       @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   status        NotificationStatus  @default(QUEUED)
   attempts      Int                 @default(0)
   /// LINE X-Line-Retry-Key: the same UUID on every retry so LINE never delivers one message twice.
@@ -371,4 +376,25 @@ model NotificationLog {
   @@index([status, nextAttemptAt])
   @@index([registrantId, createdAt])
   @@index([eventId, status])
+  @@index([announcementId, status])
+}
+
+/// An organizer's message to the people registered for an event (spec: broadcast). Each recipient gets one
+/// NotificationLog row (kind "announcement") on their chosen channel; this row keeps what was said and by whom.
+model Announcement {
+  id            String            @id @default(cuid())
+  eventId       String
+  event         Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  authorId      String?
+  author        User?             @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  subject       String            @db.VarChar(120)
+  body          String            @db.Text
+  /// Registrant statuses it went to, e.g. ["APPROVED","PENDING"].
+  audience      Json
+  /// People with no way to reach them (no email and LINE not connected) when it was sent.
+  unreachable   Int               @default(0)
+  createdAt     DateTime          @default(now())
+  notifications NotificationLog[]
+
+  @@index([eventId, createdAt])
 }

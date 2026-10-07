@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import QRCode from "qrcode";
 
 import { sendEmail } from "@/server/email/client";
-import { buildEmailMessage, emailRecipientSelect, emailSnapshot } from "@/server/email/message";
+import { buildAnnouncementEmail, buildEmailMessage, emailRecipientSelect, emailSnapshot } from "@/server/email/message";
 
 const MAX_ATTEMPTS = 4;
 const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000];
@@ -16,7 +16,7 @@ type DeliveryOptions = {
 };
 
 async function deliver(db: PrismaClient, id: string, options: DeliveryOptions): Promise<Outcome> {
-  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id }, select: { kind: true, attempts: true, retryKey: true, registrant: { select: emailRecipientSelect } } });
+  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id }, select: { kind: true, attempts: true, retryKey: true, announcement: { select: { subject: true, body: true } }, registrant: { select: emailRecipientSelect } } });
   const person = notification.registrant;
   const finish = async (status: "SENT" | "FAILED" | "SKIPPED", error: string | null, snapshot?: string) => {
     await db.$transaction(async (tx) => {
@@ -28,17 +28,20 @@ async function deliver(db: PrismaClient, id: string, options: DeliveryOptions): 
   if (!person.email || person.anonymizedAt || person.event.deletedAt || person.event.anonymizedAt) {
     await finish("SKIPPED", "RECIPIENT_UNAVAILABLE"); return "skipped";
   }
+  // An announcement row already went to the right channel when it was queued, and is not part of the status snapshot.
+  const announcement = notification.kind === "announcement" ? notification.announcement : null;
+  if (notification.kind === "announcement" && !announcement) { await finish("SKIPPED", "ANNOUNCEMENT_MISSING"); return "skipped"; }
   // Chose LINE and connected it: LINE carries the news; email only steps in when a LINE push fails (kind "fallback").
   // A LINE chooser who never connected still gets email.
   // An organizer's resend is explicit: it goes out even when LINE is the channel or nothing changed since the last email.
-  const resend = notification.kind === "resend";
-  if (!resend && notification.kind !== "fallback" && person.notifyVia === "LINE" && person.lineUserId) { await finish("SKIPPED", "SENT_VIA_LINE"); return "skipped"; }
-  const snapshot = emailSnapshot(person);
-  if (!resend && snapshot === person.emailNotifiedHash) { await finish("SKIPPED", "NO_CHANGE"); return "skipped"; }
+  const explicit = notification.kind === "resend" || !!announcement;
+  if (!explicit && notification.kind !== "fallback" && person.notifyVia === "LINE" && person.lineUserId) { await finish("SKIPPED", "SENT_VIA_LINE"); return "skipped"; }
+  const snapshot = announcement ? undefined : emailSnapshot(person);
+  if (!explicit && snapshot === person.emailNotifiedHash) { await finish("SKIPPED", "NO_CHANGE"); return "skipped"; }
   const origin = options.origin;
   if (!origin) { await finish("FAILED", "APP_BASE_URL_INVALID"); return "failed"; }
   const url = `${origin}/events/${person.event.slug}/status/${options.statusToken(person)}`;
-  const message = buildEmailMessage(person, url);
+  const message = announcement ? buildAnnouncementEmail(person, announcement, url) : buildEmailMessage(person, url);
   const qr = message.attachQr ? await QRCode.toBuffer(person.qrCode!, { type: "png", width: 512, margin: 2 }) : undefined;
   const result = await (options.send ?? sendEmail)({ to: person.email, ...message, qr, retryKey: notification.retryKey });
   if (result.ok) { await finish("SENT", null, snapshot); return "sent"; }

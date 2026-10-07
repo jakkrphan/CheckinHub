@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { CalendarDaysIcon, ChevronLeftIcon, MapPinIcon } from "lucide-react";
+import { CalendarDaysIcon, ChevronLeftIcon, MapPinIcon, MegaphoneIcon } from "lucide-react";
 
 import { formatDeadlineDay, formatEventDayList } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { pendingScheduleChange } from "@/server/announcements/announcements";
 import { db } from "@/server/db";
 
 const typeLabel = { INTERNAL: "ภายใน", EXTERNAL: "ภายนอก", MIXED: "ผสม" } as const;
@@ -10,6 +11,7 @@ export const seatModeLabel = (seatMode: string) => seatMode === "whole_course" ?
 const tabs = [
   { value: "overview", label: "ภาพรวม", href: (id: string) => `/organizer/${id}/dashboard` },
   { value: "registrants", label: "ผู้ลงทะเบียน", href: (id: string) => `/organizer/${id}/registrants` },
+  { value: "announcements", label: "ประกาศ", href: (id: string) => `/organizer/${id}/announcements` },
   { value: "settings", label: "ตั้งค่า", href: (id: string) => `/organizer/${id}?step=1` },
 ] as const;
 
@@ -33,7 +35,10 @@ function statusChip(event: EventHeaderData) {
 }
 
 export async function OrganizerEventHeader({ event, activeTab, actions }: { event: EventHeaderData; activeTab: (typeof tabs)[number]["value"]; actions?: React.ReactNode }) {
-  const days = await db.eventDay.findMany({ where: { eventId: event.id }, orderBy: { date: "asc" }, select: { date: true } });
+  const [days, scheduleChange] = await Promise.all([
+    db.eventDay.findMany({ where: { eventId: event.id }, orderBy: { date: "asc" }, select: { date: true } }),
+    pendingScheduleChange(event.id),
+  ]);
   const chip = statusChip(event);
 
   return (
@@ -54,6 +59,8 @@ export async function OrganizerEventHeader({ event, activeTab, actions }: { even
           </div>
           {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
         </div>
+        {scheduleChange && activeTab !== "announcements" && <Link href={`/organizer/${event.id}/announcements`} className="flex w-fit items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100">
+          <MegaphoneIcon className="size-4 shrink-0" aria-hidden="true" />{scheduleChange.change === "added" ? "เพิ่ม" : "ลบ"}วันของหลักสูตรแล้ว แต่ยังไม่ได้แจ้งผู้ลงทะเบียน — ส่งประกาศ</Link>}
         <nav aria-label="เมนูโครงการ" className="flex gap-6 overflow-x-auto">
           {tabs.map((tab) => <Link key={tab.value} href={tab.href(event.id)} aria-current={activeTab === tab.value ? "page" : undefined}
             className={cn("shrink-0 border-b-2 px-1 py-3 text-sm", activeTab === tab.value ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>{tab.label}</Link>)}

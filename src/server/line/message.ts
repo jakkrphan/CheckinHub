@@ -102,3 +102,31 @@ export function buildLineFlexMessage(kind: LineNotificationKind, person: Recipie
     },
   };
 }
+
+export type AnnouncementContent = { subject: string; body: string };
+
+/** An organizer's announcement as a Flex card: what they wrote, and a button to the person's own status page. */
+export function buildLineAnnouncement(person: Pick<Recipient, "status" | "event">, announcement: AnnouncementContent, statusUrl: string) {
+  const approved = person.status === "APPROVED";
+  return {
+    type: "flex" as const,
+    altText: `ประกาศ: ${announcement.subject} · ${person.event.title}`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box", layout: "vertical", spacing: "md",
+        contents: [
+          { type: "text", text: "ประกาศจากผู้จัด", size: "xs", weight: "bold", color: "#b45309" },
+          { type: "text", text: person.event.title, size: "sm", color: "#6b7280", wrap: true },
+          { type: "text", text: announcement.subject, weight: "bold", size: "lg", wrap: true },
+          { type: "separator" },
+          { type: "text", text: announcement.body, size: "sm", color: "#374151", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box", layout: "vertical", spacing: "sm",
+        contents: [{ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: approved ? "ดูสถานะและ QR" : "ดูสถานะการลงทะเบียน", uri: statusUrl } }],
+      },
+    },
+  };
+}

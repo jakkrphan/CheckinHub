@@ -104,3 +104,27 @@ export function buildEmailMessage(person: EmailRecipient, statusUrl: string) {
     attachQr: approved,
   };
 }
+
+/** An organizer's announcement (spec: broadcast): their words, the event, and a button to the person's status page. No QR. */
+export function buildAnnouncementEmail(person: EmailRecipient, announcement: { subject: string; body: string }, statusUrl: string) {
+  const e = escapeHtml;
+  const paragraphs = announcement.body.split(/\r?\n/).map((line) => line.trim() ? `<p style="margin:0 0 8px;font-size:15px;line-height:1.7;color:${color.text}">${e(line)}</p>` : "").join("");
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"><title>${e(announcement.subject)}</title></head>
+<body style="margin:0;padding:0;background:${color.page};${font}">
+<table ${table} style="background:${color.page}"><tr><td align="center" style="padding:24px 12px">
+<table ${table} style="max-width:560px;background:${color.card};border:1px solid ${color.border};border-radius:16px"><tr><td style="padding:24px;${font}">
+<p style="margin:0;font-size:12px;font-weight:bold;color:#b45309">ประกาศจากผู้จัด</p>
+<p style="margin:4px 0 0;font-size:14px;color:${color.muted}">${e(person.event.title)}</p>
+<h1 style="margin:8px 0 16px;font-size:20px;line-height:1.4;font-weight:bold;color:${color.text}">${e(announcement.subject)}</h1>
+${paragraphs}
+<table ${table} style="margin-top:20px"><tr><td align="center" style="border-radius:10px;background:${color.text}"><a href="${e(statusUrl)}" style="display:block;padding:14px 16px;${font};font-size:16px;font-weight:bold;color:#ffffff;text-decoration:none">ดูสถานะการลงทะเบียน</a></td></tr></table>
+</td></tr></table>
+<p style="max-width:560px;margin:16px auto 0;${font};font-size:12px;line-height:1.6;color:${color.muted};text-align:center">คุณได้รับอีเมลนี้เพราะลงทะเบียนโครงการนี้ไว้<br>โรงพยาบาลราชพิพัฒน์ · ระบบ CheckInHub</p>
+</td></tr></table></body></html>`;
+  return {
+    subject: `โรงพยาบาลราชพิพัฒน์ — ประกาศ: ${announcement.subject} · ${person.event.title}`.replace(/[\r\n]+/g, " "),
+    text: ["ประกาศจากผู้จัด", person.event.title, "", announcement.subject, "", announcement.body, "", `ดูสถานะการลงทะเบียน: ${statusUrl}`].join("\n"),
+    html,
+    attachQr: false,
+  };
+}

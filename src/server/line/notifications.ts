@@ -6,7 +6,7 @@ import { after } from "next/server";
 
 import { db } from "@/server/db";
 import { lineConfigured, pushLineMessage } from "@/server/line/client";
-import { buildLineFlexMessage, type LineNotificationKind, recipientSelect, snapshotOf } from "@/server/line/message";
+import { buildLineAnnouncement, buildLineFlexMessage, type LineNotificationKind, recipientSelect, snapshotOf } from "@/server/line/message";
 import { lineStatusToken } from "@/server/registrations/status-token";
 import { isFeatureEnabled } from "@/server/settings/features";
 
@@ -61,24 +61,33 @@ async function publicOrigin() {
 type Outcome = "sent" | "failed" | "retry" | "skipped";
 
 async function deliver(notificationId: string, enabled: boolean, origin: string): Promise<Outcome> {
-  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id: notificationId }, select: { kind: true, attempts: true, retryKey: true, registrant: { select: recipientSelect } } });
+  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id: notificationId }, select: { kind: true, attempts: true, retryKey: true, announcementId: true, announcement: { select: { subject: true, body: true } }, registrant: { select: recipientSelect } } });
   const person = notification.registrant;
+  // Announcements are not part of the "what changed" snapshot, so they never touch lineNotifiedDays.
+  const isAnnouncement = notification.kind === "announcement";
   const finish = (status: "SENT" | "FAILED" | "SKIPPED", error: string | null, snapshot?: boolean) => db.$transaction([
     db.notificationLog.update({ where: { id: notificationId }, data: { status, error, ...(status === "SENT" ? { sentAt: new Date() } : {}) } }),
-    ...(snapshot ? [db.registrant.update({ where: { id: person.id }, data: { lineNotifiedDays: snapshotOf(person) } })] : []),
+    ...(snapshot && !isAnnouncement ? [db.registrant.update({ where: { id: person.id }, data: { lineNotifiedDays: snapshotOf(person) } })] : []),
   ]);
-  if (!enabled) {
-    // LINE was the chosen channel: with LINE off the news would reach nobody, so email takes over.
-    const { queueEmailNotification } = await import("@/server/email/notifications");
+  // Commit the LINE outcome and the email that takes over together; an announcement hands over the same announcement.
+  const handOverToEmail = async (status: "SKIPPED" | "FAILED", error: string) => {
+    const { queueEmailAnnouncement, queueEmailNotification } = await import("@/server/email/notifications");
     await db.$transaction(async (tx) => {
-      await tx.notificationLog.update({ where: { id: notificationId }, data: { status: "SKIPPED", error: "LINE ปิดอยู่หรือยังไม่ตั้งคีย์" } });
+      await tx.notificationLog.update({ where: { id: notificationId }, data: { status, error } });
       const recipient = await tx.registrant.findUniqueOrThrow({ where: { id: person.id }, select: { id: true, eventId: true, email: true, anonymizedAt: true } });
-      if (recipient.email && !recipient.anonymizedAt) await queueEmailNotification(tx, recipient, "fallback");
+      if (!recipient.email || recipient.anonymizedAt) return;
+      if (isAnnouncement && notification.announcementId) await queueEmailAnnouncement(tx, recipient, notification.announcementId);
+      else if (!isAnnouncement) await queueEmailNotification(tx, recipient, "fallback");
     });
-    return "skipped";
-  }
+  };
+  // LINE was the chosen channel: with LINE off the news would reach nobody, so email takes over.
+  if (!enabled) { await handOverToEmail("SKIPPED", "LINE ปิดอยู่หรือยังไม่ตั้งคีย์"); return "skipped"; }
   if (!person.lineUserId || person.anonymizedAt || person.event.deletedAt) { await finish("SKIPPED", "ไม่ได้เชื่อม LINE แล้ว"); return "skipped"; }
-  const message = buildLineFlexMessage(notification.kind as LineNotificationKind, person, `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`);
+  const statusUrl = `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`;
+  if (isAnnouncement && !notification.announcement) { await finish("SKIPPED", "ไม่พบประกาศ"); return "skipped"; }
+  const message = notification.announcement && isAnnouncement
+    ? buildLineAnnouncement(person, notification.announcement, statusUrl)
+    : buildLineFlexMessage(notification.kind as LineNotificationKind, person, statusUrl);
   if (!message) { await finish("SKIPPED", "ไม่มีอะไรเปลี่ยน", true); return "skipped"; }
   const result = await pushLineMessage(person.lineUserId, message, notification.retryKey);
   if (result.ok) { await finish("SENT", null, true); return "sent"; }
@@ -86,13 +95,8 @@ async function deliver(notificationId: string, enabled: boolean, origin: string)
     await db.notificationLog.update({ where: { id: notificationId }, data: { status: "QUEUED", error: result.error, nextAttemptAt: new Date(Date.now() + BACKOFF_MS[Math.min(notification.attempts - 1, BACKOFF_MS.length - 1)]) } });
     return "retry";
   }
-  // Commit failure and email fallback together. The email worker skips a state already delivered via EMAIL/BOTH.
-  const { queueEmailNotification } = await import("@/server/email/notifications");
-  await db.$transaction(async (tx) => {
-    await tx.notificationLog.update({ where: { id: notificationId }, data: { status: "FAILED", error: result.error } });
-    const recipient = await tx.registrant.findUniqueOrThrow({ where: { id: person.id }, select: { id: true, eventId: true, email: true, anonymizedAt: true } });
-    if (recipient.email && !recipient.anonymizedAt) await queueEmailNotification(tx, recipient, "fallback");
-  });
+  // The email worker skips a status already delivered via EMAIL/BOTH.
+  await handOverToEmail("FAILED", result.error);
   return "failed";
 }
 
