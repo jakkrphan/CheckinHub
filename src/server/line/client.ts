@@ -55,14 +55,16 @@ export async function completeLineLogin(code: string, redirectUri: string, nonce
 
 export type PushResult = { ok: true } | { ok: false; retry: boolean; error: string };
 
+export type LineMessage = { type: "text"; text: string } | { type: "flex"; altText: string; contents: object };
+
 /** One push; `retryKey` makes LINE drop a duplicate if an earlier attempt did get through. */
-export async function pushLineText(to: string, text: string, retryKey: string): Promise<PushResult> {
+export async function pushLineMessage(to: string, message: LineMessage, retryKey: string): Promise<PushResult> {
   let response: Response;
   try {
     response = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST", cache: "no-store",
       headers: { authorization: `Bearer ${env("LINE_MESSAGING_ACCESS_TOKEN")}`, "content-type": "application/json", "x-line-retry-key": retryKey },
-      body: JSON.stringify({ to, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
+      body: JSON.stringify({ to, messages: [message.type === "text" ? { ...message, text: message.text.slice(0, 5000) } : message] }),
     });
   } catch (error) {
     return { ok: false, retry: true, error: `network ${(error as Error).name}`.slice(0, 255) };

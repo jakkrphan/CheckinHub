@@ -5,8 +5,8 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 
 import { db } from "@/server/db";
-import { lineConfigured, pushLineText } from "@/server/line/client";
-import { buildLineMessage, type LineNotificationKind, recipientSelect, snapshotOf } from "@/server/line/message";
+import { lineConfigured, pushLineMessage } from "@/server/line/client";
+import { buildLineFlexMessage, type LineNotificationKind, recipientSelect, snapshotOf } from "@/server/line/message";
 import { lineStatusToken } from "@/server/registrations/status-token";
 import { isFeatureEnabled } from "@/server/settings/features";
 
@@ -78,9 +78,9 @@ async function deliver(notificationId: string, enabled: boolean, origin: string)
     return "skipped";
   }
   if (!person.lineUserId || person.anonymizedAt || person.event.deletedAt) { await finish("SKIPPED", "ไม่ได้เชื่อม LINE แล้ว"); return "skipped"; }
-  const text = buildLineMessage(notification.kind as LineNotificationKind, person, `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`);
-  if (!text) { await finish("SKIPPED", "ไม่มีอะไรเปลี่ยน", true); return "skipped"; }
-  const result = await pushLineText(person.lineUserId, text, notification.retryKey);
+  const message = buildLineFlexMessage(notification.kind as LineNotificationKind, person, `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`);
+  if (!message) { await finish("SKIPPED", "ไม่มีอะไรเปลี่ยน", true); return "skipped"; }
+  const result = await pushLineMessage(person.lineUserId, message, notification.retryKey);
   if (result.ok) { await finish("SENT", null, true); return "sent"; }
   if (result.retry && notification.attempts < MAX_ATTEMPTS) {
     await db.notificationLog.update({ where: { id: notificationId }, data: { status: "QUEUED", error: result.error, nextAttemptAt: new Date(Date.now() + BACKOFF_MS[Math.min(notification.attempts - 1, BACKOFF_MS.length - 1)]) } });
