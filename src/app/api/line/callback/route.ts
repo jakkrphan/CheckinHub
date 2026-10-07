@@ -19,10 +19,12 @@ export async function GET(request: Request) {
   // No cookie when LINE opened the callback in its in-app browser: fall back to the signed `state`.
   const link = decodeLineLinkState(store.get(LINE_LINK_COOKIE)?.value) ?? await lineLinkFromState(url.searchParams.get("state"));
   store.delete({ name: LINE_LINK_COOKIE, path: "/api/line" });
-  const origin = (process.env.APP_BASE_URL ?? url.origin).replace(/\/$/, "");
   if (!link) {
     return new Response("<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ลิงก์หมดอายุ</title><body style=\"font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.7\"><h1>ลิงก์เชื่อม LINE หมดอายุ</h1><p>กรุณากลับไปที่หน้าสถานะการลงทะเบียน แล้วกดเชื่อม LINE อีกครั้ง</p>", { status: 400, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
   }
+  // Back to the host the flow started on (APP_BASE_URL or the request's Host). Not `url.origin`: Next builds request.url from its own
+  // hostname (localhost:3000) with the forwarded proto, so behind an https tunnel it would send the person to https://localhost:3000.
+  const origin = new URL(link.redirectUri).origin;
   const back = (result: string) => NextResponse.redirect(`${origin}${link.returnPath}?line=${result}#line`, 303);
   if (url.searchParams.get("state") !== link.state) return back("error");
   // The person pressed cancel / did not allow on LINE's consent screen.
