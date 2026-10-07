@@ -60,8 +60,23 @@ async function publicOrigin() {
 
 type Outcome = "sent" | "failed" | "retry" | "skipped";
 
+/**
+ * Ends a LINE row and lets email take over in the same transaction, so the news still reaches the person.
+ * An announcement hands over the same announcement; anything else becomes a status email ("fallback").
+ */
+async function handOverToEmail(notificationId: string, status: "SKIPPED" | "FAILED", error: string) {
+  const { queueEmailAnnouncement, queueEmailNotification } = await import("@/server/email/notifications");
+  await db.$transaction(async (tx) => {
+    const row = await tx.notificationLog.update({ where: { id: notificationId }, data: { status, error }, select: { kind: true, announcementId: true, registrant: { select: { id: true, eventId: true, email: true, anonymizedAt: true } } } });
+    const recipient = row.registrant;
+    if (!recipient.email || recipient.anonymizedAt) return;
+    if (row.kind === "announcement") { if (row.announcementId) await queueEmailAnnouncement(tx, recipient, row.announcementId); }
+    else await queueEmailNotification(tx, recipient, "fallback");
+  });
+}
+
 async function deliver(notificationId: string, enabled: boolean, origin: string): Promise<Outcome> {
-  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id: notificationId }, select: { kind: true, attempts: true, retryKey: true, announcementId: true, announcement: { select: { subject: true, body: true } }, registrant: { select: recipientSelect } } });
+  const notification = await db.notificationLog.findUniqueOrThrow({ where: { id: notificationId }, select: { kind: true, attempts: true, retryKey: true, announcement: { select: { subject: true, body: true } }, registrant: { select: recipientSelect } } });
   const person = notification.registrant;
   // Announcements are not part of the "what changed" snapshot, so they never touch lineNotifiedDays.
   const isAnnouncement = notification.kind === "announcement";
@@ -69,19 +84,8 @@ async function deliver(notificationId: string, enabled: boolean, origin: string)
     db.notificationLog.update({ where: { id: notificationId }, data: { status, error, ...(status === "SENT" ? { sentAt: new Date() } : {}) } }),
     ...(snapshot && !isAnnouncement ? [db.registrant.update({ where: { id: person.id }, data: { lineNotifiedDays: snapshotOf(person) } })] : []),
   ]);
-  // Commit the LINE outcome and the email that takes over together; an announcement hands over the same announcement.
-  const handOverToEmail = async (status: "SKIPPED" | "FAILED", error: string) => {
-    const { queueEmailAnnouncement, queueEmailNotification } = await import("@/server/email/notifications");
-    await db.$transaction(async (tx) => {
-      await tx.notificationLog.update({ where: { id: notificationId }, data: { status, error } });
-      const recipient = await tx.registrant.findUniqueOrThrow({ where: { id: person.id }, select: { id: true, eventId: true, email: true, anonymizedAt: true } });
-      if (!recipient.email || recipient.anonymizedAt) return;
-      if (isAnnouncement && notification.announcementId) await queueEmailAnnouncement(tx, recipient, notification.announcementId);
-      else if (!isAnnouncement) await queueEmailNotification(tx, recipient, "fallback");
-    });
-  };
   // LINE was the chosen channel: with LINE off the news would reach nobody, so email takes over.
-  if (!enabled) { await handOverToEmail("SKIPPED", "LINE ปิดอยู่หรือยังไม่ตั้งคีย์"); return "skipped"; }
+  if (!enabled) { await handOverToEmail(notificationId, "SKIPPED", "LINE ปิดอยู่หรือยังไม่ตั้งคีย์"); return "skipped"; }
   if (!person.lineUserId || person.anonymizedAt || person.event.deletedAt) { await finish("SKIPPED", "ไม่ได้เชื่อม LINE แล้ว"); return "skipped"; }
   const statusUrl = `${origin}/events/${person.event.slug}/status/${lineStatusToken(person)}`;
   if (isAnnouncement && !notification.announcement) { await finish("SKIPPED", "ไม่พบประกาศ"); return "skipped"; }
@@ -96,27 +100,40 @@ async function deliver(notificationId: string, enabled: boolean, origin: string)
     return "retry";
   }
   // The email worker skips a status already delivered via EMAIL/BOTH.
-  await handOverToEmail("FAILED", result.error);
+  await handOverToEmail(notificationId, "FAILED", result.error);
   return "failed";
+}
+
+/** After an unexpected error: try again later, or give up for good (and email) once the attempts are used up. */
+async function retryOrGiveUp(id: string, attempts: number, error: string): Promise<Outcome> {
+  if (attempts >= MAX_ATTEMPTS) {
+    await handOverToEmail(id, "FAILED", error).catch(() => db.notificationLog.update({ where: { id }, data: { status: "FAILED", error } }));
+    return "failed";
+  }
+  await db.notificationLog.update({ where: { id }, data: { status: "QUEUED", error, nextAttemptAt: new Date(Date.now() + BACKOFF_MS[Math.min(attempts - 1, BACKOFF_MS.length - 1)]) } });
+  return "retry";
 }
 
 /** Delivers due LINE notifications; safe to run concurrently (each row is claimed before sending). */
 export async function processLineNotifications(limit = 25) {
-  // Rows left "sending" by a crashed process go back to the queue.
-  await db.notificationLog.updateMany({ where: { channel: "LINE", status: "SENDING", updatedAt: { lt: new Date(Date.now() - 5 * 60_000) } }, data: { status: "QUEUED" } });
-  const due = await db.notificationLog.findMany({ where: { channel: "LINE", status: "QUEUED", nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" }, take: limit, select: { id: true } });
   const totals: Record<Outcome, number> = { sent: 0, failed: 0, retry: 0, skipped: 0 };
+  // Rows left "sending" by a crashed process: back to the queue, or failed (and emailed) once out of attempts.
+  const stale = await db.notificationLog.findMany({ where: { channel: "LINE", status: "SENDING", updatedAt: { lt: new Date(Date.now() - 5 * 60_000) } }, select: { id: true, attempts: true } });
+  for (const row of stale) {
+    const reclaimed = await db.notificationLog.updateMany({ where: { id: row.id, status: "SENDING" }, data: { status: "QUEUED" } });
+    if (reclaimed.count) totals[await retryOrGiveUp(row.id, row.attempts, "interrupted").catch(() => "retry" as const)]++;
+  }
+  const due = await db.notificationLog.findMany({ where: { channel: "LINE", status: "QUEUED", nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" }, take: limit, select: { id: true, attempts: true } });
   if (!due.length) return totals;
   const enabled = lineConfigured() && await isFeatureEnabled("lineLogin");
   const origin = await publicOrigin();
-  for (const { id } of due) {
+  for (const { id, attempts } of due) {
     const claimed = await db.notificationLog.updateMany({ where: { id, status: "QUEUED" }, data: { status: "SENDING", attempts: { increment: 1 } } });
     if (!claimed.count) continue;
     try {
       totals[await deliver(id, enabled, origin)]++;
     } catch {
-      await db.notificationLog.update({ where: { id }, data: { status: "QUEUED", error: "internal error", nextAttemptAt: new Date(Date.now() + BACKOFF_MS[0]) } }).catch(() => undefined);
-      totals.retry++;
+      totals[await retryOrGiveUp(id, attempts + 1, "internal error").catch(() => "retry" as const)]++;
     }
   }
   return totals;

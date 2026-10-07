@@ -17,15 +17,18 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const store = await cookies();
   // No cookie when LINE opened the callback in its in-app browser: fall back to the signed `state`.
-  const link = decodeLineLinkState(store.get(LINE_LINK_COOKIE)?.value) ?? await lineLinkFromState(url.searchParams.get("state"));
+  const cookieLink = decodeLineLinkState(store.get(LINE_LINK_COOKIE)?.value);
+  const link = cookieLink ?? await lineLinkFromState(url.searchParams.get("state"));
   store.delete({ name: LINE_LINK_COOKIE, path: "/api/line" });
-  if (!link) {
-    return new Response("<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ลิงก์หมดอายุ</title><body style=\"font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.7\"><h1>ลิงก์เชื่อม LINE หมดอายุ</h1><p>กรุณากลับไปที่หน้าสถานะการลงทะเบียน แล้วกดเชื่อม LINE อีกครั้ง</p>", { status: 400, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-  }
+  if (!link) return notice(400, "ลิงก์เชื่อม LINE หมดอายุ", "กรุณากลับไปที่หน้าสถานะการลงทะเบียน แล้วกดเชื่อม LINE อีกครั้ง");
   // Back to the host the flow started on (APP_BASE_URL or the request's Host). Not `url.origin`: Next builds request.url from its own
   // hostname (localhost:3000) with the forwarded proto, so behind an https tunnel it would send the person to https://localhost:3000.
   const origin = new URL(link.redirectUri).origin;
-  const back = (result: string) => NextResponse.redirect(`${origin}${link.returnPath}?line=${result}#line`, 303);
+  // Without the cookie, link.returnPath is a full status link rebuilt from `state` alone — and `state` is not secret (LINE sees
+  // it, access logs keep it). So that link is handed out only after a verified LINE login (`proven`); before that, a plain page.
+  const back = (result: string, proven = false) => cookieLink || proven
+    ? NextResponse.redirect(`${origin}${link.returnPath}?line=${result}#line`, 303)
+    : notice(200, "เชื่อม LINE ไม่สำเร็จ", `${failureText[result] ?? failureText.error} กรุณาเปิดหน้าสถานะการลงทะเบียนจากลิงก์เดิมของคุณ แล้วกดเชื่อม LINE อีกครั้ง`);
   if (url.searchParams.get("state") !== link.state) return back("error");
   // The person pressed cancel / did not allow on LINE's consent screen.
   if (url.searchParams.get("error")) return back("cancelled");
@@ -39,13 +42,26 @@ export async function GET(request: Request) {
     console.warn(`LINE link failed: ${login.reason}`);
     return back("error");
   }
-  if (!login.friend) return back("not-friend");
+  // From here the login is verified against this attempt's nonce: it is the person who started it.
+  if (!login.friend) return back("not-friend", true);
   const registrant = await db.registrant.findUnique({ where: { id: link.registrantId }, select: { status: true, anonymizedAt: true, event: { select: { deletedAt: true } } } });
-  if (!registrant || registrant.anonymizedAt || registrant.event.deletedAt || registrant.status === "CANCELLED" || registrant.status === "REJECTED") return back("closed");
+  if (!registrant || registrant.anonymizedAt || registrant.event.deletedAt || registrant.status === "CANCELLED" || registrant.status === "REJECTED") return back("closed", true);
   const linked = await linkLineAccount(link.registrantId, login.userId);
-  if (linked.result === "linked") return back("linked");
+  if (linked.result === "linked") return back("linked", true);
   // Proven owner of that LINE account: open the registration it already has (LINE-signed status link), not the cancelled copy.
   const slug = link.returnPath.split("/")[2];
   if (linked.original) return NextResponse.redirect(`${origin}/events/${slug}/status/${lineStatusToken(linked.original)}?line=duplicate#line`, 303);
-  return back("duplicate");
+  return back("duplicate", true);
+}
+
+const failureText: Record<string, string> = {
+  cancelled: "คุณยกเลิกการเชื่อม LINE",
+  unavailable: "ระบบปิดการเชื่อม LINE อยู่ชั่วคราว",
+  error: "การเชื่อม LINE ไม่สำเร็จ",
+};
+
+/** A plain page with no links into the registration (used when the attempt cannot be tied to its owner). */
+function notice(status: number, title: string, text: string) {
+  const escape = (value: string) => value.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character]!);
+  return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${escape(title)}</title><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.7"><h1>${escape(title)}</h1><p>${escape(text)}</p>`, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }

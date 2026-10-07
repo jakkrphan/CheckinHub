@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { cookies, headers } from "next/headers";
 
 import { db } from "@/server/db";
-import { queueEmailNotification } from "@/server/email/notifications";
+import { queueEmailAnnouncement, queueEmailNotification } from "@/server/email/notifications";
 import { lineAuthorizeUrl, lineCallbackUrl, lineConfigured } from "@/server/line/client";
 import { encodeLineLinkState, LINE_LINK_COOKIE, LINE_LINK_MAX_AGE, lineNonceFor, newLineLinkState, verifyLineState, type LineLinkState } from "@/server/line/link-state";
 import { cancelDuplicateRegistration } from "@/server/registrations/lifecycle";
@@ -70,8 +70,13 @@ export async function unlinkLineAccount(registrant: { id: string; eventId: strin
         },
         select: { id: true, eventId: true, email: true },
       });
+      // Announcements still waiting for LINE move to email; status news is covered by the status email below.
+      const announcements = await tx.notificationLog.findMany({ where: { registrantId: registrant.id, channel: "LINE", status: "QUEUED", kind: "announcement", announcementId: { not: null } }, select: { announcementId: true } });
       await tx.notificationLog.updateMany({ where: { registrantId: registrant.id, channel: "LINE", status: "QUEUED" }, data: { status: "SKIPPED", error: "ผู้สมัครเลิกรับทาง LINE" } });
-      if (person.email) await queueEmailNotification(tx, person, "fallback");
+      if (person.email) {
+        await queueEmailNotification(tx, person, "fallback");
+        for (const { announcementId } of announcements) await queueEmailAnnouncement(tx, person, announcementId!);
+      }
     });
     return "switched";
   } catch (error) {
@@ -100,6 +105,7 @@ async function requestCallbackUrl() {
 /**
  * The attempt behind a callback that arrived without the state cookie (LINE's in-app browser), rebuilt from the
  * signed `state`. It returns to the registrant's LINE-signed status link, since the bearer code is not in the state.
+ * `state` is not secret, so the callback may use that returnPath only after the LINE login itself is verified.
  */
 export async function lineLinkFromState(state: string | null): Promise<LineLinkState | null> {
   const verified = verifyLineState(state);

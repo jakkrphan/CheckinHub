@@ -131,6 +131,7 @@ try {
   html = await (await fetch(statusUrl("plain"))).text();
   response = await post(statusUrl("plain"), formsFrom(html).find((form) => form.includes("เปลี่ยนเป็นรับทาง LINE")));
   ensure(response.status === 303 && location(response).startsWith("https://access.line.me/oauth2/v2.1/authorize?") && location(response).includes("bot_prompt=aggressive"), `Connect did not go to LINE Login: ${location(response)}`);
+  const loginRedirect = response;
   const stateCookie = response.headers.getSetCookie().find((item) => item.startsWith("line-link="));
   ensure(stateCookie?.includes("HttpOnly") && stateCookie.includes("Path=/api/line"), "LINE state cookie missing or not httpOnly");
   // Callback guards: no cookie → expired page; wrong state → back with an error; forged cookie → expired.
@@ -140,6 +141,14 @@ try {
   ensure(response.status === 303 && location(response).includes("line=error"), `Callback with a wrong state not refused: ${location(response)}`);
   response = await fetch(`${base}/api/line/callback?code=x&state=y`, { redirect: "manual", headers: { cookie: `line-link=${Buffer.from("{}").toString("base64url")}.forged` } });
   ensure(response.status === 400, "Callback accepted a forged state cookie");
+  // A valid `state` without the cookie (it is not secret: LINE and access logs see it) must not open the status page
+  // unless LINE login succeeds: cancel/error answers get a plain page with no status link.
+  const leakedState = new URL(location(loginRedirect)).searchParams.get("state");
+  for (const query of [`error=access_denied&state=${leakedState}`, `state=${leakedState}`]) {
+    response = await fetch(`${base}/api/line/callback?${query}`, { redirect: "manual" });
+    const text = await response.text();
+    ensure(response.status === 200 && !response.headers.get("location") && !text.includes("/status/"), `Cookie-less callback leaked the status link (${query}): ${response.status} ${response.headers.get("location")}`);
+  }
 
   // Choosing LINE on the registration form: no email asked, stored as the channel, sent straight on to LINE Login.
   const publicUrl = `${base}/events/${event.slug}`;
