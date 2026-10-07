@@ -5,7 +5,12 @@ import { join } from "node:path";
 import nextEnv from "@next/env";
 import { PrismaClient } from "@prisma/client";
 
+import { uploadRoot } from "../src/server/registrations/upload-storage.ts";
+
 nextEnv.loadEnvConfig(process.cwd());
+// The same folder the app stores uploads in (UPLOAD_DIR, or .local-uploads in development).
+const uploadDir = uploadRoot();
+if (!uploadDir) throw new Error("Set UPLOAD_DIR: production mode has no upload folder without it");
 
 const db = new PrismaClient();
 const base = "http://localhost:3100";
@@ -286,8 +291,8 @@ try {
     await db.event.delete({ where: { id: eventId } });
   }
   if (createdEventId) await db.event.delete({ where: { id: createdEventId } });
-  if (coverKey) { try { await unlink(join(process.cwd(), ".local-uploads", coverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
-  if (createdCoverKey) { try { await unlink(join(process.cwd(), ".local-uploads", createdCoverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  if (coverKey) { try { await unlink(join(uploadDir, coverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  if (createdCoverKey) { try { await unlink(join(uploadDir, createdCoverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
   if (ownerId) await db.user.delete({ where: { id: ownerId } });
   await db.$disconnect();
 }

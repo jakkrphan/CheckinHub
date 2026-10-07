@@ -11,6 +11,7 @@ import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { getSeatAvailability } from "@/server/registrations/day-status";
 import { isFeatureEnabled } from "@/server/settings/features";
+import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 import { OrganizerEventHeader } from "../../event-header";
 import { WALK_IN_LINK_COOKIE } from "./walk-in-link";
@@ -39,7 +40,7 @@ export default async function NewRegistrantPage({ params, searchParams }: PagePr
     remaining: availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null,
   }));
   const ready = event.status !== "DRAFT" && days.some((day) => event.seatMode === "whole_course" || !day.isClosed) && validateRegistrationFields(fields)
-    && fields.every((field) => field.type !== "file" || process.env.NODE_ENV !== "production");
+    && fields.every((field) => field.type !== "file" || fileStorageReady());
   const backHref = `/organizer/${eventId}/registrants`;
   // The person just saved: shown above a fresh form so the next walk-in can be entered straight away.
   const added = typeof addedParam === "string" ? await db.registrant.findFirst({ where: { id: addedParam, eventId }, select: { id: true, displayName: true, email: true, status: true } }) : null;

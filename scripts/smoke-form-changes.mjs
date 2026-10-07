@@ -8,7 +8,12 @@ import { join } from "node:path";
 import nextEnv from "@next/env";
 import { PrismaClient } from "@prisma/client";
 
+import { uploadRoot } from "../src/server/registrations/upload-storage.ts";
+
 nextEnv.loadEnvConfig(process.cwd());
+// The same folder the app stores uploads in (UPLOAD_DIR, or .local-uploads in development).
+const uploadDir = uploadRoot();
+if (!uploadDir) throw new Error("Set UPLOAD_DIR: production mode has no upload folder without it");
 const db = new PrismaClient();
 const base = "http://localhost:3100";
 const eventIds = [];
@@ -57,8 +62,8 @@ try {
 
   // A file stored under a key that is not (any longer) in the form.
   const storageKey = `${randomUUID()}.pdf`;
-  mkdirSync(join(process.cwd(), ".local-uploads"), { recursive: true });
-  writeFileSync(join(process.cwd(), ".local-uploads", storageKey), "%PDF-1.4 smoke");
+  mkdirSync(uploadDir, { recursive: true });
+  writeFileSync(join(uploadDir, storageKey), "%PDF-1.4 smoke");
   files.push(storageKey);
   const token = `fc-${randomUUID()}`;
   const email = `${randomUUID()}@example.invalid`;
@@ -127,6 +132,6 @@ try {
   console.log("Form changes: display-name refresh, removed-field files, self-edit problems/new questions, stale-form messages and admin PDPA list passed.");
 } finally {
   for (const id of eventIds) await db.event.deleteMany({ where: { id } });
-  for (const key of files) rmSync(join(process.cwd(), ".local-uploads", key), { force: true });
+  for (const key of files) rmSync(join(uploadDir, key), { force: true });
   await db.$disconnect();
 }

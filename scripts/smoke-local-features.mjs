@@ -7,7 +7,12 @@ import { hash } from "bcryptjs";
 import ExcelJS from "exceljs";
 import { PrismaClient } from "@prisma/client";
 
+import { uploadRoot } from "../src/server/registrations/upload-storage.ts";
+
 nextEnv.loadEnvConfig(process.cwd());
+// The same folder the app stores uploads in (UPLOAD_DIR, or .local-uploads in development).
+const uploadDir = uploadRoot();
+if (!uploadDir) throw new Error("Set UPLOAD_DIR: production mode has no upload folder without it");
 const db = new PrismaClient();
 const base = "http://localhost:3100";
 const eventIds = [];
@@ -241,7 +246,6 @@ try {
     days: { create: [{ date: new Date("2020-01-01T00:00:00.000Z") }] },
   } });
   eventIds.push(old.id);
-  const uploadDir = join(process.cwd(), ".local-uploads");
   if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
   const storageKey = `${randomUUID()}.pdf`;
   writeFileSync(join(uploadDir, storageKey), "%PDF-1.7\nretention\n");

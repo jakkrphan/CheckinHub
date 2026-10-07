@@ -15,6 +15,7 @@
 | `APP_BASE_URL` | URL จริงของระบบ เช่น `https://checkin.example.go.th` ใช้สร้างลิงก์สมัคร/QR ของโครงการ ลิงก์เชิญ/ตั้งรหัสผ่านของเจ้าหน้าที่ และเป็นปลายทางของสคริปต์ maintenance | ไม่มี `/` ท้าย · ห้ามตั้งเป็นค่าว่าง `""` (ลิงก์จะไม่มีโดเมน) · ถ้าไม่ตั้ง ลิงก์ใช้ host ของ request (ปลอมได้) และสคริปต์ maintenance ยิงไป `http://localhost:3100` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | widget Cloudflare Turnstile บนหน้าสมัคร | ฝังใน JavaScript ตอน `next build` — ต้องตั้งก่อน build · เพิ่มโดเมนจริงใน widget ที่ Cloudflare |
 | `TURNSTILE_SECRET_KEY` | ตรวจ token Turnstile ฝั่ง server | production ที่ไม่มีค่านี้จะ **ปฏิเสธการสมัครออนไลน์ทุกครั้ง** และผู้จัดเผยแพร่โครงการไม่ได้ (development ปล่อยผ่าน) — เว้นแต่ admin ปิดสวิตช์ Turnstile ใน `/admin?view=settings` |
+| `UPLOAD_DIR` | โฟลเดอร์เก็บไฟล์แนบและรูปปกบนเซิร์ฟเวอร์ เช่น `/srv/checkinhub-uploads` | อยู่นอกโฟลเดอร์แอปและไม่อยู่ใต้ `public/` · ให้ user ที่รันแอปเขียนได้คนเดียว (`chmod 700`) · ต้องรวมในการสำรองข้อมูล · ไม่ตั้ง = production ไม่รับอัปโหลด |
 | `CRON_SECRET` | รหัสของ `/api/jobs/pending-holds` และ `/api/jobs/retention` | สุ่มยาว · ไม่ตั้ง = งานตั้งเวลาตอบ 503 |
 
 ### บริการภายนอก
@@ -24,7 +25,6 @@
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | ส่งอีเมลแจ้งผลการลงทะเบียนผ่าน SMTP · 465 ใช้ `SMTP_SECURE=true`; 587 ใช้ `false` และบังคับ STARTTLS · `SMTP_FROM` เป็นอีเมลเดี่ยว · เก็บค่าจริงใน `.env.local` หรือ secrets ของ deployment; แอปไม่อ่าน `.env.example` |
 | `LINE_LOGIN_CHANNEL_ID`, `LINE_LOGIN_CHANNEL_SECRET` | ช่อง LINE Login (ผู้สมัคร login) — ลงทะเบียน callback `<APP_BASE_URL>/api/line/callback` และผูก OA ใน Basic settings |
 | `LINE_MESSAGING_CHANNEL_ID`, `LINE_MESSAGING_CHANNEL_SECRET`, `LINE_MESSAGING_ACCESS_TOKEN` | ช่อง Messaging API (OA) — ส่งข้อความ · secret ใช้ตรวจลายเซ็น webhook · token เป็น long-lived channel access token · **ทั้งสองช่องต้องอยู่ provider เดียวกัน** |
-| `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, `STORAGE_PUBLIC_URL` | object storage แบบ S3 สำหรับไฟล์แนบและรูปปก · **ยังไม่ได้พัฒนา** |
 
 หน้า admin "ตั้งค่าระบบ" (`/admin?view=settings`) บอกว่าตั้งคีย์ของอีเมล/LINE แล้วหรือยัง (ไม่แสดงค่า) · LINE ใช้งานได้เมื่อตั้งคีย์ครบ **และ** admin เปิดสวิตช์ "LINE Login และแจ้งเตือนทาง LINE"
 
@@ -36,7 +36,7 @@ SMTP 4xx/connection timeout ลองใหม่สูงสุด 4 ครั�
 
 ขอบเขต 30 ก.ย. คือ **แจ้งผลเท่านั้น**: ยังไม่มีปุ่มส่งอีเมลซ้ำ/แก้อีเมล ประกาศ ลืมรหัสผ่าน magic link/OTP หรือเตือนก่อนวันงาน · ทดสอบโดยไม่ส่งอีเมลจริงด้วย `npm test` และ `npm run test:integration:email` (ใช้ฐานข้อมูล local และ sender จำลอง) · smoke test อื่นที่สมัครผ่านแอปต้องปิดสวิตช์อีเมลหรือใช้ SMTP ทดสอบก่อนรัน
 
-**ข้อจำกัดของ production ตอนนี้:** ไฟล์แนบและรูปปกยังเก็บในโฟลเดอร์ `.local-uploads/` ได้เฉพาะ development — production จะไม่รับอัปโหลด (โครงการที่มีฟิลด์ไฟล์จะรับสมัครไม่ได้) จนกว่าจะมี object storage
+**ที่เก็บไฟล์:** ไฟล์แนบและรูปปกเก็บบนดิสก์ของเซิร์ฟเวอร์ในโฟลเดอร์ `UPLOAD_DIR` (ตารางด้านบน) — production ที่ไม่ได้ตั้งค่านี้จะไม่รับอัปโหลด (โครงการที่มีฟิลด์ไฟล์เผยแพร่/รับสมัครไม่ได้ และใส่รูปปกไม่ได้) · development ไม่ตั้งก็ได้ ใช้ `.local-uploads/` · ไฟล์ส่งผ่านแอปเท่านั้น (ตรวจสิทธิ์ก่อน) ห้ามให้ web server เสิร์ฟโฟลเดอร์นี้ตรง · ระบบรองรับเซิร์ฟเวอร์แอปเครื่องเดียว ถ้ามีหลายเครื่องต้องใช้โฟลเดอร์ร่วม (NFS) ที่เดียวกัน
 
 ### ตัวเลือก
 
@@ -129,7 +129,7 @@ audit log ไม่ถูกลบตาม retention — ข้อมูลท�
 ## ข้อมูลที่ต้องสำรอง
 
 - MySQL ทั้งฐาน (รวม `AuditLog`)
-- ไฟล์แนบและรูปปก (ตอนนี้ `.local-uploads/` ใน development — production รอ object storage)
+- ไฟล์แนบและรูปปกในโฟลเดอร์ `UPLOAD_DIR` (ชื่อไฟล์อ้างจากฐานข้อมูล — สำรองและกู้คืนคู่กับ MySQL จากเวลาเดียวกัน)
 - ค่า env ของ production (โดยเฉพาะ `AUTH_SECRET`, `CRON_SECRET`) เก็บในที่เก็บความลับของหน่วยงาน
 
 แผนสำรอง/กู้คืนจริง (ความถี่, ระยะเก็บ, ที่เก็บ, การทดสอบกู้) ยังรอข้อมูลจากหน่วยงาน — PROGRESS.md หมวด E

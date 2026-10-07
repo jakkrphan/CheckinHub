@@ -13,6 +13,7 @@ import { getSeatAvailability } from "@/server/registrations/day-status";
 import { issueFormTicket } from "@/server/registrations/form-ticket";
 import { isFeatureEnabled } from "@/server/settings/features";
 import { lineConfigured } from "@/server/line/client";
+import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 export const metadata: Metadata = {
   title: "ลงทะเบียนอบรม",
@@ -83,7 +84,7 @@ export default async function PublicEventPage({
   const fields = readRegistrationFields(event.fields);
   const paused = !(await isFeatureEnabled("publicRegistration"));
   const available = !paused && !closed && !!event.registrationDeadline && event.days.some((day) => event.seatMode === "whole_course" || !day.isClosed) && validateRegistrationFields(fields)
-    && fields.every((field) => field.type !== "file" || process.env.NODE_ENV !== "production");
+    && fields.every((field) => field.type !== "file" || fileStorageReady());
   const availability = await getSeatAvailability(db, event, event.days.map((day) => day.id));
   const days = event.days.map((day) => {
     return {

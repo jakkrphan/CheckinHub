@@ -4,9 +4,14 @@ import { join } from "node:path";
 
 import nextEnv from "@next/env";
 import { PrismaClient } from "@prisma/client";
+
+import { uploadRoot } from "../src/server/registrations/upload-storage.ts";
 import { hash } from "bcryptjs";
 
 nextEnv.loadEnvConfig(process.cwd());
+// The same folder the app stores uploads in (UPLOAD_DIR, or .local-uploads in development).
+const uploadDir = uploadRoot();
+if (!uploadDir) throw new Error("Set UPLOAD_DIR: production mode has no upload folder without it");
 const db = new PrismaClient();
 const base = "http://localhost:3100";
 const smokeIp = `smoke-${randomUUID()}`;
@@ -388,7 +393,7 @@ try {
     await db.auditLog.deleteMany({ where: { eventId: noQueueEventId } });
     await db.event.delete({ where: { id: noQueueEventId } });
   }
-  for (const key of uploadedKeys) { try { await unlink(join(process.cwd(), ".local-uploads", key)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  for (const key of uploadedKeys) { try { await unlink(join(uploadDir, key)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
   if (staffId || fullId) await db.auditLog.deleteMany({ where: { actorId: { in: [staffId, fullId].filter(Boolean) } } });
   if (staffId) await db.user.delete({ where: { id: staffId } });
   if (fullId) await db.user.delete({ where: { id: fullId } });

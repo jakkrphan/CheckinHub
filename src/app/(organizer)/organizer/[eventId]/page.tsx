@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
 import { captchaReadyToPublish, isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 import { db } from "@/server/db";
+import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 export const metadata: Metadata = { title: "ข้อมูลโครงการ" };
 
@@ -121,7 +122,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
   const hasSessions = days.length > 0 && (globalSessions.length > 0 || days.every((day) => day.sessions.length > 0));
   const hasFutureDeadline = !!event.registrationDeadline && event.registrationDeadline > new Date();
   const hasFileFields = registrationFields.some((field) => field.type === "file");
-  const hasFileStorage = process.env.NODE_ENV !== "production" || !hasFileFields;
+  const hasFileStorage = fileStorageReady() || !hasFileFields;
   const hasProductionTurnstile = await captchaReadyToPublish();
   const sessionCount = days.reduce((sum, day) => sum + day.sessions.length, 0) + globalSessions.length;
   const publishChecks: PublishCheck[] = [
@@ -130,7 +131,7 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     { label: `ฟอร์ม ${registrationFields.length} ฟิลด์`, detail: hasValidRegistrationFields ? undefined : "ต้องมีอย่างน้อย 1 ฟิลด์และตั้งค่าถูกต้อง", ready: hasValidRegistrationFields, step: 3 },
     { label: `รอบเช็คชื่อ ${sessionCount} รอบ`, detail: hasSessions ? undefined : "ทุกวันต้องมีรอบ หรือมีรอบที่ใช้ได้ทุกวัน", ready: hasSessions, step: 4 },
     { label: event.registrationDeadline ? `ปิดรับ ${deadlineLabel.format(event.registrationDeadline)}` : "วันปิดรับลงทะเบียน", detail: hasFutureDeadline ? undefined : "ต้องตั้งวันปิดรับที่ยังไม่ผ่านมา", ready: hasFutureDeadline, step: 1 },
-    ...(hasFileFields ? [{ label: "ที่เก็บไฟล์แนบ", detail: process.env.NODE_ENV !== "production" ? "ใช้ local private storage (development)" : hasFileStorage ? undefined : "production ต้องตั้งค่า private object storage", ready: hasFileStorage }] : []),
+    ...(hasFileFields ? [{ label: "ที่เก็บไฟล์แนบ", detail: hasFileStorage ? undefined : "production ต้องตั้ง UPLOAD_DIR (โฟลเดอร์เก็บไฟล์บนเซิร์ฟเวอร์)", ready: hasFileStorage }] : []),
     ...(!hasProductionTurnstile ? [{ label: "Cloudflare Turnstile", detail: "production ต้องตั้งคีย์ Turnstile ก่อนเปิดรับสมัคร (หรือให้ admin ปิด Turnstile ในหน้าตั้งค่าระบบ)", ready: false }] : []),
   ];
   const stepReady = [!!event.title.trim() && hasFutureDeadline, days.length > 0, hasValidRegistrationFields, hasSessions, event.status !== "DRAFT"];
