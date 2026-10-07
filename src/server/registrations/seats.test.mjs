@@ -53,6 +53,7 @@ function fakeTx({ event, days = [], people = [] }) {
         const person = state.people.find((item) => item.id === where.id);
         return { ...person, days: state.rows.filter((row) => row.registrantId === person.id) };
       },
+      findUnique: async ({ where }) => state.people.find((person) => person.qrCode === where.qrCode) ?? null,
       update: async ({ where, data }) => Object.assign(state.people.find((person) => person.id === where.id), data),
     },
     registrantEventDay: {

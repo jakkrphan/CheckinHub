@@ -11,6 +11,7 @@ import { lineConfigured } from "@/server/line/client";
 import { getSeatAvailability, summarizeDayStatuses } from "@/server/registrations/day-status";
 import { checkFormTicket, HONEYPOT_FIELD } from "@/server/registrations/form-ticket";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
+import { issueQrCode } from "@/server/registrations/qr-code";
 import { isFeatureEnabled } from "@/server/settings/features";
 
 export const newBearerCode = () => randomBytes(32).toString("base64url");
@@ -142,7 +143,7 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
 
         const status = summarizeDayStatuses(dayStatuses.map((day) => day.status));
         const token = newBearerCode();
-        const qrCode = status === "APPROVED" ? newBearerCode() : null;
+        const qrCode = status === "APPROVED" ? await issueQrCode(tx) : null;
         const person = await tx.registrant.create({
           data: {
             eventId: event.id,

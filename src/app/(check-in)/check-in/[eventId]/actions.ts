@@ -10,6 +10,7 @@ import { canManageEvent, requiresAdminAudit } from "@/server/authorization/polic
 import { readRegistrationFields } from "@/features/events/registration-fields";
 import { registrantDisplayName } from "@/features/registrations/display-name";
 import { db } from "@/server/db";
+import { normalizeQrCode } from "@/server/registrations/qr-code";
 import { mergeAnswers } from "@/server/registrations/self-edit";
 import { cleanStation, currentStation, STATION_COOKIE } from "@/server/checkin/station";
 import { isFeatureEnabled } from "@/server/settings/features";
@@ -96,11 +97,11 @@ async function recordCheckIn(eventId: string, sessionId: string, code: string, o
       if (clientEventId && await tx.checkIn.findUnique({ where: { clientEventId }, select: { id: true } })) return { kind: "duplicate", message: "รายการสแกนนี้บันทึกแล้ว", alreadySaved: true };
       const session = await tx.session.findFirst({ where: { id: sessionId, eventId }, select: { id: true, eventDayId: true } });
       if (!session) return { kind: "session-missing", message: "รอบเช็คชื่อนี้ถูกลบแล้ว ไม่ได้บันทึก กรุณาแจ้งผู้จัด" };
-      const person = await tx.registrant.findFirst({ where: { eventId, qrCode: code.trim() }, select: { id: true } });
+      const person = await tx.registrant.findFirst({ where: { eventId, qrCode: normalizeQrCode(code) }, select: { id: true } });
       if (!person) return { kind: "invalid", message: "ไม่พบรหัสที่อนุมัติแล้ว (อาจยังไม่อนุมัติหรือถูกยกเลิกแล้ว)" };
       await tx.$queryRaw`SELECT id FROM Registrant WHERE id = ${person.id} FOR UPDATE`;
       const current = await tx.registrant.findUnique({ where: { id: person.id }, select: { id: true, email: true, answers: true, status: true, qrCode: true, days: { select: { eventDayId: true, status: true } } } });
-      if (current?.status !== "APPROVED" || current.qrCode !== code.trim()) return { kind: "invalid", message: "ไม่พบรหัสที่อนุมัติแล้ว (อาจยังไม่อนุมัติหรือถูกยกเลิกแล้ว)" };
+      if (current?.status !== "APPROVED" || current.qrCode !== normalizeQrCode(code)) return { kind: "invalid", message: "ไม่พบรหัสที่อนุมัติแล้ว (อาจยังไม่อนุมัติหรือถูกยกเลิกแล้ว)" };
       const who = await describePerson(tx, event, current);
       const existing = await tx.checkIn.findUnique({ where: { activeKey: `${person.id}:${sessionId}` }, select: { checkedInAt: true } });
       if (existing) return { kind: "duplicate", message: `${fromQueue ? "มีการเช็คชื่อจากเครื่องอื่นแล้ว" : "เช็คชื่อรอบนี้ไปแล้ว"} เมื่อ ${timeFormatter.format(existing.checkedInAt)}`, person: who, time: timeFormatter.format(existing.checkedInAt), count: await sessionCount(tx, eventId, session) };

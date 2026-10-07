@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
-
 import { Prisma, type RegistrantStatus } from "@prisma/client";
+
+import { issueQrCode } from "@/server/registrations/qr-code";
 
 const seatStatuses: RegistrantStatus[] = ["PENDING", "APPROVED"];
 
@@ -44,7 +44,7 @@ export async function syncRegistrantStatus(tx: Prisma.TransactionClient, registr
     where: { id: registrantId },
     data: {
       status,
-      qrCode: status === "APPROVED" ? (person.qrCode ?? randomBytes(32).toString("base64url")) : null,
+      qrCode: status === "APPROVED" ? (person.qrCode ?? await issueQrCode(tx)) : null,
       approvedAt: status === "APPROVED" ? (person.approvedAt ?? new Date()) : null,
       cancelledAt: status === "CANCELLED" ? new Date() : null,
       // Release the duplicate guard so a cancelled or rejected person can register again.

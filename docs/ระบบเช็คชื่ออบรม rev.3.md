@@ -672,7 +672,7 @@ model Broadcast {
 - **Realtime**: polling ทุก 3-5 วินาทีบนหน้าแดชบอร์ด, หน้ารออนุมัติ, และหน้าเช็คชื่อ (ไม่ใช้ Socket.io เพื่อลดความซับซ้อน) — 🆕 ใช้ delta + ETag ตามข้อ 3
 - **Auth (ฝั่ง organizer/staff)**: NextAuth.js (Credentials provider) — 🆕 argon2id สำหรับ hash รหัสผ่าน, session แบบ database ไม่ใช่ JWT อย่างเดียว เพื่อให้ตัด session ของบัญชีที่ถูกปิดได้ทันที
 - **LINE Login (ฝั่งผู้ลงทะเบียน)**: LINE Login เพื่อรับ `lineUserId` + **LINE Messaging API** สำหรับ push — ⚠️ ดูข้อจำกัดในข้อ 2.1 ก่อนวางแผน
-- **QR generation**: `qrcode` (npm) — สร้างตอนอนุมัติเท่านั้น โดย encode รหัสจาก `crypto.randomUUID()` หรือ `crypto.randomBytes(32)` (ห้ามใช้ ID ที่รันตามลำดับ)
+- **QR generation**: `qrcode` (npm) — สร้างตอนอนุมัติเท่านั้น โดย encode รหัสจาก `crypto.randomUUID()` หรือ `crypto.randomBytes(32)` (ห้ามใช้ ID ที่รันตามลำดับ) — แก้ 7 ต.ค. 2026: รหัสรูปแบบ `RPP-XXXX-XXXX` เช่น `RPP-7Q2M-4KX9` (สุ่ม 8 ตัวด้วย `crypto.randomInt` จากตัวพิมพ์ใหญ่และตัวเลข ไม่ใช้ 0/O/1/I · ตรวจไม่ให้ซ้ำในฐานก่อนออก · หน้าเช็คชื่อรับรหัสที่พิมพ์ตัวเล็กได้) · รหัสที่ออกก่อนแก้ยังใช้เช็คชื่อได้ตามเดิม
 - **QR scanning (กล้อง)**: `jsQR` หรือ `@zxing/browser`
 - **Email**: Resend หรือ Nodemailer + SMTP — 🆕 ส่งผ่าน **background job/queue** (เช่น BullMQ + Redis หรือ cron table ในฐานข้อมูล) ไม่ใช่ส่งตรงใน request handler เพราะ broadcast หลักพันฉบับจะทำให้ request timeout และต้อง retry ได้
 - **Hosting**: Vercel หรือ VPS ธรรมดา (frontend) + PlanetScale / Railway / VPS ที่มี MySQL — 🆕 ถ้าใช้ Vercel serverless ต้องระวังเรื่อง connection pool ของ Prisma (ใช้ Prisma Accelerate หรือ pgbouncer-equivalent) และ job แบบ cron ต้องใช้ Vercel Cron

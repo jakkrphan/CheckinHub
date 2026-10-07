@@ -13,6 +13,7 @@ import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { getSeatAvailability, summarizeDayStatuses } from "@/server/registrations/day-status";
 import { hashBearerCode, newBearerCode } from "@/server/registrations/registration";
+import { issueQrCode } from "@/server/registrations/qr-code";
 import { deleteLocalRegistrationFiles, storeLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { isFeatureEnabled } from "@/server/settings/features";
 
@@ -85,7 +86,7 @@ export async function addManualRegistrant(eventId: string, formData: FormData) {
           autoApproveAtRegistration: approved, notifyVia: "EMAIL", consentedAt: new Date(), consentVersion: CURRENT_CONSENT_VERSION,
           approvedAt: status === "APPROVED" ? new Date() : null,
           approvedById: status === "APPROVED" ? user.id : null,
-          qrCode: status === "APPROVED" ? newBearerCode() : null,
+          qrCode: status === "APPROVED" ? await issueQrCode(tx) : null,
           statusTokenHash: hashBearerCode(token),
           days: { create: dayStatuses },
         } });
