@@ -69,6 +69,7 @@ const reviewTime =new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "sho
 export function Scanner({ eventId, sessionId, operatorId, sessionLabels, sessionTitle, station = null, mode = "staff", allowCamera = true }: { eventId: string; sessionId: string; operatorId: string; sessionLabels: Record<string, string>; sessionTitle: string; station?: string | null; mode?: "staff" | "kiosk"; allowCamera?: boolean }) {
   const kiosk = mode === "kiosk";
   const video = useRef<HTMLVideoElement>(null);
+  const cameraStart = useRef<Promise<void>>(Promise.resolve());
   const busy = useRef(false);
   const scans = useRef<Promise<void>>(Promise.resolve());
   const keys = useRef({ at: 0, burst: false });
@@ -216,12 +217,21 @@ export function Scanner({ eventId, sessionId, operatorId, sessionLabels, session
 
   useEffect(() => {
     if (!camera || !cameraSupported || !video.current) return;
+    const element = video.current;
     let cancelled = false;
     let controls: { stop: () => void } | undefined;
-    const reader = new BrowserQRCodeReader();
-    reader.decodeFromVideoDevice(undefined, video.current, (scan) => {
-      if (!cancelled && scan) void submit(scan.getText(), "camera");
-    }).then((current) => { if (cancelled) current.stop(); else controls = current; }).catch((error: unknown) => {
+    // One camera start at a time on this <video>: a start cancelled before it finished (React's dev double effect, or a
+    // quick session/mode switch) is stopped before the next begins; overlapping starts interrupt play() (AbortError).
+    const start = cameraStart.current.then(async () => {
+      if (cancelled) return;
+      const current = await new BrowserQRCodeReader().decodeFromVideoDevice(undefined, element, (scan) => {
+        if (!cancelled && scan) void submit(scan.getText(), "camera");
+      });
+      if (cancelled) current.stop(); else controls = current;
+    });
+    cameraStart.current = start.catch(() => undefined);
+    start.catch((error: unknown) => {
+      if (cancelled) return;
       const name = error instanceof Error ? error.name : "";
       setCameraError(
         name === "NotAllowedError" || name === "SecurityError" ? "ไม่ได้รับอนุญาตให้ใช้กล้อง — กดรูปกล้อง/แม่กุญแจที่แถบที่อยู่ของเบราว์เซอร์ อนุญาตกล้อง แล้วกด “ลองอีกครั้ง”"
