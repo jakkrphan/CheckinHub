@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import { conditionMatches, maxFilesOf, parseRegistrationAnswers, type RegistrationFileAnswer, type RegistrationFieldConfig } from "@/features/events/registration-fields";
-import { uploadRoot } from "@/server/registrations/upload-storage";
+import { deleteStoredFiles, openStoredFile, putFile } from "@/server/registrations/file-store";
+import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 const maxUploadBytes = 5 * 1024 * 1024;
 const keyPattern = /^[0-9a-f-]{36}\.(pdf|jpg|png|webp|docx)$/i;
@@ -41,8 +40,7 @@ function safeOriginalName(name: string) {
 export async function storeLocalRegistrationFiles(fields: RegistrationFieldConfig[], formData: FormData) {
   const fileFields = fields.filter((field) => field.type === "file");
   if (fileFields.length === 0) return { ok: true as const, uploads: {}, keys: [] as string[] };
-  const root = uploadRoot();
-  if (!root) return { ok: false as const, reason: "storage-unavailable" };
+  if (!fileStorageReady()) return { ok: false as const, reason: "storage-unavailable" };
 
   const textAnswers = parseRegistrationAnswers(fields.filter((field) => field.type !== "file"), formData);
   if (!textAnswers) return { ok: false as const, reason: "invalid" };
@@ -74,8 +72,7 @@ export async function storeLocalRegistrationFiles(fields: RegistrationFieldConfi
         if (!detected || detected.ext !== extension || !allowed.includes(detected.ext)) return await fail("invalid");
 
         const storageKey = `${randomUUID()}.${detected.ext}`;
-        await mkdir(root, { recursive: true, mode: 0o700 });
-        await writeFile(join(/* turbopackIgnore: true */ root, storageKey), bytes, { flag: "wx", mode: 0o600 });
+        await putFile(storageKey, bytes);
         keys.push(storageKey);
         stored.push({ storageKey, originalName: safeOriginalName(value.name), contentType: detected.contentType, size: value.size });
       }
@@ -89,19 +86,10 @@ export async function storeLocalRegistrationFiles(fields: RegistrationFieldConfi
 }
 
 export async function deleteLocalRegistrationFiles(keys: string[]) {
-  const root = uploadRoot();
-  if (!root) return;
-  await Promise.all(keys.filter((key) => keyPattern.test(key)).map(async (key) => {
-    try { await unlink(join(/* turbopackIgnore: true */ root, key)); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }));
+  await deleteStoredFiles(keys.filter((key) => keyPattern.test(key)));
 }
 
-export async function readLocalRegistrationFile(key: string) {
-  const root = uploadRoot();
-  if (!root || !keyPattern.test(key)) return null;
-  try { return await readFile(join(/* turbopackIgnore: true */ root, key)); } catch {
-    return null;
-  }
+/** An attachment as a stream (see file-store), or null when the key is not an attachment or the file is gone. */
+export async function openLocalRegistrationFile(key: string) {
+  return keyPattern.test(key) ? openStoredFile(key) : null;
 }

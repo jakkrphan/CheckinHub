@@ -4,6 +4,8 @@ import { Prisma } from "@prisma/client";
 
 import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
+import { deleteStoredFiles, listStoredFiles } from "@/server/registrations/file-store";
+import { coverThumbKey } from "@/server/registrations/local-covers";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { hashBearerCode } from "@/server/registrations/registration";
 
@@ -13,6 +15,35 @@ const BATCH = 500;
 /** The date after which an event's personal data must be anonymized (last event day + retentionDays). */
 export function retentionDueAt(lastDay: Date, retentionDays: number) {
   return new Date(lastDay.getTime() + (retentionDays + 1) * DAY_MS);
+}
+
+/**
+ * Deletes stored files nothing refers to any more: left by a crash between writing a file and saving its row, a failed
+ * delete, or rows removed by hand. Only files older than a day, so an upload still being saved is never touched; covers
+ * (and thumbnails) of every event, deleted ones included, and every registrant's attachments count as referenced.
+ */
+export async function sweepOrphanFiles(now = new Date()) {
+  const candidates = (await listStoredFiles()).filter((file) => now.getTime() - file.modifiedAt.getTime() > DAY_MS);
+  if (!candidates.length) return 0;
+  const referenced = new Set<string>();
+  for (const event of await db.event.findMany({ where: { coverImageKey: { not: null } }, select: { coverImageKey: true } })) {
+    referenced.add(event.coverImageKey!);
+    const thumb = coverThumbKey(event.coverImageKey!);
+    if (thumb) referenced.add(thumb);
+  }
+  // Only registrants whose answers hold an upload come back (MySQL searches the JSON), so most rows never leave the DB.
+  for (let cursor = ""; ;) {
+    const batch = await db.$queryRaw<{ id: string; answers: unknown }[]>`
+      SELECT id, answers FROM Registrant
+      WHERE anonymizedAt IS NULL AND id > ${cursor} AND JSON_SEARCH(answers, 'one', '%', NULL, '$**.storageKey') IS NOT NULL
+      ORDER BY id LIMIT ${BATCH}`;
+    for (const person of batch) for (const key of fileKeys(typeof person.answers === "string" ? JSON.parse(person.answers) : person.answers)) referenced.add(key);
+    if (batch.length < BATCH) break;
+    cursor = batch[batch.length - 1].id;
+  }
+  const orphans = candidates.filter((file) => !referenced.has(file.key)).map((file) => file.key);
+  await deleteStoredFiles(orphans);
+  return orphans.length;
 }
 
 /** Every stored upload in an answers object: single-file objects, multi-file arrays, and keys of fields removed from the form. */

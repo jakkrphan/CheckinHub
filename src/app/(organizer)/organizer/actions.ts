@@ -11,6 +11,7 @@ import { requiresAdminAudit } from "@/server/authorization/policy";
 import { requireEventAccess } from "@/server/authorization/event";
 import { requireActiveUser } from "@/server/authorization/session";
 import { db } from "@/server/db";
+import { coverImageUrl } from "@/features/events/cover-url";
 import { copyLocalCover, deleteLocalCover, storeLocalCover } from "@/server/registrations/local-covers";
 import { promoteWaitlist } from "@/server/registrations/lifecycle";
 import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
@@ -92,7 +93,7 @@ export async function createEvent(formData: FormData) {
       retentionDays: parsed.data.retentionDays,
       waitlistPromotion: parsed.data.waitlistPromotion,
       coverImageKey: cover.key,
-      coverImageUrl: cover.key ? `/events/${slug}/cover` : null,
+      coverImageUrl: cover.key ? coverImageUrl(slug, cover.key) : null,
       fields: [],
     },
     select: { id: true },
@@ -162,7 +163,7 @@ export async function updateEvent(eventId: string, formData: FormData) {
         pendingHoldHours: parsed.data.pendingHoldHours,
         retentionDays: parsed.data.retentionDays,
         waitlistPromotion: parsed.data.waitlistPromotion,
-        ...(uploadedCover.key ? { coverImageKey: uploadedCover.key, coverImageUrl: `/events/${originalEvent.slug}/cover` } : {}),
+        ...(uploadedCover.key ? { coverImageKey: uploadedCover.key, coverImageUrl: coverImageUrl(originalEvent.slug, uploadedCover.key) } : {}),
         ...(removeCover ? { coverImageKey: null, coverImageUrl: null } : {}),
       },
     });
@@ -212,7 +213,7 @@ export async function cloneEvent(eventId: string) {
       autoApprove: event.autoApprove, waitlistEnabled: event.waitlistEnabled, fields: event.fields as Prisma.InputJsonValue, fieldsVersion: 1,
       seatMode: event.seatMode, maxSeats: event.maxSeats, attendanceThreshold: event.attendanceThreshold,
       pendingHoldHours: event.pendingHoldHours, waitlistPromotion: event.waitlistPromotion, retentionDays: event.retentionDays,
-      coverImageKey: coverKey, coverImageUrl: coverKey ? `/events/${slug}/cover` : null,
+      coverImageKey: coverKey, coverImageUrl: coverKey ? coverImageUrl(slug, coverKey) : null,
       status: "DRAFT", registrationDeadline: null,
     } });
     for (const [index, session] of uniqueSessions.entries()) {

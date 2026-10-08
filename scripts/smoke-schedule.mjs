@@ -82,7 +82,7 @@ try {
   createdEventId = new URL(response.headers.get("location"), base).pathname.split("/").at(-1);
   const createdEvent = await db.event.findUniqueOrThrow({ where: { id: createdEventId } });
   createdCoverKey = createdEvent.coverImageKey;
-  ensure(createdEvent.coverImageUrl === `/events/${createdEvent.slug}/cover` && createdCoverKey?.endsWith(".png"), "Create event did not persist its cover image");
+  ensure(createdCoverKey?.endsWith(".webp") && createdEvent.coverImageUrl === `/events/${createdEvent.slug}/cover?v=${createdCoverKey.slice(0, 8)}`, "Create event did not persist its cover image");
 
   const url = `${base}/organizer/${eventId}`;
   const loadPage = async (step = 1) => (await fetch(`${url}?step=${step}`, { headers: { cookie } })).text();
@@ -108,7 +108,7 @@ try {
   ensure(response.status === 303, "Save event settings did not redirect");
   const settings = await db.event.findUniqueOrThrow({ where: { id: eventId } });
   ensure(settings.eventType === "MIXED" && settings.autoApprove && settings.registrationDeadline?.toISOString() === "2031-12-31T16:59:59.999Z", "Event settings were not saved");
-  ensure(settings.coverImageKey?.endsWith(".png") && settings.coverImageUrl === `/events/${event.slug}/cover`, "Local cover metadata was not saved");
+  ensure(settings.coverImageKey?.endsWith(".webp") && settings.coverImageUrl === `/events/${event.slug}/cover?v=${settings.coverImageKey.slice(0, 8)}`, "Local cover metadata was not saved");
   coverKey = settings.coverImageKey;
   const draftCover = await fetch(`${base}${settings.coverImageUrl}`, { headers: { cookie } });
   ensure(draftCover.status === 200 && draftCover.headers.get("cache-control") === "private, no-store" && (await draftCover.arrayBuffer()).byteLength > 8, "Draft cover was not served privately to an organizer");
@@ -276,7 +276,9 @@ try {
 
   await db.event.update({ where: { id: eventId }, data: { status: "PUBLISHED" } });
   const publicCover = await fetch(`${base}${settings.coverImageUrl}`);
-  ensure(publicCover.status === 200 && publicCover.headers.get("content-type") === "image/png", "Published cover was not publicly served");
+  ensure(publicCover.status === 200 && publicCover.headers.get("content-type") === "image/webp" && publicCover.headers.get("cache-control") === "public, max-age=86400", "Published cover was not publicly served (WebP, cached for a day)");
+  const publicThumb = await fetch(`${base}${settings.coverImageUrl}&size=thumb`);
+  ensure(publicThumb.status === 200 && publicThumb.headers.get("content-type") === "image/webp" && (await publicThumb.arrayBuffer()).byteLength > 8, "Cover thumbnail was not served");
   const publishedPage = await (await fetch(`${base}/events/${event.slug}`)).text();
   ensure(publishedPage.includes(event.title) && publishedPage.includes("ยังไม่พร้อมรับลงทะเบียนออนไลน์"), "Published event details were not shown correctly");
 
@@ -291,8 +293,8 @@ try {
     await db.event.delete({ where: { id: eventId } });
   }
   if (createdEventId) await db.event.delete({ where: { id: createdEventId } });
-  if (coverKey) { try { await unlink(join(uploadDir, coverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
-  if (createdCoverKey) { try { await unlink(join(uploadDir, createdCoverKey)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  for (const key of [coverKey, coverKey?.replace(".webp", ".thumb.webp")]) if (key) { try { await unlink(join(uploadDir, key)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
+  for (const key of [createdCoverKey, createdCoverKey?.replace(".webp", ".thumb.webp")]) if (key) { try { await unlink(join(uploadDir, key)); } catch (error) { if (error.code !== "ENOENT") throw error; } }
   if (ownerId) await db.user.delete({ where: { id: ownerId } });
   await db.$disconnect();
 }

@@ -1,7 +1,7 @@
 import { readFileAnswers, readRegistrationFields } from "@/features/events/registration-fields";
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
-import { docxContentType, readLocalRegistrationFile } from "@/server/registrations/local-files";
+import { docxContentType, openLocalRegistrationFile } from "@/server/registrations/local-files";
 
 const contentTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", docxContentType]);
 
@@ -24,12 +24,16 @@ export async function GET(request: Request, context: RouteContext<"/organizer/[e
   if (!file || typeof file.originalName !== "string" || typeof file.contentType !== "string" || !contentTypes.has(file.contentType)) {
     return new Response("Not found", { status: 404 });
   }
-  const bytes = await readLocalRegistrationFile(file.storageKey);
-  if (!bytes) return new Response("Not found", { status: 404 });
-  await db.auditLog.create({ data: { eventId, actorId: user.id, action: "FILE_DOWNLOADED", target: registrantId, metadata: { fieldKey, index } } });
+  // Streamed: a large PDF is never held in memory whole.
+  const stored = await openLocalRegistrationFile(file.storageKey);
+  if (!stored) return new Response("Not found", { status: 404 });
+  // No audit, no download; and the opened file is closed rather than left to garbage collection.
+  try { await db.auditLog.create({ data: { eventId, actorId: user.id, action: "FILE_DOWNLOADED", target: registrantId, metadata: { fieldKey, index } } }); }
+  catch (error) { await stored.body.cancel(); throw error; }
   const safeName = file.originalName.replace(/[\r\n\0"\\]/g, "_").slice(0, 180) || "attachment";
-  return new Response(new Uint8Array(bytes), { headers: {
+  return new Response(stored.body, { headers: {
     "content-type": file.contentType,
+    "content-length": String(stored.size),
     "content-disposition": `attachment; filename="attachment"; filename*=UTF-8''${encodeURIComponent(safeName)}`,
     "cache-control": "private, no-store",
     "x-content-type-options": "nosniff",
