@@ -77,7 +77,9 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
   if (!eventForUpload || eventForUpload.deletedAt || eventForUpload.status !== "PUBLISHED" || !eventForUpload.registrationDeadline || eventForUpload.registrationDeadline <= new Date()) return { ok: false, reason: "not-open" };
   const uploadFields = readRegistrationFields(eventForUpload.fields);
   // Checked before any file is stored, so a mistyped answer can be reported by field instead of a bare "invalid".
-  const typed = checkRegistrationAnswers(uploadFields.filter((field) => field.type !== "file"), formData);
+  // A form of file fields only leaves nothing to pre-check (and an empty field list would itself count as invalid).
+  const typedFields = uploadFields.filter((field) => field.type !== "file");
+  const typed = typedFields.length ? checkRegistrationAnswers(typedFields, formData) : { answers: {} };
   if ("problem" in typed) {
     // A page rendered from an older form version fails through no fault of the registrant: say the form changed.
     if (formData.get("fieldsVersion") !== String(eventForUpload.fieldsVersion)) return { ok: false, reason: "form-changed" };

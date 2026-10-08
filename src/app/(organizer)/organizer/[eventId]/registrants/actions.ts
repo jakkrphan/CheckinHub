@@ -244,7 +244,8 @@ export async function resendEmailNotification(eventId: string, registrantId: str
       if (!current) return null;
       if (current.email !== email) {
         // The guard follows the email unless it is a LINE one (line:<id>); cancelled/rejected people have none.
-        const guarded = current.dedupeKey === current.email || (current.dedupeKey === null && ["PENDING", "APPROVED", "WAITLISTED"].includes(current.status));
+        // (A LINE-only person has email null; a null guard then must not count as "the guard is the email".)
+        const guarded = (current.email !== null && current.dedupeKey === current.email) || (current.dedupeKey === null && ["PENDING", "APPROVED", "WAITLISTED"].includes(current.status));
         await tx.registrant.update({ where: { id: current.id }, data: { email, emailNotifiedHash: null, ...(guarded ? { dedupeKey: email } : {}) } });
         // Ids only: no addresses in the audit trail (PDPA logging rule).
         await tx.auditLog.create({ data: { eventId, actorId: user.id, action: "REGISTRANT_EMAIL_CHANGED", target: current.id } });

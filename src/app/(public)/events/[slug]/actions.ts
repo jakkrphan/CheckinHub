@@ -3,7 +3,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { lineLoginUrl } from "@/server/line/link";
 import { registerForEvent } from "@/server/registrations/registration";
 
 export async function registerPublicEvent(slug: string, formData: FormData) {
@@ -16,7 +15,9 @@ export async function registerPublicEvent(slug: string, formData: FormData) {
     redirect(`/events/${slug}?${params}`);
   }
   const statusPath = `/events/${slug}/status/${result.token}`;
-  // Chose LINE: straight on to LINE Login (and the add-friend prompt); the callback returns to the status page.
-  if (result.notifyVia === "LINE") redirect(await lineLoginUrl(result.registrantId, statusPath));
+  // Chose LINE: to the status page first, where one tap starts LINE Login. Going straight to LINE would leave someone with
+  // no email holding no way back if LINE then fails or is cancelled in its in-app browser (the callback cannot hand out
+  // the status link there); with the status page in this browser's history, they can always return to it.
+  if (result.notifyVia === "LINE") redirect(`${statusPath}?line=start#line`);
   redirect(statusPath);
 }

@@ -32,6 +32,7 @@ const dateFormatter = new Intl.DateTimeFormat("th-TH", {
 const shortDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "UTC" });
 
 const lineMessages: Record<string, string> = {
+  start: "ส่งใบสมัครแล้ว — ขั้นสุดท้าย: กดปุ่ม “เชื่อม LINE” ด้านล่างเพื่อรับผลและ QR ทาง LINE · บันทึกลิงก์หน้านี้ไว้ ถ้าเชื่อมไม่สำเร็จให้กลับมาที่หน้านี้",
   linked: "เชื่อม LINE แล้ว — ต่อจากนี้ผลและ QR ส่งทาง LINE",
   unlinked: "เปลี่ยนเป็นรับทางอีเมลแล้ว — ส่งสถานะล่าสุดไปที่อีเมลของคุณ",
   "not-friend": "ยังไม่ได้เพิ่ม OA เป็นเพื่อน ระบบจึงส่งข้อความหาคุณไม่ได้ — เพิ่มเพื่อนแล้วกดเชื่อม LINE อีกครั้ง",
@@ -169,7 +170,7 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
             <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#06C755] text-white"><MessageCircleIcon className="size-5" aria-hidden="true" /></span>
             <div className="flex min-w-0 flex-col"><h3 id="line-title" className="font-heading text-lg font-semibold">ช่องทางรับ QR และผล</h3><p className="text-xs text-muted-foreground">{registrant.lineUserId ? "LINE · เชื่อมแล้ว — ผลอนุมัติ การเลื่อนคิว และลิงก์ QR ส่งไปที่ LINE ของคุณ" : lineAwaiting ? (registrant.email ? "เลือก LINE ไว้ แต่ยังเชื่อมไม่สำเร็จ — ระหว่างนี้ระบบส่งทางอีเมล" : "เลือก LINE ไว้ แต่ยังเชื่อมไม่สำเร็จ — ระบบยังส่งผลหาคุณไม่ได้ เชื่อม LINE หรือเปลี่ยนเป็นอีเมล และบันทึกลิงก์หน้านี้ไว้") : `อีเมล${registrant.email ? ` · ${registrant.email}` : ""}`}</p></div>
           </div>
-          {typeof line === "string" && lineMessages[line] && <p role={line === "linked" || line === "unlinked" ? "status" : "alert"} className={cn("rounded-lg px-3 py-2 text-sm", line === "linked" || line === "unlinked" ? "bg-accent text-accent-foreground" : "bg-[var(--status-warning-background)] text-[var(--status-warning)]")}>{lineMessages[line]}</p>}
+          {typeof line === "string" && lineMessages[line] && (line !== "start" || lineAwaiting) && <p role={line === "linked" || line === "unlinked" || line === "start" ? "status" : "alert"} className={cn("rounded-lg px-3 py-2 text-sm", line === "linked" || line === "unlinked" || line === "start" ? "bg-accent text-accent-foreground" : "bg-[var(--status-warning-background)] text-[var(--status-warning)]")}>{lineMessages[line]}</p>}
           {registrant.lineUserId && lineUndelivered && <p role="alert" className="rounded-lg bg-[var(--status-warning-background)] px-3 py-2 text-sm text-[var(--status-warning)]">ส่งข้อความล่าสุดไม่ถึง — ตรวจว่ายังเป็นเพื่อนกับ OA และไม่ได้บล็อกไว้ ข้อมูลล่าสุดดูได้ที่หน้านี้เสมอ</p>}
           {(line === "not-friend" || (registrant.lineUserId && lineUndelivered)) && addFriendHref && <Button asChild variant="outline" className="h-11"><a href={addFriendHref} target="_blank" rel="noopener noreferrer">เพิ่ม {oaId} เป็นเพื่อนใน LINE</a></Button>}
           {registrant.lineUserId
@@ -177,7 +178,7 @@ export default async function RegistrationStatusPage({ params, searchParams }: P
             : <>
               <form action={startLineLinkAction.bind(null, slug, token)} className="flex flex-col gap-2">
                 <p className="text-sm leading-relaxed text-muted-foreground">กดแล้วจะไปหน้า LINE ให้เข้าสู่ระบบและ<strong className="text-foreground">เพิ่ม {oaId ?? "OA ของระบบ"} เป็นเพื่อน</strong> — ระบบส่งข้อความได้เฉพาะเพื่อนของ OA และไม่เห็นแชตหรือรายชื่อเพื่อนของคุณ</p>
-                <Button type="submit" className="h-12 bg-[#06C755] text-base font-bold text-white hover:bg-[#05b34c]">{lineAwaiting ? "เชื่อม LINE อีกครั้ง" : "เปลี่ยนเป็นรับทาง LINE"}</Button>
+                <Button type="submit" className="h-12 bg-[#06C755] text-base font-bold text-white hover:bg-[#05b34c]">{line === "start" && lineAwaiting ? "เชื่อม LINE" : lineAwaiting ? "เชื่อม LINE อีกครั้ง" : "เปลี่ยนเป็นรับทาง LINE"}</Button>
               </form>
               {lineAwaiting && <form action={unlinkLineAction.bind(null, slug, token)} className="flex flex-col gap-2 border-t pt-3">{emailInput}<Button type="submit" variant="outline" className="h-11 w-full">ใช้อีเมลแทน</Button></form>}
             </>}

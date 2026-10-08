@@ -150,7 +150,8 @@ try {
     ensure(response.status === 200 && !response.headers.get("location") && !text.includes("/status/"), `Cookie-less callback leaked the status link (${query}): ${response.status} ${response.headers.get("location")}`);
   }
 
-  // Choosing LINE on the registration form: no email asked, stored as the channel, sent straight on to LINE Login.
+  // Choosing LINE on the registration form: no email asked, stored as the channel, and sent to the status page first
+  // (one tap from there starts LINE Login), so the person keeps a way back if LINE fails in its in-app browser.
   const publicUrl = `${base}/events/${event.slug}`;
   const registration = formsFrom(await (await fetch(publicUrl)).text()).find((form) => form.includes('name="consent"'));
   ensure(registration?.includes('name="notifyVia"') && registration.includes('value="LINE"'), "Registration form does not offer LINE as the channel");
@@ -166,12 +167,14 @@ try {
     return fetch(publicUrl, { method: "POST", redirect: "manual", headers: { origin: base, "x-forwarded-for": `line-smoke-${suffix}` }, body });
   };
   response = await registerAs("chose-line", "LINE");
-  ensure(response.status === 303 && location(response).startsWith("https://access.line.me/oauth2/v2.1/authorize?") && response.headers.getSetCookie().some((item) => item.startsWith("line-link=")), `Choosing LINE did not go to LINE Login: ${location(response)}`);
+  ensure(response.status === 303 && /\/events\/[^/]+\/status\/[^?]+\?line=start#line$/.test(location(response)), `Choosing LINE did not open the status page first: ${location(response)}`);
+  html = await (await fetch(new URL(location(response), base))).text();
+  ensure(html.includes("ขั้นสุดท้าย") && formsFrom(html).some((form) => form.includes("เชื่อม LINE")), "Status page after choosing LINE does not offer to connect it");
   const choseLine = await db.registrant.findFirstOrThrow({ where: { eventId: event.id, displayName: "chose-line" }, select: { id: true, notifyVia: true, lineUserId: true, email: true, dedupeKey: true } });
   // A stray email field (e.g. typed before switching to LINE) is ignored: LINE is the one channel.
   ensure(choseLine.notifyVia === "LINE" && choseLine.lineUserId === null && choseLine.email === null && choseLine.dedupeKey === null, "LINE choice was not stored without an email");
   response = await registerAs("line-only", "LINE", false);
-  ensure(location(response).startsWith("https://access.line.me/"), `LINE registration without an email refused: ${location(response)}`);
+  ensure(location(response).includes("?line=start"), `LINE registration without an email refused: ${location(response)}`);
   ensure(await db.notificationLog.count({ where: { registrantId: choseLine.id } }) === 0, "Something was queued for a LINE chooser before LINE is connected");
   response = await registerAs("no-email", "EMAIL", false);
   ensure(location(response).includes("error=invalid"), `Email channel accepted without an email: ${location(response)}`);

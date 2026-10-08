@@ -81,8 +81,10 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
 
   // Only pages with a field to show become steps: a page whose fields are all hidden by conditions is skipped.
   const shownByKey = new Map(visibleFields.map((field) => [field.key, field]));
-  const shownPages = pages.map((page) => ({ title: page.title || DEFAULT_FORM_PAGE_TITLE, fields: page.keys.flatMap((key) => shownByKey.get(key) ?? []) })).filter((page) => page.fields.length > 0);
-  const formPages = shownPages.length ? shownPages : [{ title: DEFAULT_FORM_PAGE_TITLE, fields: [] as RegistrationFieldConfig[] }];
+  // `id` is the page's place in the organizer's layout: a stable React key, so answers on a page survive when an earlier
+  // answer shows or hides one of its fields (a key from the first visible field would remount the page and clear it).
+  const shownPages = pages.map((page, index) => ({ id: `page-${index}`, title: page.title || DEFAULT_FORM_PAGE_TITLE, fields: page.keys.flatMap((key) => shownByKey.get(key) ?? []) })).filter((page) => page.fields.length > 0);
+  const formPages = shownPages.length ? shownPages : [{ id: "page-empty", title: DEFAULT_FORM_PAGE_TITLE, fields: [] as RegistrationFieldConfig[] }];
   const lastStep = formPages.length + 2;
   // An earlier answer can remove a later page while the user is on it.
   const step = Math.min(currentStep, lastStep);
@@ -184,7 +186,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
       </section>
 
       {/* Every page stays mounted (hidden when not current) so its inputs keep their values and are all submitted. */}
-      {formPages.map((page, pageIndex) => <section key={page.fields[0]?.key ?? "empty"} data-form-page={pageIndex} className={cn("flex flex-col gap-4 px-5 py-5", step !== pageIndex + 2 && "hidden")} aria-label={page.title}>
+      {formPages.map((page, pageIndex) => <section key={page.id} data-form-page={pageIndex} className={cn("flex flex-col gap-4 px-5 py-5", step !== pageIndex + 2 && "hidden")} aria-label={page.title}>
         <div className="flex items-center justify-between gap-3 rounded-lg bg-accent px-3.5 py-3 text-sm font-semibold text-accent-foreground">
           <span className="min-w-0">{seatMode === "whole_course" ? `สมัครเข้าร่วมหลักสูตรครบ ${days.length} วัน` : chosenDays.map((day) => `วันที่ ${day.number} · ${shortDate(day.date)}`).join(", ")}</span>
           <button type="button" onClick={() => goTo(1)} className="shrink-0 rounded-sm text-[13px] underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none">{seatMode === "whole_course" ? "ดูวันอบรม" : "แก้ไขวัน"}</button>
@@ -206,7 +208,7 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
               <span className="text-xs leading-relaxed text-muted-foreground">{hint}</span>
             </label>)}
           </div>
-          {channel === "LINE" && <p className="rounded-lg bg-muted px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">ไม่ต้องกรอกอีเมล — กดยืนยันแล้วระบบจะพาไปเข้าสู่ระบบ LINE และ<strong className="text-foreground">เพิ่ม OA ของระบบเป็นเพื่อน</strong> (ส่งข้อความได้เฉพาะเพื่อน) ถ้าเชื่อมไม่สำเร็จ เชื่อมใหม่หรือเปลี่ยนเป็นอีเมลได้ที่หน้าสถานะ</p>}
+          {channel === "LINE" && <p className="rounded-lg bg-muted px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">ไม่ต้องกรอกอีเมล — กดยืนยันแล้วจะเปิดหน้าสถานะของคุณ จากนั้นกด “เชื่อม LINE” เพื่อเข้าสู่ระบบ LINE และ<strong className="text-foreground">เพิ่ม OA ของระบบเป็นเพื่อน</strong> (ส่งข้อความได้เฉพาะเพื่อน) ถ้าเชื่อมไม่สำเร็จ เชื่อมใหม่หรือเปลี่ยนเป็นอีเมลได้ที่หน้าสถานะ</p>}
         </fieldset>}
         {channel === "EMAIL" && <div className="flex flex-col gap-3 rounded-xl border-2 border-primary bg-card p-4">
           <div className="flex items-center gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"><MailIcon className="size-5" aria-hidden="true" /></span><div className="flex flex-col"><label htmlFor="public-email" className="font-semibold">อีเมล <span className="text-destructive" aria-hidden="true">*</span></label><span className="text-xs text-muted-foreground">ใช้ระบุตัวตนและรับบัตร QR</span></div></div>
