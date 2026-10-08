@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Prisma, type RegistrantStatus } from "@prisma/client";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, ShieldIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FileIcon, FileUpIcon, LinkIcon, LockIcon, QrCodeIcon, SearchIcon, ShieldIcon, TriangleAlertIcon, UserPlusIcon, XIcon } from "lucide-react";
 
 import { approveSelected, decideRegistrant, decideRegistrantDay, reissueStatusLink, resendEmailNotification, resendLineNotification, resolveDeletionRequest } from "@/app/(organizer)/organizer/[eventId]/registrants/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -266,6 +266,7 @@ export default async function RegistrantsPage({ params, searchParams }: PageProp
           <div className="flex items-center gap-2">
             {requestedSelection && <Button asChild variant="ghost" size="sm" className="lg:hidden"><Link href={makeHref({ selected: undefined })}><ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />รายชื่อ</Link></Button>}
             {canEdit && flags.walkIn && <Button asChild variant="outline" size="sm"><Link href={`/organizer/${eventId}/registrants/new`}><UserPlusIcon data-icon="inline-start" aria-hidden="true" />เพิ่มผู้ลงทะเบียนเอง</Link></Button>}
+            {canEdit && membership.systemRole === "admin" && <Button asChild variant="outline" size="sm"><Link href={`/organizer/${eventId}/registrants/import`}><FileUpIcon data-icon="inline-start" aria-hidden="true" />นำเข้ารายชื่อ</Link></Button>}
           </div>
           <span className="flex items-center gap-2 text-xs text-muted-foreground"><span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />อัปเดตอัตโนมัติทุก 5 วินาที</span>
         </div>

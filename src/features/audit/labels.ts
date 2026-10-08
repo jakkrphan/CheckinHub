@@ -34,6 +34,7 @@ const labels: Record<string, string> = {
   STATUS_LINK_REISSUED: "ออกลิงก์สถานะใหม่",
   REGISTRANT_EMAIL_CHANGED: "แก้อีเมลผู้สมัคร (ก่อนส่งอีเมลซ้ำ)",
   ANNOUNCEMENT_SENT: "ส่งประกาศถึงผู้ลงทะเบียน",
+  REGISTRANTS_IMPORTED: "นำเข้ารายชื่อจากไฟล์ CSV",
   DATA_DELETION_REQUESTED: "ผู้สมัครขอลบข้อมูล",
   DATA_DELETION_COMPLETED: "ลบข้อมูลตามคำขอ",
   DATA_DELETION_REJECTED: "ปฏิเสธคำขอลบข้อมูล",
