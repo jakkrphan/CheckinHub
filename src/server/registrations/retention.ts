@@ -4,9 +4,11 @@ import { Prisma } from "@prisma/client";
 
 import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
+import { coverThumbKey } from "@/features/events/cover-url";
 import { deleteStoredFiles, listStoredFiles } from "@/server/registrations/file-store";
-import { coverThumbKey } from "@/server/registrations/local-covers";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
+import { uploadFolderOwnership } from "@/server/registrations/upload-ownership";
+import { fileStorageReady } from "@/server/registrations/upload-storage";
 import { hashBearerCode } from "@/server/registrations/registration";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,8 +23,11 @@ export function retentionDueAt(lastDay: Date, retentionDays: number) {
  * Deletes stored files nothing refers to any more: left by a crash between writing a file and saving its row, a failed
  * delete, or rows removed by hand. Only files older than a day, so an upload still being saved is never touched; covers
  * (and thumbnails) of every event, deleted ones included, and every registrant's attachments count as referenced.
+ * Nothing is deleted from a folder another database also uses ("folder-shared", see upload-ownership.ts).
  */
-export async function sweepOrphanFiles(now = new Date()) {
+export async function sweepOrphanFiles(now = new Date()): Promise<number | "folder-shared"> {
+  if (!fileStorageReady()) return 0;
+  if (await uploadFolderOwnership() === "shared") return "folder-shared";
   const candidates = (await listStoredFiles()).filter((file) => now.getTime() - file.modifiedAt.getTime() > DAY_MS);
   if (!candidates.length) return 0;
   const referenced = new Set<string>();

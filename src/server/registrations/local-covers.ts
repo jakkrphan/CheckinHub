@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import sharp from "sharp";
 
-import { copyStoredFile, deleteStoredFiles, putFile } from "@/server/registrations/file-store";
+import { coverThumbKey } from "@/features/events/cover-url";
+import { copyStoredFile, COVER_KEY, deleteStoredFiles, putFile } from "@/server/registrations/file-store";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 // Cover images. The organizer's browser already crops to 16:9 at 1600×900, but the server re-encodes every upload
@@ -14,12 +15,6 @@ const maxCoverBytes = 3 * 1024 * 1024;
 const LARGE = { width: 1600, height: 900 };
 const THUMB = { width: 320, height: 180 };
 
-const COVER_KEY = /^[0-9a-f-]{36}\.(jpg|png|webp)$/i;
-/**
- * Where a cover's small version would be: null for jpg/png covers from before thumbnails. A `.webp` cover uploaded
- * before then has no thumbnail file either; the cover route falls back to the full image when it is missing.
- */
-export const coverThumbKey = (key: string) => key.endsWith(".webp") && !key.includes(".thumb.") ? key.replace(/\.webp$/i, ".thumb.webp") : null;
 
 /** The image type from the file's first bytes (its signature), whatever its name says. */
 function sniffImage(bytes: Buffer): "jpg" | "png" | "webp" | null {
@@ -70,6 +65,7 @@ export async function copyLocalCover(key: string | null | undefined) {
   if (!await copyStoredFile(key, copy)) return null;
   const thumb = coverThumbKey(key);
   // A missing source thumbnail is fine (the route falls back to the full image); a failed copy must not leave the large copy behind.
-  if (thumb) try { await copyStoredFile(thumb, coverThumbKey(copy)!); } catch (error) { await deleteStoredFiles([copy]); throw error; }
+  // Both copies go on failure: the thumbnail may be half written, or written before its timestamp update failed.
+  if (thumb) try { await copyStoredFile(thumb, coverThumbKey(copy)!); } catch (error) { await deleteStoredFiles([copy, coverThumbKey(copy)]); throw error; }
   return copy;
 }

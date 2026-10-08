@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { conditionMatches, maxFilesOf, parseRegistrationAnswers, type RegistrationFileAnswer, type RegistrationFieldConfig } from "@/features/events/registration-fields";
-import { deleteStoredFiles, openStoredFile, putFile } from "@/server/registrations/file-store";
+import { ATTACHMENT_KEY, deleteStoredFiles, openStoredFile, putFile } from "@/server/registrations/file-store";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 const maxUploadBytes = 5 * 1024 * 1024;
-const keyPattern = /^[0-9a-f-]{36}\.(pdf|jpg|png|webp|docx)$/i;
 export const docxContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 function allowedExtension(value: string) {
@@ -86,10 +85,10 @@ export async function storeLocalRegistrationFiles(fields: RegistrationFieldConfi
 }
 
 export async function deleteLocalRegistrationFiles(keys: string[]) {
-  await deleteStoredFiles(keys.filter((key) => keyPattern.test(key)));
+  await deleteStoredFiles(keys.filter((key) => ATTACHMENT_KEY.test(key)));
 }
 
 /** An attachment as a stream (see file-store), or null when the key is not an attachment or the file is gone. */
 export async function openLocalRegistrationFile(key: string) {
-  return keyPattern.test(key) ? openStoredFile(key) : null;
+  return ATTACHMENT_KEY.test(key) ? openStoredFile(key) : null;
 }

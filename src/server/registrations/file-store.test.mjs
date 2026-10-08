@@ -10,8 +10,11 @@ import sharp from "sharp";
 
 const folder = await mkdtemp(join(tmpdir(), "checkinhub-files-"));
 process.env.UPLOAD_DIR = folder;
-const { copyLocalCover, coverThumbKey, deleteLocalCover, storeLocalCover } = await import("./local-covers.ts");
-const { isStoredKey, openStoredFile, readStoredFile } = await import("./file-store.ts");
+const { copyLocalCover, deleteLocalCover, storeLocalCover } = await import("./local-covers.ts");
+const { ATTACHMENT_KEY, openStoredFile, THUMB_KEY } = await import("./file-store.ts");
+const { coverThumbKey } = await import("../../features/events/cover-url.ts");
+// Reads a stored file through the streaming API (the store has no read-into-memory call on purpose).
+const readStoredFile = async (key) => { const file = await openStoredFile(key); return file ? Buffer.from(await new Response(file.body).arrayBuffer()) : null; };
 test.after(() => rm(folder, { recursive: true, force: true }));
 
 const photo = (width, height, format = "jpeg") => sharp({ create: { width, height, channels: 3, background: "#3a7" } })
@@ -57,10 +60,11 @@ test("a copied cover counts as new for the orphan sweep, even when the original 
 
 test("only keys we generate are accepted: no paths, no other names", async () => {
   for (const key of ["../.env.local", "..\\x.pdf", "a.pdf", "0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.exe", "/etc/passwd"]) {
-    assert.equal(isStoredKey(key), false, key);
+    assert.equal(ATTACHMENT_KEY.test(key) || THUMB_KEY.test(key), false, key);
     assert.equal(await openStoredFile(key), null, key);
   }
-  assert.equal(isStoredKey("0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.thumb.webp"), true);
+  assert.equal(THUMB_KEY.test("0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.thumb.webp"), true);
+  assert.equal(THUMB_KEY.test("0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.thumb.pdf") || ATTACHMENT_KEY.test("0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.thumb.pdf"), false);
 });
 
 test("a stored file streams with its size", async () => {
@@ -68,4 +72,12 @@ test("a stored file streams with its size", async () => {
   const file = await openStoredFile(stored.key);
   const bytes = Buffer.from(await new Response(file.body).arrayBuffer());
   assert.equal(bytes.length, file.size);
+});
+
+test("a file deleted after it was opened still sends completely (no 200 that breaks off)", async () => {
+  const stored = await storeLocalCover(new File([await photo(400, 225)], "gone.jpg"));
+  const file = await openStoredFile(stored.key);
+  await deleteLocalCover(stored.key);
+  assert.equal((await new Response(file.body).arrayBuffer()).byteLength, file.size);
+  assert.equal(await openStoredFile(stored.key), null);
 });

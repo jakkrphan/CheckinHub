@@ -1,7 +1,7 @@
 import { requireEventAccess } from "@/server/authorization/event";
 import { db } from "@/server/db";
 import { openStoredFile } from "@/server/registrations/file-store";
-import { coverThumbKey } from "@/server/registrations/local-covers";
+import { coverThumbKey } from "@/features/events/cover-url";
 
 const contentTypeByExtension: Record<string, string> = { jpg: "image/jpeg", png: "image/png", webp: "image/webp" };
 
@@ -19,10 +19,12 @@ export async function GET(request: Request, context: RouteContext<"/events/[slug
 
   const search = new URL(request.url).searchParams;
   const thumb = search.get("size") === "thumb" ? coverThumbKey(event.coverImageKey) : null;
+  // Checked before anything is opened, so no 404 below leaves a file handle behind.
+  const contentType = contentTypeByExtension[event.coverImageKey.split(".").pop()?.toLowerCase() ?? ""];
+  if (!contentType) return new Response("Not found", { status: 404 });
   // Covers from before thumbnails (including .webp ones) have no small file: send the full image instead.
   const file = (thumb ? await openStoredFile(thumb) : null) ?? await openStoredFile(event.coverImageKey);
-  const contentType = contentTypeByExtension[event.coverImageKey.split(".").pop()?.toLowerCase() ?? ""];
-  if (!file || !contentType) return new Response("Not found", { status: 404 });
+  if (!file) return new Response("Not found", { status: 404 });
   const current = search.get("v") === event.coverImageKey.slice(0, 8);
   return new Response(file.body, { headers: {
     "content-type": contentType,
