@@ -41,15 +41,24 @@ test("phone answers: one rule for the server and the browser pattern", () => {
   const check = (value) => { const data = new FormData(); data.set("answer:phone", value); return checkRegistrationAnswers([phone], data); };
   // `v` is the flag browsers compile <input pattern> with.
   const browser = new RegExp(`^(?:${TEL_ANSWER_PATTERN})$`, "v");
-  for (const value of ["0812345678", "081-234-5678", "+66 81 234 5678", "(02) 123-4567"]) {
+  for (const value of ["0812345678", "081-234-5678", "081 234 5678", "08-1234-5678"]) {
     assert.deepEqual(check(value), { answers: { phone: value } }, value);
     assert.equal(browser.test(value), true, value);
   }
-  for (const value of ["สนใจเข้าร่วมครับ", "12345", "call me", "0812345678x"]) {
+  // Exactly 10 digits: 9 (landline 02-123-4567) or 11 are refused, as are +66, brackets, double separators and text.
+  for (const value of ["สนใจเข้าร่วมครับ", "12345", "021234567", "02-123-4567", "08123456789", "+66 81 234 5678", "(081) 234-5678", "081--234-5678", "-0812345678", "0812345678-", "0812345678x"]) {
     assert.deepEqual(check(value), { problem: { fieldKey: "phone", reason: "invalid" } }, value);
     assert.equal(browser.test(value), false, value);
   }
   assert.deepEqual(check(""), { answers: { phone: "" } });
+});
+
+test("phone answers kept from the older rule stay valid when sent back unchanged", () => {
+  const phone = { key: "phone", label: "เบอร์โทร", type: "tel", required: false };
+  const data = new FormData();
+  data.set("answer:phone", "02-123-4567");
+  assert.deepEqual(checkRegistrationAnswers([phone], data, {}, { phone: "02-123-4567" }), { answers: { phone: "02-123-4567" } });
+  assert.deepEqual(checkRegistrationAnswers([phone], data, {}, { phone: "02-999-9999" }), { problem: { fieldKey: "phone", reason: "invalid" } });
 });
 
 test("problem messages name the field and what it expects", () => {

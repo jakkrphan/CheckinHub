@@ -138,10 +138,12 @@ export function conditionMatches(field: RegistrationFieldConfig, answers: Record
 export type AnswerProblem = { fieldKey: string | null; reason: "required" | "invalid" };
 
 /**
- * Phone answers: digits, spaces and + - ( ) . only, 6–30 characters. The same rule runs in the browser (`pattern`),
- * which compiles it with the `v` flag — there ( ) and - must be escaped inside a character class.
+ * Phone answers: exactly 10 digits (a Thai mobile number), optionally split by single spaces or dashes such as
+ * 081-234-5678. The same rule runs in the browser (`pattern`), which compiles it with the `v` flag — there - must be
+ * escaped inside a character class. Answers stored under the older 6–30 character rule stay valid when sent back unchanged.
  */
-export const TEL_ANSWER_PATTERN = "[+0-9\\(\\) .\\-]{6,30}";
+export const TEL_ANSWER_PATTERN = "(?:[0-9][ \\-]?){9}[0-9]";
+export const TEL_ANSWER_HINT = "เบอร์โทรศัพท์ 10 หลัก เช่น 0812345678 หรือ 081-234-5678";
 const telAnswer = new RegExp(`^${TEL_ANSWER_PATTERN}$`);
 
 /** The single limit before 5 Oct 2026; stored answers up to this length stay valid when sent back unchanged. */
@@ -155,7 +157,7 @@ export function answerMaxLength(type: RegistrationFieldConfig["type"]) {
 /** What to tell the person filling the form in: which field, and what it expects. */
 export function answerProblemMessage(field: Pick<RegistrationFieldConfig, "label" | "type">, reason: AnswerProblem["reason"]) {
   if (reason === "required") return `กรุณากรอก “${field.label}”`;
-  const expected = field.type === "tel" ? "ต้องเป็นเบอร์โทรศัพท์ 6–30 ตัว ใช้ได้เฉพาะตัวเลข เว้นวรรค และ + - ( )"
+  const expected = field.type === "tel" ? `ต้องเป็น${TEL_ANSWER_HINT}`
     : field.type === "email" ? "ต้องเป็นอีเมล เช่น name@example.com"
     : field.type === "date" ? "ต้องเป็นวันที่"
     : field.type === "select" || field.type === "radio" || field.type === "checkbox" ? "ต้องเลือกจากตัวเลือกที่มี"
@@ -201,7 +203,7 @@ export function checkRegistrationAnswers(fields: RegistrationFieldConfig[], form
     if (value.length > answerMaxLength(field.type) && !(value.length <= LEGACY_ANSWER_MAX_LENGTH && value === previous[field.key])) return fail(field, "invalid");
     if ((field.type === "select" || field.type === "radio") && value && !field.options?.includes(value)) return fail(field, "invalid");
     if (field.type === "email" && value && !z.email().safeParse(value).success) return fail(field, "invalid");
-    if (field.type === "tel" && value && !telAnswer.test(value)) return fail(field, "invalid");
+    if (field.type === "tel" && value && !telAnswer.test(value) && value !== previous[field.key]) return fail(field, "invalid");
     if (field.type === "date" && value && !z.iso.date().safeParse(value).success) return fail(field, "invalid");
     answers[field.key] = value;
   }

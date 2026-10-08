@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { answerMaxLength, conditionMatches, sectionHeadings, TEL_ANSWER_PATTERN, type FormPageLayout, type RegistrationFieldConfig } from "@/features/events/registration-fields";
+import { answerMaxLength, conditionMatches, sectionHeadings, TEL_ANSWER_HINT, TEL_ANSWER_PATTERN, type FormPageLayout, type RegistrationFieldConfig } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 
 export type WalkInDay = { id: string; number: number; label: string; remaining: number | null; isClosed: boolean };
@@ -77,7 +77,7 @@ export function WalkInForm({ eventId, fields, pages, days, seatMode, courseRemai
                   set(field.key, event.target.checked ? [...selected, option] : selected.filter((item) => item !== option));
                 }} />{option}</label>)}</div>
               : field.type === "file" ? <><Input id={id} name={name} type="file" multiple={(field.maxFiles ?? 1) > 1} required={field.required} accept={field.acceptedFileTypes?.map((type) => `.${type.replace(/^\./, "")}`).join(",")} /><span className="text-xs text-muted-foreground">ไฟล์ {field.acceptedFileTypes?.join(", ")} · ไม่เกิน {field.maxFileSizeMb} MB{(field.maxFiles ?? 1) > 1 ? ` ต่อไฟล์ · สูงสุด ${field.maxFiles} ไฟล์` : ""}</span></>
-              : <Input id={id} name={name} type={field.type} required={field.required} pattern={field.type === "tel" ? TEL_ANSWER_PATTERN : undefined} title={field.type === "tel" ? "เบอร์โทรศัพท์ 6–30 ตัว: ตัวเลข เว้นวรรค และ + - ( )" : undefined} maxLength={answerMaxLength(field.type)} className="h-11" onChange={(event) => set(field.key, event.target.value)} />}
+              : <Input id={id} name={name} type={field.type} required={field.required} pattern={field.type === "tel" ? TEL_ANSWER_PATTERN : undefined} title={field.type === "tel" ? TEL_ANSWER_HINT : undefined} maxLength={answerMaxLength(field.type)} className="h-11" onChange={(event) => set(field.key, event.target.value)} />}
             {field.conditional && <span className="text-xs text-muted-foreground">ฟิลด์เงื่อนไข — แสดงเพราะ {labelOf(field.conditional.field)} = {values.join(" / ")}</span>}
           </div></Fragment>;
         })}
