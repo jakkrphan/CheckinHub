@@ -49,7 +49,7 @@
 }
 
 :root {
-  /* Values follow checkin-mockup-b/assets/tokens.css. */
+  /* Values follow docs/checkin-mockup-b v3/checkin-mockup-b/assets/tokens.css. */
   --font-app-sans: var(--font-sarabun), "Sarabun", "Leelawadee UI", Tahoma, sans-serif;
   --font-display: var(--font-anuphan), var(--font-sarabun), "Anuphan", sans-serif;
   --font-app-mono: "Cascadia Code", Consolas, monospace;

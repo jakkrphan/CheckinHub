@@ -43,3 +43,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI coding tools: per-machine skills, agents, hooks and settings (not part of the app)
+/.agents/
+/.cursor/
+/.codex/
+/.impeccable/
+/skills-lock.json
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/handoff/
