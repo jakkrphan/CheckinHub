@@ -18,7 +18,8 @@ export const ATTACHMENT_KEY = new RegExp(`^${UUID}\\.(pdf|jpg|png|webp|docx)$`, 
 export const COVER_KEY = new RegExp(`^${UUID}\\.(jpg|png|webp)$`, "i");
 /** A cover's small version: `<uuid>.thumb.webp`. */
 export const THUMB_KEY = new RegExp(`^${UUID}\\.thumb\\.webp$`, "i");
-const isKey = (key: string) => ATTACHMENT_KEY.test(key) || THUMB_KEY.test(key); // covers are a subset of attachment keys
+/** Whether a key is one we generate (attachment, cover or thumbnail); covers are a subset of attachment keys. */
+export const isStoredKey = (key: string) => ATTACHMENT_KEY.test(key) || THUMB_KEY.test(key);
 
 /** Filesystem work on many files runs this many at a time, so a big folder cannot exhaust file handles. */
 const PARALLEL = 50;
@@ -28,14 +29,18 @@ async function inChunks<T, R>(items: T[], work: (item: T) => Promise<R>) {
   return results;
 }
 
-/** Records keys that may end up unreferenced; a key already recorded keeps its original time. */
-async function recordPending(keys: string[]) {
-  if (keys.length) await db.pendingFile.createMany({ data: keys.map((key) => ({ key })), skipDuplicates: true });
+/**
+ * Records keys that may end up unreferenced; a key already recorded keeps its original time. Only keys we generate
+ * are recorded (anything else never names a stored file, and could overflow the column). Returns the query unawaited,
+ * so callers that drop file answers can pass `tx` or put it in their transaction: the record must commit with the change.
+ */
+export function recordPending(keys: string[], client: Pick<typeof db, "pendingFile"> = db) {
+  return client.pendingFile.createMany({ data: keys.filter(isStoredKey).map((key) => ({ key })), skipDuplicates: true });
 }
 
 function pathOf(key: string) {
   const root = uploadRoot();
-  if (!root || !isKey(key)) return null;
+  if (!root || !isStoredKey(key)) return null;
   // turbopackIgnore (here and at every fs call): the folder is only known at runtime; without it the build traces the whole project.
   return join(/* turbopackIgnore: true */ root, key);
 }
@@ -81,19 +86,24 @@ export async function statStoredFile(key: string) {
 }
 
 /**
- * Removes files; a file already gone is fine. The keys are recorded first and released only once every file is gone,
- * so a delete that fails (or a crash part-way) is retried by the orphan sweep.
+ * Removes files; a file already gone is fine. The keys are recorded first and each is released once its file is gone,
+ * so a delete that fails (or a crash part-way) is retried by the orphan sweep. Every file is tried; failures are
+ * thrown together afterwards as an AggregateError whose errors carry the `key`, so one stuck file never keeps the others.
  */
 export async function deleteStoredFiles(keys: (string | null | undefined)[]) {
-  const ours = keys.filter((key): key is string => !!key && !!pathOf(key));
+  const ours = keys.filter((key): key is string => !!key && isStoredKey(key));
   if (!ours.length) return;
   await recordPending(ours);
-  await inChunks(ours, async (key) => {
-    try { await unlink(/* turbopackIgnore: true */ pathOf(key)!); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  // Without a folder (UPLOAD_DIR unset) nothing can be deleted: the records stay, so the sweep finds the files once it is back.
+  if (!uploadRoot()) return;
+  const failed = (await inChunks(ours, async (key) => {
+    try { await unlink(/* turbopackIgnore: true */ pathOf(key)!); return null; } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Object.assign(error as Error, { key });
     }
-  });
-  await db.pendingFile.deleteMany({ where: { key: { in: ours } } });
+  })).filter((error) => error !== null);
+  const stuck = new Set(failed.map((error) => error.key));
+  await db.pendingFile.deleteMany({ where: { key: { in: ours.filter((key) => !stuck.has(key)) } } });
+  if (failed.length) throw new AggregateError(failed, `${failed.length} stored files could not be deleted`);
 }
 
 /** Copies a file to a new key; false when the source no longer exists. A half-written copy is left to the orphan sweep. */

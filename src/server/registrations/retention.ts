@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { coverThumbKey } from "@/features/events/cover-url";
-import { deleteStoredFiles } from "@/server/registrations/file-store";
+import { deleteStoredFiles, isStoredKey, recordPending } from "@/server/registrations/file-store";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 import { hashBearerCode } from "@/server/registrations/registration";
@@ -35,10 +35,18 @@ export async function sweepOrphanFiles(now = new Date()) {
     const batch = (await db.pendingFile.findMany({ where: { createdAt: { lt: cutoff }, key: { gt: cursor } }, select: { key: true }, orderBy: { key: "asc" }, take: BATCH })).map((row) => row.key);
     if (!batch.length) break;
     referenced ??= await referencedFileKeys();
-    const orphans = batch.filter((key) => !referenced!.has(key));
-    await deleteStoredFiles(orphans);
-    await db.pendingFile.deleteMany({ where: { key: { in: batch.filter((key) => referenced!.has(key)) } } });
-    deleted += orphans.length;
+    const orphans = batch.filter((key) => isStoredKey(key) && !referenced!.has(key));
+    // A file that cannot be deleted stays recorded for the next run, without stopping this one (keys sort the same
+    // every day, so a stuck one would otherwise block everything after it). Any other error (the database) stops the sweep.
+    const failed = await deleteStoredFiles(orphans).then(() => 0, (error: unknown) => {
+      if (!(error instanceof AggregateError)) throw error;
+      const files = (error.errors as (NodeJS.ErrnoException & { key: string })[]).map((file) => `${file.key} (${file.code ?? file.name})`);
+      console.error(`Orphan file sweep could not delete, kept for the next run: ${files.join(", ")}`);
+      return files.length;
+    });
+    // Referenced keys just lose their record; so does a stray record that never named a file of ours.
+    await db.pendingFile.deleteMany({ where: { key: { in: batch.filter((key) => referenced!.has(key) || !isStoredKey(key)) } } });
+    deleted += orphans.length - failed;
     if (batch.length < BATCH) break;
     cursor = batch[batch.length - 1];
   }
@@ -101,7 +109,7 @@ export async function anonymizeExpiredEvents(now = new Date()) {
       // The keys are recorded with the wipe, in one transaction: the answers that held them are gone after it, so a
       // delete that fails below is still finished by the orphan sweep instead of leaving the files forever.
       await db.$transaction([
-        db.pendingFile.createMany({ data: files.map((key) => ({ key })), skipDuplicates: true }),
+        recordPending(files),
         ...batch.map((person) => db.registrant.update({ where: { id: person.id }, data: anonymizedRegistrantData(now) })),
       ]);
       await deleteLocalRegistrationFiles(files).catch((error: unknown) => {

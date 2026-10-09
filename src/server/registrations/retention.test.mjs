@@ -79,6 +79,36 @@ test("a journaled key whose file is already gone just loses its record", async (
   assert.equal(state.pending.size, 0);
 });
 
+test("a file that cannot be deleted stays recorded without stopping the rest of the sweep", async () => {
+  reset();
+  await mkdir(join(folder, key(30))); // sorts first, and its unlink fails every time
+  for (const k of [key(31), key(32)]) await stored(k, twoDaysAgo);
+  state.pending.set(key(30), twoDaysAgo);
+  const original = console.error;
+  console.error = () => undefined;
+  try { assert.equal(await sweepOrphanFiles(now), 2); } finally { console.error = original; }
+  assert.equal(await exists(key(31)) || await exists(key(32)), false);
+  assert.deepEqual([...state.pending.keys()], [key(30)]);
+  await rm(join(folder, key(30)), { recursive: true });
+});
+
+test("a recorded key that is not one of ours is released, never counted again", async () => {
+  reset();
+  state.pending.set("not-a-generated-key.pdf", twoDaysAgo);
+  assert.equal(await sweepOrphanFiles(now), 0, "no file was deleted");
+  assert.equal(state.pending.size, 0);
+});
+
+test("answers holding a key we never generate (e.g. too long for the journal) are anonymized and not journaled", async () => {
+  reset();
+  const odd = `${"x".repeat(80)}.pdf`;
+  state.events = [{ id: "e3", retentionDays: 30, anonymizedAt: null, days: [{ date: new Date(now.getTime() - 40 * DAY) }] }];
+  state.registrants = [{ id: "r3", eventId: "e3", answers: { doc: file(odd) } }];
+  assert.equal((await anonymizeExpiredEvents(now)).anonymizedRegistrants, 1);
+  assert.deepEqual(state.registrants[0].answers, {});
+  assert.equal(state.pending.has(odd), false);
+});
+
 test("a failed delete during anonymization does not stop retention, and the sweep removes the file later", async () => {
   reset();
   state.events = [{ id: "e2", retentionDays: 30, anonymizedAt: null, days: [{ date: new Date(now.getTime() - 40 * DAY) }] }];

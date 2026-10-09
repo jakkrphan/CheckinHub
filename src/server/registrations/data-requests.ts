@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { db } from "@/server/db";
 import { syncRegistrantStatus } from "@/server/registrations/day-status";
+import { recordPending } from "@/server/registrations/file-store";
 import { lockEventDays, promoteWaitlist } from "@/server/registrations/lifecycle";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { anonymizedRegistrantData, fileKeys } from "@/server/registrations/retention";
@@ -53,7 +54,7 @@ export async function completeDeletionRequest(eventId: string, requestId: string
     await tx.auditLog.create({ data: { eventId, actorId, action: "DATA_DELETION_COMPLETED", target: request.registrantId, metadata: { requestId: request.id, cancelledDays: cancelled.count } } });
     // Recorded with the wipe: if the delete below fails, the orphan sweep still finds and removes these files.
     const files = fileKeys(person.answers);
-    await tx.pendingFile.createMany({ data: files.map((key) => ({ key })), skipDuplicates: true });
+    await recordPending(files, tx);
     return { files };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   if (!outcome) return "missing" as const;

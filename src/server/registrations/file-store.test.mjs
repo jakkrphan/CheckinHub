@@ -66,8 +66,21 @@ test("every write and copy is journaled; a delete releases the journal only once
   // A delete that fails (here: a folder where the file should be) leaves the key journaled for the orphan sweep.
   const stuck = "0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.pdf";
   await mkdir(join(folder, stuck));
-  await assert.rejects(deleteStoredFiles([stuck]));
+  const other = await storeLocalCover(new File([await photo(400, 225)], "k.jpg"));
+  await assert.rejects(deleteStoredFiles([stuck, other.key]), AggregateError);
   assert.ok(pending.has(stuck));
+  assert.equal(await readStoredFile(other.key), null, "the other file is still deleted");
+  assert.equal(pending.has(other.key), false);
+  // Production without UPLOAD_DIR deletes nothing and keeps the records, so the files are found once it is set again.
+  const kept = await storeLocalCover(new File([await photo(400, 225)], "u.jpg"));
+  const nodeEnv = process.env.NODE_ENV;
+  Object.assign(process.env, { NODE_ENV: "production", UPLOAD_DIR: "" });
+  try { await deleteLocalCover(kept.key); } finally {
+    process.env.UPLOAD_DIR = folder;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = nodeEnv;
+  }
+  assert.ok(pending.has(kept.key) && pending.has(coverThumbKey(kept.key)));
+  assert.ok(await readStoredFile(kept.key));
   await rm(join(folder, stuck), { recursive: true });
 });
 
