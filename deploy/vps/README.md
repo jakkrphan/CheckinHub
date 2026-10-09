@@ -70,9 +70,9 @@ Copy `nginx.conf.example` to `/etc/nginx/sites-available/checkinhub`, enable the
 Install these in `checkinhub`'s crontab. The scripts read `.env.production.local` and call the app using `APP_BASE_URL` and `CRON_SECRET`:
 
 ```cron
-*/15 * * * * cd /srv/checkinhub && /usr/bin/npm run -s maintenance:pending-holds
-*/5 * * * * cd /srv/checkinhub && /usr/bin/npm run -s maintenance:notifications
-30 2 * * * cd /srv/checkinhub && /usr/bin/npm run -s maintenance:retention
+*/15 * * * * cd /srv/checkinhub && NODE_ENV=production /usr/bin/npm run -s maintenance:pending-holds
+*/5 * * * * cd /srv/checkinhub && NODE_ENV=production /usr/bin/npm run -s maintenance:notifications
+30 2 * * * cd /srv/checkinhub && NODE_ENV=production /usr/bin/npm run -s maintenance:retention
 ```
 
 Back up both MySQL and `/srv/checkinhub-uploads` on a schedule, keep backups outside the VPS, and practice restoring them together. Monitor `/api/health`, `journalctl -u checkinhub`, and cron failures. Run `NODE_ENV=production npx prisma migrate deploy` on each application update before restarting the service.
