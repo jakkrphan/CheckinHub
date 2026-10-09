@@ -19,6 +19,7 @@
 /.next/
 /out/
 /.local-uploads/
+/.local-ssh/
 
 # production
 /build
