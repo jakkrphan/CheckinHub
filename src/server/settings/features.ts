@@ -32,16 +32,6 @@ export function envConfigured(names: readonly string[] = []) {
   return names.every((name) => !!process.env[name]?.trim());
 }
 
-/**
- * Publishing on production needs both Turnstile keys, otherwise every public submit would fail the captcha —
- * unless an admin switched Turnstile off.
- */
-export async function captchaReadyToPublish() {
-  return process.env.NODE_ENV !== "production"
-    || !(await isFeatureEnabled("turnstile"))
-    || envConfigured(["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"]);
-}
-
 /** Admins can always create events; organizers only while the admin switch allows it. */
 export async function mayCreateEvents(role: UserRole) {
   if (role === "ADMIN") return true;

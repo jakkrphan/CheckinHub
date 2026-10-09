@@ -115,14 +115,6 @@ export const featureDefinitions = [
     warning: "ยังไม่มีขั้นตอน \"ลืม PIN\" — PIN อยู่แค่ในแท็บเบราว์เซอร์ ถ้าลืมต้องปิดแท็บแล้วเข้าสู่ระบบใหม่",
   },
   {
-    key: "turnstile", group: "integration", defaultEnabled: true,
-    label: "Cloudflare Turnstile (กันบอทหน้าสมัคร)",
-    description: "ผู้สมัครต้องผ่านการตรวจของ Cloudflare ก่อนส่งใบสมัคร และเซิร์ฟเวอร์ตรวจผลกับ Cloudflare ทุกครั้ง · บน production ต้องตั้งคีย์ก่อน ไม่งั้นเผยแพร่โครงการและรับสมัครไม่ได้",
-    whenOff: "ไม่แสดงกล่องตรวจของ Cloudflare และไม่ตรวจกับ Cloudflare · ยังกันบอทด้วยช่องดักบอท, จับเวลากรอกฟอร์ม และจำกัด 10 ใบสมัคร/10 นาทีต่อ IP · เผยแพร่โครงการได้โดยไม่ต้องมีคีย์",
-    warning: "ปิดเฉพาะเมื่อจำเป็น เช่น Cloudflare ขัดข้องหรือผู้สมัครผ่านการตรวจไม่ได้ แล้วเปิดกลับโดยเร็ว — ระหว่างปิดบอทสมัครได้ง่ายขึ้น",
-    env: ["NEXT_PUBLIC_TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"],
-  },
-  {
     key: "emailNotifications", group: "integration", defaultEnabled: true,
     label: "ส่งอีเมลแจ้งผู้สมัคร",
     description: "ส่งผลการลงทะเบียน อนุมัติ/ปฏิเสธ เลื่อนคิว และยกเลิกทางอีเมล พร้อมแนบ QR เมื่ออนุมัติ · ส่งผ่าน SMTP และดูผลการส่งได้ในหน้ารายชื่อ",

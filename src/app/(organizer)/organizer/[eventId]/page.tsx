@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { readRegistrationFields, readRegistrationForm, validateRegistrationFields } from "@/features/events/registration-fields";
 import { cn } from "@/lib/utils";
 import { requireEventAccess } from "@/server/authorization/event";
-import { captchaReadyToPublish, isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
+import { isFeatureEnabled, mayCreateEvents } from "@/server/settings/features";
 import { db } from "@/server/db";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 
@@ -123,7 +123,6 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
   const hasFutureDeadline = !!event.registrationDeadline && event.registrationDeadline > new Date();
   const hasFileFields = registrationFields.some((field) => field.type === "file");
   const hasFileStorage = fileStorageReady() || !hasFileFields;
-  const hasProductionTurnstile = await captchaReadyToPublish();
   const sessionCount = days.reduce((sum, day) => sum + day.sessions.length, 0) + globalSessions.length;
   const publishChecks: PublishCheck[] = [
     { label: "ข้อมูลโครงการ + ประเภท", ready: !!event.title.trim(), step: 1 },
@@ -132,7 +131,6 @@ export default async function EventPage({ params, searchParams }: PageProps<"/or
     { label: `รอบเช็คชื่อ ${sessionCount} รอบ`, detail: hasSessions ? undefined : "ทุกวันต้องมีรอบ หรือมีรอบที่ใช้ได้ทุกวัน", ready: hasSessions, step: 4 },
     { label: event.registrationDeadline ? `ปิดรับ ${deadlineLabel.format(event.registrationDeadline)}` : "วันปิดรับลงทะเบียน", detail: hasFutureDeadline ? undefined : "ต้องตั้งวันปิดรับที่ยังไม่ผ่านมา", ready: hasFutureDeadline, step: 1 },
     ...(hasFileFields ? [{ label: "ที่เก็บไฟล์แนบ", detail: hasFileStorage ? undefined : "production ต้องตั้ง UPLOAD_DIR (โฟลเดอร์เก็บไฟล์บนเซิร์ฟเวอร์)", ready: hasFileStorage }] : []),
-    ...(!hasProductionTurnstile ? [{ label: "Cloudflare Turnstile", detail: "production ต้องตั้งคีย์ Turnstile ก่อนเปิดรับสมัคร (หรือให้ admin ปิด Turnstile ในหน้าตั้งค่าระบบ)", ready: false }] : []),
   ];
   const stepReady = [!!event.title.trim() && hasFutureDeadline, days.length > 0, hasValidRegistrationFields, hasSessions, event.status !== "DRAFT"];
   const deadlineDate = event.registrationDeadline

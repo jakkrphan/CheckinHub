@@ -173,7 +173,7 @@ try {
       const page = await contexts[target.staff ? "staff" : "public"].newPage();
       const pageErrors = [];
       page.on("pageerror", (error) => pageErrors.push(error.message.split("\n")[0].slice(0, 120)));
-      // Not "networkidle": the Turnstile widget and live refresh keep connections open.
+      // Not "networkidle": live refresh keeps connections open.
       await page.goto(base + target.path, { waitUntil: "load" });
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(target.path.startsWith("/events/") ? 1500 : 300);

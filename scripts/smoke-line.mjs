@@ -158,7 +158,6 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 3100));
   const registrationBody = (email, channel) => {
     const data = formDataFrom(registration, { email: `${email}-${suffix}@example.invalid`, dayId: day.id, "answer:name": email, consent: "on", notifyVia: channel });
-    data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
     return data;
   };
   const registerAs = (email, channel, withEmail = true) => {

@@ -15,8 +15,6 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values) {
   const data = new FormData();
-  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
-  data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   for (const [key, value] of Object.entries(values)) {
     if (Array.isArray(value)) { data.delete(key); for (const item of value) data.append(key, item); } else data.set(key, value);
@@ -45,9 +43,6 @@ async function callAction(pagePath, name, args, cookie) {
   return response.text();
 }
 
-// The captcha checks need the admin Turnstile switch on; restore whatever an admin had set when finished.
-const savedTurnstile = await db.systemSetting.findUnique({ where: { key: "turnstile" } });
-await db.systemSetting.deleteMany({ where: { key: "turnstile" } });
 try {
   const suffix = randomUUID();
   const owner = await db.user.findUniqueOrThrow({ where: { email: "admin@checkinhub.local" }, select: { id: true } });
@@ -76,11 +71,6 @@ try {
   ensure(location(response).includes("error=invalid"), "Honeypot submission was accepted");
   response = await post(publicUrl, form, { ...values(`forged-${suffix}@example.invalid`), formTicket: `${Date.now() - 10_000}.forged` }, { "x-forwarded-for": `rules-forged-${suffix}` });
   ensure(location(response).includes("error=invalid"), "Forged form ticket was accepted");
-  if (process.env.TURNSTILE_SECRET_KEY) {
-    // With Turnstile configured, a submission without (or with a bad) token is refused.
-    response = await post(publicUrl, form, { ...values(`nocaptcha-${suffix}@example.invalid`), "cf-turnstile-response": "" }, { "x-forwarded-for": `rules-captcha-${suffix}` });
-    ensure(location(response).includes("error=captcha"), `Submission without a Turnstile token was accepted: ${location(response)}`);
-  }
   ensure(await db.registrant.count({ where: { eventId } }) === 0, "A refused submission created a registrant");
 
   // Consent evidence is stored with the registration.
@@ -154,8 +144,6 @@ try {
 
   process.stdout.write("Rules: bot checks, consent evidence, wrong-day override permissions/audit, session label and removal rules, manual capacity override and eventType warning passed.\n");
 } finally {
-  await db.systemSetting.deleteMany({ where: { key: "turnstile" } });
-  if (savedTurnstile) await db.systemSetting.create({ data: savedTurnstile });
   if (eventId) await db.event.delete({ where: { id: eventId } });
   if (staffId) await db.user.deleteMany({ where: { id: staffId } });
   await db.$disconnect();

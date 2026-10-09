@@ -42,11 +42,9 @@ AUTH_TRUST_HOST="true"
 APP_BASE_URL="https://checkinhub.tech"
 UPLOAD_DIR="/srv/checkinhub-uploads"
 CRON_SECRET="ANOTHER_LONG_RANDOM_VALUE"
-NEXT_PUBLIC_TURNSTILE_SITE_KEY="REAL_SITE_KEY"
-TURNSTILE_SECRET_KEY="REAL_SECRET_KEY"
 ```
 
-Use URL encoding for special characters in the MySQL password inside `DATABASE_URL`. Set the SMTP variables if email notifications are needed and the LINE variables if LINE is enabled. `NEXT_PUBLIC_TURNSTILE_SITE_KEY` must be present **before** `npm run build`. The retention job also removes this database's tracked orphan uploads; keep production and staging storage separate.
+Use URL encoding for special characters in the MySQL password inside `DATABASE_URL`. Set the SMTP variables if email notifications are needed and the LINE variables if LINE is enabled. The retention job also removes this database's tracked orphan uploads; keep production and staging storage separate.
 
 ## Install and start
 

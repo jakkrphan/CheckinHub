@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import Script from "next/script";
 import { ImageIcon, LockKeyholeIcon, MapPinIcon } from "lucide-react";
 
 import { PublicRegistrationWizard } from "@/app/(public)/events/[slug]/public-registration-wizard";
@@ -97,9 +96,7 @@ export default async function PublicEventPage({
       remaining: availability.mode === "per_day" ? availability.days.get(day.id)?.remaining ?? null : null,
     };
   });
-  const captchaEnabled = await isFeatureEnabled("turnstile");
   const lineEnabled = lineConfigured() && await isFeatureEnabled("lineLogin");
-  const captchaSiteKey = captchaEnabled ? process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "" : "";
   const deadline = event.registrationDeadline ? new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(event.registrationDeadline) : "ยังไม่กำหนด";
   const errorMessage: Record<string, string> = {
     paused: "ขณะนี้ปิดรับลงทะเบียนออนไลน์ชั่วคราว กรุณาลองใหม่ภายหลัง",
@@ -109,7 +106,6 @@ export default async function PublicEventPage({
     "form-changed": "ผู้จัดเพิ่งแก้แบบฟอร์มระหว่างที่คุณกรอก — หน้านี้เป็นแบบฟอร์มล่าสุดแล้ว กรุณากรอกและส่งอีกครั้ง",
     duplicate: "อีเมลนี้ลงทะเบียนโครงการนี้แล้ว กรุณาใช้ลิงก์สถานะที่ได้รับตอนลงทะเบียน",
     "rate-limited": "ส่งใบสมัครบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่",
-    captcha: "การยืนยันตัวตนไม่ผ่าน กรุณาลองใหม่",
     unavailable: "ระบบลงทะเบียนยังไม่พร้อม กรุณาลองใหม่ภายหลัง",
     "too-fast": "ระบบตรวจพบการส่งเร็วผิดปกติ กรุณาตรวจสอบข้อมูลแล้วส่งอีกครั้ง",
     expired: "หน้าฟอร์มเปิดค้างไว้นานเกินไป กรุณากรอกและส่งใหม่อีกครั้ง",
@@ -126,8 +122,7 @@ export default async function PublicEventPage({
   if (available) {
     return (
       <main className="mx-auto flex min-h-svh w-full max-w-lg md:my-10 md:min-h-0 md:max-w-xl md:overflow-clip md:rounded-2xl md:border md:shadow-sm lg:max-w-2xl flex-col bg-background shadow-sm">
-        {captchaSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" async defer />}
-        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} pages={formPageLayout(readRegistrationForm(event.fields))} days={days} captchaSiteKey={captchaSiteKey} captchaEnabled={captchaEnabled} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} waitlistEnabled={event.waitlistEnabled} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
+        <PublicRegistrationWizard slug={slug} formTicket={issueFormTicket()} fieldsVersion={event.fieldsVersion} fields={fields} pages={formPageLayout(readRegistrationForm(event.fields))} days={days} lineEnabled={lineEnabled} deadline={deadline} autoApprove={event.autoApprove} waitlistEnabled={event.waitlistEnabled} seatMode={event.seatMode} courseRemaining={availability.mode === "whole_course" ? availability.remaining : null} courseMaxSeats={event.maxSeats} title={event.title} typeLabel={typeLabel} cover={cover} details={details} notice={notice} />
       </main>
     );
   }

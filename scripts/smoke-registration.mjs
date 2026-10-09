@@ -25,8 +25,6 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values = {}) {
   const form = new FormData();
-  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
-  form.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) {
     form.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   }

@@ -47,10 +47,8 @@ AUTH_TRUST_HOST="true"
 APP_BASE_URL="https://checkinhub.tech"
 UPLOAD_DIR="/srv/checkinhub-uploads"
 CRON_SECRET="$cron_secret"
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
-TURNSTILE_SECRET_KEY=""
 ENV
 chown checkinhub:checkinhub "$env_file"
 chmod 600 "$env_file"
 unset db_password auth_secret cron_secret
-echo "Database and production environment created. Set Turnstile keys before accepting registrations."
+echo "Database and production environment created."

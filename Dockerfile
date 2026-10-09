@@ -21,10 +21,6 @@ CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
 FROM deps AS builder
 COPY . .
 
-# The Turnstile site key is public and must be embedded when Next.js builds the client bundle.
-ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=
-ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
-
 # Build-only placeholders let Prisma generate its client without putting production secrets in image layers.
 ENV NODE_ENV=production \
     DATABASE_URL=mysql://build:build@127.0.0.1:3306/checkinhub \

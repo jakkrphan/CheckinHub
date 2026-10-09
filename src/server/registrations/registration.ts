@@ -17,25 +17,10 @@ import { isFeatureEnabled } from "@/server/settings/features";
 export const newBearerCode = () => randomBytes(32).toString("base64url");
 export const hashBearerCode = (code: string) => createHash("sha256").update(code).digest("hex");
 
-export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "captcha" | "unavailable" | "too-fast" | "expired" | "full";
+export type RegistrationFailure = "paused" | "form-changed" | "not-open" | "invalid" | "duplicate" | "rate-limited" | "unavailable" | "too-fast" | "expired" | "full";
 export type RegistrationResult =
   | { ok: true; status: RegistrantStatus; token: string; qrCode: string | null; registrantId: string; notifyVia: NotificationChannel }
   | { ok: false; reason: RegistrationFailure; /** The answer that failed validation, when it is one field's fault. */ problem?: AnswerProblem };
-
-async function verifyTurnstile(response: FormDataEntryValue | null, ip: string) {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return process.env.NODE_ENV !== "production";
-  if (typeof response !== "string" || !response) return false;
-
-  const result = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    body: new URLSearchParams({ secret, response, remoteip: ip }),
-    cache: "no-store",
-  });
-  if (!result.ok) return false;
-  const body = await result.json() as { success?: boolean };
-  return body.success === true;
-}
 
 async function recordAttempt(ip: string) {
   const secret = process.env.AUTH_SECRET;
@@ -57,8 +42,6 @@ export async function registerForEvent(slug: string, formData: FormData, ip: str
   if (typeof honeypot === "string" && honeypot.trim()) return { ok: false, reason: "invalid" };
   const ticket = checkFormTicket(formData.get("formTicket"));
   if (ticket !== "ok") return { ok: false, reason: ticket === "invalid" ? "invalid" : ticket };
-  // Admins may switch Turnstile off (e.g. a Cloudflare outage); the honeypot, form ticket and IP limit above still apply.
-  if (await isFeatureEnabled("turnstile") && !(await verifyTurnstile(formData.get("cf-turnstile-response"), ip))) return { ok: false, reason: "captcha" };
   if (formData.get("consent") !== "on") return { ok: false, reason: "invalid" };
 
   // One channel: email, or LINE (only while it is offered; anything else means email). A LINE chooser gives no email —

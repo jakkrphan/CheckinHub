@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CheckIcon, MailIcon, MessageCircleIcon, ShieldCheckIcon } from "lucide-react";
+import { CheckIcon, MailIcon, MessageCircleIcon } from "lucide-react";
 
 import { registerPublicEvent } from "@/app/(public)/events/[slug]/actions";
 import { CourseOverview } from "@/app/(public)/events/[slug]/course-overview";
@@ -41,7 +41,7 @@ function groupByParent(fields: RegistrationFieldConfig[]) {
   return groups;
 }
 
-export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, pages, days, captchaSiteKey, captchaEnabled, lineEnabled, deadline, autoApprove, waitlistEnabled, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
+export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fields, pages, days, lineEnabled, deadline, autoApprove, waitlistEnabled, seatMode, courseRemaining, courseMaxSeats, title, typeLabel, cover, details, notice }: {
   slug: string;
   formTicket: string;
   /** Lets the server recognise a submission made from a page opened before the organizer changed the form. */
@@ -50,9 +50,6 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
   /** How the organizer split the form into pages; one page when the form has no page breaks. */
   pages: FormPageLayout[];
   days: DayOption[];
-  captchaSiteKey: string;
-  /** Admin switch; off hides the local-testing note as well as the widget. */
-  captchaEnabled: boolean;
   /** LINE notifications are on: the confirm step offers LINE as the channel for the QR and results. */
   lineEnabled: boolean;
   deadline: string;
@@ -216,7 +213,6 @@ export function PublicRegistrationWizard({ slug, formTicket, fieldsVersion, fiel
         </div>}
         <p className="px-1 text-xs leading-relaxed text-muted-foreground">หลังส่งใบสมัคร ระบบจะแสดงหน้าสถานะ บันทึกลิงก์หน้านั้นไว้เพื่อดูผลและ QR ได้ทุกเมื่อ</p>
         <div className="flex items-start gap-3 rounded-xl border bg-card p-4 has-[:checked]:border-primary"><input ref={consentInput} id="public-consent" name="consent" type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" required /><label htmlFor="public-consent" className="text-sm leading-relaxed">{CURRENT_CONSENT_TEXT} <span className="text-destructive" aria-hidden="true">*</span></label></div>
-        {captchaSiteKey ? <div className="cf-turnstile" data-sitekey={captchaSiteKey} /> : captchaEnabled && <div className="flex items-center gap-3 rounded-xl border bg-card p-4"><ShieldCheckIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><p className="text-xs text-muted-foreground">โหมดทดสอบในเครื่อง: ยังไม่ได้เชื่อม Cloudflare Turnstile</p></div>}
       </section>
 
       {wizardError && <p role="alert" className="px-5 pb-4 text-sm text-destructive">{wizardError}</p>}

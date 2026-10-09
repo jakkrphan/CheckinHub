@@ -24,11 +24,9 @@ Set these values in the application's Environment Variables before the first dep
 
 | Variable | Required value |
 | --- | --- |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Real Cloudflare Turnstile site key for `checkinhub.tech`; this is a build variable and needs a redeploy when changed. |
-| `TURNSTILE_SECRET_KEY` | Matching Turnstile secret key. Keep it secret. |
 | `APP_BASE_URL` | `https://checkinhub.tech` |
 
-The app's Turnstile switch defaults on. Set both Turnstile keys before publishing events for public registration. SMTP, LINE, and LDAP variables are optional and are already wired into the Compose definition. When using AD, use LDAPS or StartTLS, make sure the VPS can reach the directory, and set the LDAP bind account values. Leave `LDAP_AUTO_PROVISION=false` unless automatic creation of organizer accounts is intended.
+SMTP, LINE, and LDAP variables are optional and are already wired into the Compose definition. When using AD, use LDAPS or StartTLS, make sure the VPS can reach the directory, and set the LDAP bind account values. Leave `LDAP_AUTO_PROVISION=false` unless automatic creation of organizer accounts is intended.
 
 The MySQL database and uploaded files are stored in the Compose volumes `mysql_data` and `uploads`. Preserve both across deployments. Persistent volumes are not backups; configure backups to storage outside this VPS.
 

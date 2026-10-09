@@ -68,7 +68,7 @@ npm.cmd run test:integration:rules
 npm.cmd run test:integration:local-features
 ```
 
-คำสั่งทดสอบสร้างข้อมูลชั่วคราวแล้วลบเมื่อจบ การรับสมัคร local ทำงานใน development โดยไม่ต้องมี Turnstile; production จะปฏิเสธการรับสมัครจนกว่าจะตั้ง `NEXT_PUBLIC_TURNSTILE_SITE_KEY` และ `TURNSTILE_SECRET_KEY` (พร้อมบริการส่งอีเมล/LINE ก่อนใช้งานจริง)
+คำสั่งทดสอบสร้างข้อมูลชั่วคราวแล้วลบเมื่อจบ ก่อนใช้งานจริงต้องตั้งบริการส่งอีเมล/LINE
 
 เว็บแอประบบลงทะเบียนและเช็คชื่อเข้าร่วมอบรม สร้างด้วย Next.js App Router, TypeScript, Tailwind CSS และ shadcn/ui (Radix)
 

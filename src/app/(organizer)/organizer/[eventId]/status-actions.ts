@@ -7,7 +7,6 @@ import { readRegistrationFields, validateRegistrationFields } from "@/features/e
 import { requireEventAccess } from "@/server/authorization/event";
 import { requiresAdminAudit } from "@/server/authorization/policy";
 import { db } from "@/server/db";
-import { captchaReadyToPublish } from "@/server/settings/features";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 
 export async function changeEventStatus(eventId: string, target: "PUBLISHED" | "CLOSED") {
@@ -22,8 +21,7 @@ export async function changeEventStatus(eventId: string, target: "PUBLISHED" | "
     const ready = event.registrationDeadline && event.registrationDeadline > new Date()
       && days.length > 0 && days.every((day) => globalSessionCount > 0 || day.sessions.length > 0)
       && fields.length > 0 && validateRegistrationFields(fields)
-      && fields.every((field) => field.type !== "file" || fileStorageReady())
-      && await captchaReadyToPublish();
+      && fields.every((field) => field.type !== "file" || fileStorageReady());
     if (!ready || event.status === "PUBLISHED") redirect(`/organizer/${eventId}?error=not-ready`);
   } else if (event.status !== "PUBLISHED") {
     redirect(`/organizer/${eventId}?error=invalid-status`);

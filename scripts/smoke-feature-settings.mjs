@@ -14,8 +14,6 @@ function ensure(value, message) { if (!value) throw new Error(message); }
 function formsFrom(html) { return html.split("<form").slice(1).map((part) => `<form${part.split("</form>")[0]}</form>`); }
 function formDataFrom(html, values) {
   const data = new FormData();
-  // Cloudflare's dummy token: passes with the Turnstile test secret in .env.local, ignored when no secret is set.
-  data.set("cf-turnstile-response", "XXXX.DUMMY.TOKEN.XXXX");
   for (const match of html.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\/>/g)) data.set(match[1], (match[2] ?? "").replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
   for (const [key, value] of Object.entries(values)) {
     if (Array.isArray(value)) { data.delete(key); for (const item of value) data.append(key, item); } else data.set(key, value);
@@ -95,20 +93,8 @@ try {
   ensure(location(response).includes("error=paused"), `Paused registration accepted: ${location(response)}`);
   await toggle("publicRegistration", true);
 
-  // Turnstile: on, a submit without a token is refused; off, the widget is gone and the same submit goes through.
-  const captchaValues = { "cf-turnstile-response": "", dayId: days[0].id, "answer:name": "No captcha", consent: "on" };
-  ensure((await (await fetch(publicUrl)).text()).includes("cf-turnstile"), "Turnstile widget missing while on (needs the test site key in .env.local)");
-  response = await post(publicUrl, registrationForm, { ...captchaValues, email: `captcha-on-${suffix}@example.invalid` }, { "x-forwarded-for": `fs-captcha-on-${suffix}` });
-  ensure(location(response).includes("error=captcha"), `Submit without a Turnstile token accepted while on: ${location(response)}`);
-  await toggle("turnstile", false);
-  let html = await (await fetch(publicUrl)).text();
-  ensure(!html.includes("cf-turnstile") && !html.includes("challenges.cloudflare.com/turnstile") && !html.includes("โหมดทดสอบในเครื่อง"), "Turnstile widget or notice still shown while off");
-  response = await post(publicUrl, registrationForm, { ...captchaValues, email: `captcha-off-${suffix}@example.invalid` }, { "x-forwarded-for": `fs-captcha-off-${suffix}` });
-  ensure(location(response).includes("/status/"), `Submit refused while Turnstile is off: ${location(response)}`);
-  await toggle("turnstile", true);
-
   // Registrant self-service switches.
-  html = await (await fetch(statusUrl)).text();
+  let html = await (await fetch(statusUrl)).text();
   ensure(html.includes("แก้ไขข้อมูลของฉัน") && html.includes("เปลี่ยนวันที่เข้าร่วม") && html.includes("ยกเลิกการเข้าร่วม") && html.includes("/calendar"), "Self-service controls missing while on");
   const cancelForm = formsFrom(html).find((part) => part.includes("ยกเลิกการเข้าร่วม"));
   for (const key of ["selfEdit", "selfDayChange", "selfCancel", "calendarDownload"]) await toggle(key, false);
