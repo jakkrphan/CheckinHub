@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const devAllowedOrigins = process.env.DEV_ALLOWED_ORIGINS?.split(",").map((host) => host.trim()).filter(Boolean);
 
 const nextConfig: NextConfig = {
+  // Produce a minimal Node.js server image for Coolify and other Docker hosts.
+  output: "standalone",
   // Loaded by Node at runtime instead of bundled, as in portalrpp (it opens raw TCP/TLS sockets).
   serverExternalPackages: ["ldapts"],
   // Dev only: lets other machines on the LAN open `next dev` by IP (comma-separated hostnames, no scheme or port).
