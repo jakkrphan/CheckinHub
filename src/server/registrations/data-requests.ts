@@ -51,7 +51,10 @@ export async function completeDeletionRequest(eventId: string, requestId: string
     await tx.registrant.update({ where: { id: request.registrantId }, data: anonymizedRegistrantData(now) });
     await tx.dataRequest.update({ where: { id: request.id }, data: { status: "COMPLETED", reason: null, resolvedAt: now, resolvedById: actorId } });
     await tx.auditLog.create({ data: { eventId, actorId, action: "DATA_DELETION_COMPLETED", target: request.registrantId, metadata: { requestId: request.id, cancelledDays: cancelled.count } } });
-    return { files: fileKeys(person.answers) };
+    // Recorded with the wipe: if the delete below fails, the orphan sweep still finds and removes these files.
+    const files = fileKeys(person.answers);
+    await tx.pendingFile.createMany({ data: files.map((key) => ({ key })), skipDuplicates: true });
+    return { files };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   if (!outcome) return "missing" as const;
   await deleteLocalRegistrationFiles(outcome.files);

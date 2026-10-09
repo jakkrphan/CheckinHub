@@ -138,9 +138,13 @@ export async function updateEvent(eventId: string, formData: FormData) {
   if (!uploadedCover.ok) redirect(`/organizer/${eventId}?step=1&error=invalid-cover`);
   const removeCover = formData.get("removeCover") === "on";
 
+  // The cover this save replaces, read under the row lock: two saves at once must each delete the cover they replaced,
+  // not both the one read before the lock (which would leave the first save's new cover behind).
+  let replacedCover: string | null = null;
   try { await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM Event WHERE id = ${eventId} FOR UPDATE`;
-    const lockedEvent = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { status: true, seatMode: true } });
+    const lockedEvent = await tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { status: true, seatMode: true, coverImageKey: true } });
+    replacedCover = lockedEvent.coverImageKey;
     if (lockedEvent.status !== "DRAFT" && parsed.data.seatMode !== lockedEvent.seatMode) throw new Error("seat-mode-locked");
     if (parsed.data.seatMode !== lockedEvent.seatMode && await tx.registrant.count({ where: { eventId } })) throw new Error("seat-mode-in-use");
     if (parsed.data.seatMode === "whole_course" && parsed.data.maxSeats !== null) {
@@ -182,7 +186,7 @@ export async function updateEvent(eventId: string, formData: FormData) {
     }
   }); } catch (error) { await deleteLocalCover(uploadedCover.key); if (error instanceof Error && ["seat-mode-locked", "seat-mode-in-use", "seats-in-use"].includes(error.message)) redirect(`/organizer/${eventId}?error=invalid`); throw error; }
   if (uploadedCover.key || removeCover) {
-    await deleteLocalCover(originalEvent.coverImageKey);
+    await deleteLocalCover(replacedCover);
     if (removeCover) await deleteLocalCover(uploadedCover.key);
   }
 

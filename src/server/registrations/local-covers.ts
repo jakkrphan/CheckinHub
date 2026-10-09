@@ -65,7 +65,7 @@ export async function copyLocalCover(key: string | null | undefined) {
   if (!await copyStoredFile(key, copy)) return null;
   const thumb = coverThumbKey(key);
   // A missing source thumbnail is fine (the route falls back to the full image); a failed copy must not leave the large copy behind.
-  // Both copies go on failure: the thumbnail may be half written, or written before its timestamp update failed.
+  // Both copies go on failure: the thumbnail may be half written.
   if (thumb) try { await copyStoredFile(thumb, coverThumbKey(copy)!); } catch (error) { await deleteStoredFiles([copy, coverThumbKey(copy)]); throw error; }
   return copy;
 }

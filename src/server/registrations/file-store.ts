@@ -1,12 +1,15 @@
-import { copyFile, mkdir, open, readdir, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 
+import { db } from "@/server/db";
 import { uploadRoot } from "@/server/registrations/upload-storage";
 
 // The one place that touches stored files (attachments and cover images). Everything else passes keys, so moving
 // to object storage (S3 / MinIO) later means replacing this module only. Keys are random names we generated;
 // anything else is refused, so a key from the database can never reach outside the upload folder.
+// Every write, copy and delete first records its key in PendingFile, so a file left behind by a crash or a failed
+// delete is found again by the orphan sweep (retention.ts), and the sweep never touches a file this database did not write.
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 /** A registrant's upload: `<uuid>.pdf|jpg|png|webp|docx`. */
@@ -25,6 +28,11 @@ async function inChunks<T, R>(items: T[], work: (item: T) => Promise<R>) {
   return results;
 }
 
+/** Records keys that may end up unreferenced; a key already recorded keeps its original time. */
+async function recordPending(keys: string[]) {
+  if (keys.length) await db.pendingFile.createMany({ data: keys.map((key) => ({ key })), skipDuplicates: true });
+}
+
 function pathOf(key: string) {
   const root = uploadRoot();
   if (!root || !isKey(key)) return null;
@@ -37,6 +45,7 @@ export async function putFile(key: string, bytes: Buffer) {
   const root = uploadRoot();
   const path = pathOf(key);
   if (!root || !path) throw new Error("File storage unavailable or invalid key");
+  await recordPending([key]);
   await mkdir(/* turbopackIgnore: true */ root, { recursive: true, mode: 0o700 });
   await writeFile(/* turbopackIgnore: true */ path, bytes, { flag: "wx", mode: 0o600 });
 }
@@ -71,48 +80,33 @@ export async function statStoredFile(key: string) {
   } catch { return null; }
 }
 
-/** Removes files; a file already gone is fine. */
+/**
+ * Removes files; a file already gone is fine. The keys are recorded first and released only once every file is gone,
+ * so a delete that fails (or a crash part-way) is retried by the orphan sweep.
+ */
 export async function deleteStoredFiles(keys: (string | null | undefined)[]) {
-  await inChunks(keys, async (key) => {
-    const path = key ? pathOf(key) : null;
-    if (!path) return;
-    try { await unlink(/* turbopackIgnore: true */ path); } catch (error) {
+  const ours = keys.filter((key): key is string => !!key && !!pathOf(key));
+  if (!ours.length) return;
+  await recordPending(ours);
+  await inChunks(ours, async (key) => {
+    try { await unlink(/* turbopackIgnore: true */ pathOf(key)!); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   });
+  await db.pendingFile.deleteMany({ where: { key: { in: ours } } });
 }
 
-/** Copies a file to a new key; false when the source no longer exists. */
+/** Copies a file to a new key; false when the source no longer exists. A half-written copy is left to the orphan sweep. */
 export async function copyStoredFile(from: string, to: string) {
   const source = pathOf(from);
   const target = pathOf(to);
   if (!source || !target) return false;
+  await recordPending([to]);
   try {
     await copyFile(/* turbopackIgnore: true */ source, /* turbopackIgnore: true */ target);
-    // Some systems keep the source's modification time on a copy; the orphan sweep must see the copy as new.
-    const now = new Date();
-    await utimes(/* turbopackIgnore: true */ target, now, now);
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
-}
-
-/** Every stored key with its last change, for the orphan sweep. Files that are not ours are left out (and alone). */
-export async function listStoredFiles(): Promise<{ key: string; modifiedAt: Date }[]> {
-  const root = uploadRoot();
-  if (!root) return [];
-  let names: string[];
-  try { names = await readdir(/* turbopackIgnore: true */ root); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-  const files = await inChunks(names.filter(isKey), async (key) => {
-    try {
-      const info = await stat(join(/* turbopackIgnore: true */ root, key));
-      return info.isFile() ? { key, modifiedAt: info.mtime } : null;
-    } catch { return null; }
-  });
-  return files.filter((file): file is { key: string; modifiedAt: Date } => file !== null);
 }

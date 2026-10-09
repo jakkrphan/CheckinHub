@@ -82,6 +82,8 @@ export async function updateOwnAnswers(slug: string, token: string, formData: Fo
   if (!changed.length) return { status: "unchanged" };
 
   await db.$transaction([
+    // Recorded with the change, so an upload that drops out is removed by the orphan sweep even if the delete below fails.
+    db.pendingFile.createMany({ data: orphanedFiles.map((key) => ({ key })), skipDuplicates: true }),
     db.registrant.update({ where: { id: registrant.id }, data: { answers: answers as Prisma.InputJsonValue, displayName: registrantDisplayName(readRegistrationFields(registrant.event.fields), answers), fieldsVersion: registrant.event.fieldsVersion } }),
     db.auditLog.create({ data: { eventId: registrant.eventId, actorId: null, action: "REGISTRANT_SELF_EDITED", target: registrant.id, metadata: { changedFields: changed } } }),
   ]);

@@ -24,15 +24,11 @@ async function cover(request: Request, context: RouteContext<"/events/[slug]/cov
   if (!contentType) return new Response("Not found", { status: 404 });
   // Covers from before thumbnails (including .webp ones) have no small file: send the full image instead.
   // HEAD only needs the size, so the file is not opened for a body nobody reads.
-  let file: { body: ReadableStream<Uint8Array> | null; size: number } | null = null;
-  for (const key of thumb ? [thumb, event.coverImageKey] : [event.coverImageKey]) {
-    if (withBody) file = await openStoredFile(key);
-    else { const found = await statStoredFile(key); file = found && { body: null, size: found.size }; }
-    if (file) break;
-  }
+  const read: (key: string) => Promise<{ body?: ReadableStream<Uint8Array>; size: number } | null> = withBody ? openStoredFile : statStoredFile;
+  const file = (thumb ? await read(thumb) : null) ?? await read(event.coverImageKey);
   if (!file) return new Response("Not found", { status: 404 });
   const current = search.get("v") === event.coverImageKey.slice(0, 8);
-  return new Response(file.body, { headers: {
+  return new Response(file.body ?? null, { headers: {
     "content-type": contentType,
     "content-length": String(file.size),
     "cache-control": event.status === "DRAFT" ? "private, no-store" : current ? "public, max-age=86400" : "public, max-age=300, stale-while-revalidate=3600",

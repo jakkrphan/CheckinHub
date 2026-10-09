@@ -1,7 +1,8 @@
-// Unit tests for stored files: cover re-encoding (WebP + thumbnail, metadata dropped), the key guard, and streaming.
+// Unit tests for stored files: cover re-encoding (WebP + thumbnail, metadata dropped), the key guard, streaming, and the
+// PendingFile journal kept by every write, copy and delete.
 // Runs against a throwaway UPLOAD_DIR, never the real upload folder.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, stat, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,8 +11,14 @@ import sharp from "sharp";
 
 const folder = await mkdtemp(join(tmpdir(), "checkinhub-files-"));
 process.env.UPLOAD_DIR = folder;
+// The PendingFile journal, in memory (db.ts reuses globalThis.prisma), so these tests need no database.
+const pending = new Set();
+globalThis.prisma = { pendingFile: {
+  createMany: async ({ data }) => { for (const { key } of data) pending.add(key); },
+  deleteMany: async ({ where }) => { for (const key of where.key.in) pending.delete(key); },
+} };
 const { copyLocalCover, deleteLocalCover, storeLocalCover } = await import("./local-covers.ts");
-const { ATTACHMENT_KEY, openStoredFile, THUMB_KEY } = await import("./file-store.ts");
+const { ATTACHMENT_KEY, deleteStoredFiles, openStoredFile, THUMB_KEY } = await import("./file-store.ts");
 const { coverThumbKey } = await import("../../features/events/cover-url.ts");
 // Reads a stored file through the streaming API (the store has no read-into-memory call on purpose).
 const readStoredFile = async (key) => { const file = await openStoredFile(key); return file ? Buffer.from(await new Response(file.body).arrayBuffer()) : null; };
@@ -50,12 +57,18 @@ test("non-images and wrong extensions are refused, and nothing is written", asyn
   assert.equal((await readdir(folder)).length, before);
 });
 
-test("a copied cover counts as new for the orphan sweep, even when the original is old", async () => {
-  const stored = await storeLocalCover(new File([await photo(400, 225)], "old.jpg"));
-  const monthAgo = new Date(Date.now() - 30 * 86400000);
-  await utimes(join(folder, stored.key), monthAgo, monthAgo);
+test("every write and copy is journaled; a delete releases the journal only once the file is gone", async () => {
+  const stored = await storeLocalCover(new File([await photo(400, 225)], "j.jpg"));
   const copy = await copyLocalCover(stored.key);
-  assert.ok(Date.now() - (await stat(join(folder, copy))).mtime.getTime() < 60_000);
+  for (const key of [stored.key, coverThumbKey(stored.key), copy, coverThumbKey(copy)]) assert.ok(pending.has(key), key);
+  await deleteLocalCover(copy);
+  assert.equal(pending.has(copy) || pending.has(coverThumbKey(copy)), false);
+  // A delete that fails (here: a folder where the file should be) leaves the key journaled for the orphan sweep.
+  const stuck = "0b8e3f6e-1f5c-4d8a-9c1e-2f3a4b5c6d7e.pdf";
+  await mkdir(join(folder, stuck));
+  await assert.rejects(deleteStoredFiles([stuck]));
+  assert.ok(pending.has(stuck));
+  await rm(join(folder, stuck), { recursive: true });
 });
 
 test("only keys we generate are accepted: no paths, no other names", async () => {

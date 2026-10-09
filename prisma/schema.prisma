@@ -398,3 +398,14 @@ model Announcement {
 
   @@index([eventId, createdAt])
 }
+
+/// A stored file (attachment, cover or thumbnail) that may have no row referring to it: written but perhaps never
+/// saved (crash, failed request), or due for deletion. Every write, copy and delete records its key here first, so the
+/// retention job's sweep only ever deletes files this database wrote — never other files in UPLOAD_DIR. The sweep
+/// takes rows older than a day: a referenced key just loses its row, an unreferenced one is deleted with its file.
+model PendingFile {
+  key       String   @id @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

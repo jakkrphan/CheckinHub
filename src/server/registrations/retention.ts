@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { readFileAnswers } from "@/features/events/registration-fields";
 import { db } from "@/server/db";
 import { coverThumbKey } from "@/features/events/cover-url";
-import { deleteStoredFiles, listStoredFiles } from "@/server/registrations/file-store";
+import { deleteStoredFiles } from "@/server/registrations/file-store";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 import { hashBearerCode } from "@/server/registrations/registration";
@@ -20,18 +20,33 @@ export function retentionDueAt(lastDay: Date, retentionDays: number) {
 
 /**
  * Deletes stored files nothing refers to any more: left by a crash between writing a file and saving its row, a failed
- * delete, or rows removed by hand. Only files older than a day, so an upload still being saved is never touched; covers
- * (and thumbnails) of every event, deleted ones included, and every registrant's attachments count as referenced.
- *
- * Off unless ORPHAN_FILE_SWEEP="true" ("disabled"). It deletes whatever this database does not know, so it is only safe
- * when UPLOAD_DIR belongs to this system alone — never a folder shared with staging, a copy of this database, or another
- * install. That cannot be detected reliably, so the operator states it by switching the sweep on (see OPERATIONS.md).
+ * delete, or a cover replaced twice at once. Only keys in PendingFile are considered (every write, copy and delete
+ * records one, see file-store.ts), so files this database did not write — another install's, or anything else in
+ * UPLOAD_DIR — are never touched. A key is looked at once its record is a day old, so an upload still being saved is
+ * safe: referenced keys just lose their record; covers (and thumbnails) of every event, deleted ones included, and every
+ * registrant's attachments count as referenced. Returns how many files were deleted.
  */
-export async function sweepOrphanFiles(now = new Date()): Promise<number | "disabled"> {
-  if (process.env.ORPHAN_FILE_SWEEP !== "true") return "disabled";
+export async function sweepOrphanFiles(now = new Date()) {
   if (!fileStorageReady()) return 0;
-  const candidates = (await listStoredFiles()).filter((file) => now.getTime() - file.modifiedAt.getTime() > DAY_MS);
-  if (!candidates.length) return 0;
+  const cutoff = new Date(now.getTime() - DAY_MS);
+  let referenced: Set<string> | null = null;
+  let deleted = 0;
+  for (let cursor = ""; ;) {
+    const batch = (await db.pendingFile.findMany({ where: { createdAt: { lt: cutoff }, key: { gt: cursor } }, select: { key: true }, orderBy: { key: "asc" }, take: BATCH })).map((row) => row.key);
+    if (!batch.length) break;
+    referenced ??= await referencedFileKeys();
+    const orphans = batch.filter((key) => !referenced!.has(key));
+    await deleteStoredFiles(orphans);
+    await db.pendingFile.deleteMany({ where: { key: { in: batch.filter((key) => referenced!.has(key)) } } });
+    deleted += orphans.length;
+    if (batch.length < BATCH) break;
+    cursor = batch[batch.length - 1];
+  }
+  return deleted;
+}
+
+/** Every stored key some row still refers to: event covers with their thumbnails, and registrants' uploads. */
+async function referencedFileKeys() {
   const referenced = new Set<string>();
   for (const event of await db.event.findMany({ where: { coverImageKey: { not: null } }, select: { coverImageKey: true } })) {
     referenced.add(event.coverImageKey!);
@@ -48,9 +63,7 @@ export async function sweepOrphanFiles(now = new Date()): Promise<number | "disa
     if (batch.length < BATCH) break;
     cursor = batch[batch.length - 1].id;
   }
-  const orphans = candidates.filter((file) => !referenced.has(file.key)).map((file) => file.key);
-  await deleteStoredFiles(orphans);
-  return orphans.length;
+  return referenced;
 }
 
 /** Every stored upload in an answers object: single-file objects, multi-file arrays, and keys of fields removed from the form. */
@@ -84,11 +97,16 @@ export async function anonymizeExpiredEvents(now = new Date()) {
     for (;;) {
       const batch = await db.registrant.findMany({ where: { eventId: event.id, anonymizedAt: null }, select: { id: true, answers: true }, take: BATCH });
       if (!batch.length) break;
-      await db.$transaction(batch.map((person) => db.registrant.update({
-        where: { id: person.id },
-        data: anonymizedRegistrantData(now),
-      })));
-      await deleteLocalRegistrationFiles(batch.flatMap((person) => fileKeys(person.answers)));
+      const files = batch.flatMap((person) => fileKeys(person.answers));
+      // The keys are recorded with the wipe, in one transaction: the answers that held them are gone after it, so a
+      // delete that fails below is still finished by the orphan sweep instead of leaving the files forever.
+      await db.$transaction([
+        db.pendingFile.createMany({ data: files.map((key) => ({ key })), skipDuplicates: true }),
+        ...batch.map((person) => db.registrant.update({ where: { id: person.id }, data: anonymizedRegistrantData(now) })),
+      ]);
+      await deleteLocalRegistrationFiles(files).catch((error: unknown) => {
+        console.error(`Retention could not delete uploads now (the orphan sweep retries): ${(error as Error).name}`);
+      });
       eventCount += batch.length;
     }
     await db.$transaction([

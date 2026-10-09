@@ -8,3 +8,8 @@ const response = await fetch(`${base}/api/jobs/retention`, { headers: { authoriz
 if (!response.ok) throw new Error(`Data-retention maintenance failed: HTTP ${response.status}`);
 const result = await response.json();
 process.stdout.write(`Checked ${result.checkedEvents} events; anonymized ${result.anonymizedRegistrants} registrants in ${result.anonymizedEvents} events.\n`);
+// A failed sweep does not fail the request (the anonymization above already happened), but it must show in the cron log.
+if (result.orphanFilesDeleted === null) {
+  process.stderr.write("Orphan file sweep failed (see the app log); unreferenced uploads stay until a later run succeeds.\n");
+  process.exitCode = 1;
+} else process.stdout.write(`Deleted ${result.orphanFilesDeleted} orphan files.\n`);
