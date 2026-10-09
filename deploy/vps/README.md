@@ -50,13 +50,13 @@ Use URL encoding for special characters in the MySQL password inside `DATABASE_U
 
 ## Install and start
 
-Run these commands as `checkinhub` from `/srv/checkinhub`:
+Run these commands as `checkinhub` from `/srv/checkinhub`. Set `NODE_ENV=production` so Prisma reads `.env.production.local`:
 
 ```sh
 npm ci
-npx prisma generate
-npx prisma migrate deploy
-npm run build
+NODE_ENV=production npx prisma generate
+NODE_ENV=production npx prisma migrate deploy
+NODE_ENV=production npm run build
 ```
 
 For the first installation, set `CHECKIN_ADMIN_NAME`, `CHECKIN_ADMIN_EMAIL`, and `CHECKIN_ADMIN_PASSWORD` (12 or more characters) for one invocation of `npm run admin:create`. Do not run `db:seed` on production.
@@ -75,4 +75,4 @@ Install these in `checkinhub`'s crontab. The scripts read `.env.production.local
 30 2 * * * cd /srv/checkinhub && /usr/bin/npm run -s maintenance:retention
 ```
 
-Back up both MySQL and `/srv/checkinhub-uploads` on a schedule, keep backups outside the VPS, and practice restoring them together. Monitor `/api/health`, `journalctl -u checkinhub`, and cron failures. Run `npx prisma migrate deploy` on each application update before restarting the service.
+Back up both MySQL and `/srv/checkinhub-uploads` on a schedule, keep backups outside the VPS, and practice restoring them together. Monitor `/api/health`, `journalctl -u checkinhub`, and cron failures. Run `NODE_ENV=production npx prisma migrate deploy` on each application update before restarting the service.
