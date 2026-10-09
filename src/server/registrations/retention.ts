@@ -7,7 +7,6 @@ import { db } from "@/server/db";
 import { coverThumbKey } from "@/features/events/cover-url";
 import { deleteStoredFiles, listStoredFiles } from "@/server/registrations/file-store";
 import { deleteLocalRegistrationFiles } from "@/server/registrations/local-files";
-import { uploadFolderOwnership } from "@/server/registrations/upload-ownership";
 import { fileStorageReady } from "@/server/registrations/upload-storage";
 import { hashBearerCode } from "@/server/registrations/registration";
 
@@ -23,11 +22,14 @@ export function retentionDueAt(lastDay: Date, retentionDays: number) {
  * Deletes stored files nothing refers to any more: left by a crash between writing a file and saving its row, a failed
  * delete, or rows removed by hand. Only files older than a day, so an upload still being saved is never touched; covers
  * (and thumbnails) of every event, deleted ones included, and every registrant's attachments count as referenced.
- * Nothing is deleted from a folder another database also uses ("folder-shared", see upload-ownership.ts).
+ *
+ * Off unless ORPHAN_FILE_SWEEP="true" ("disabled"). It deletes whatever this database does not know, so it is only safe
+ * when UPLOAD_DIR belongs to this system alone — never a folder shared with staging, a copy of this database, or another
+ * install. That cannot be detected reliably, so the operator states it by switching the sweep on (see OPERATIONS.md).
  */
-export async function sweepOrphanFiles(now = new Date()): Promise<number | "folder-shared"> {
+export async function sweepOrphanFiles(now = new Date()): Promise<number | "disabled"> {
+  if (process.env.ORPHAN_FILE_SWEEP !== "true") return "disabled";
   if (!fileStorageReady()) return 0;
-  if (await uploadFolderOwnership() === "shared") return "folder-shared";
   const candidates = (await listStoredFiles()).filter((file) => now.getTime() - file.modifiedAt.getTime() > DAY_MS);
   if (!candidates.length) return 0;
   const referenced = new Set<string>();

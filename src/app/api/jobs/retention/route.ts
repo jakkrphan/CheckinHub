@@ -20,8 +20,7 @@ export async function GET(request: Request) {
     console.error(`Orphan file sweep failed: ${(error as Error).name}`);
     return null;
   });
-  // "folder-shared": UPLOAD_DIR is also used by another database, so nothing was deleted — give each system its own folder.
-  if (sweep === "folder-shared") console.error("Orphan file sweep skipped: UPLOAD_DIR belongs to another database");
+  // "disabled": ORPHAN_FILE_SWEEP is not "true" (the default), so orphan files are left alone.
   const orphans = typeof sweep === "number" ? { orphanFilesDeleted: sweep } : { orphanFilesDeleted: null, orphanSweepSkipped: sweep ?? "error" };
   return Response.json({ status: "ok", ...result, ...orphans }, { headers: { "Cache-Control": "no-store" } });
 }

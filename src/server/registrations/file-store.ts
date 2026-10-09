@@ -1,4 +1,4 @@
-import { copyFile, mkdir, open, readdir, readFile, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 
@@ -61,6 +61,16 @@ export async function openStoredFile(key: string): Promise<{ body: ReadableStrea
   }
 }
 
+/** The size of a stored file without opening it (for HEAD requests), or null when it is not there. */
+export async function statStoredFile(key: string) {
+  const path = pathOf(key);
+  if (!path) return null;
+  try {
+    const info = await stat(/* turbopackIgnore: true */ path);
+    return info.isFile() ? { size: info.size } : null;
+  } catch { return null; }
+}
+
 /** Removes files; a file already gone is fine. */
 export async function deleteStoredFiles(keys: (string | null | undefined)[]) {
   await inChunks(keys, async (key) => {
@@ -105,23 +115,4 @@ export async function listStoredFiles(): Promise<{ key: string; modifiedAt: Date
     } catch { return null; }
   });
   return files.filter((file): file is { key: string; modifiedAt: Date } => file !== null);
-}
-
-const OWNER_MARKER = ".checkinhub-folder";
-
-/** The id written in the folder by the database that owns it (see upload-ownership.ts), or null when none. */
-export async function readFolderOwner() {
-  const root = uploadRoot();
-  if (!root) return null;
-  try { return (await readFile(join(/* turbopackIgnore: true */ root, OWNER_MARKER), "utf8")).trim() || null; } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-export async function writeFolderOwner(id: string) {
-  const root = uploadRoot();
-  if (!root) throw new Error("File storage unavailable");
-  await mkdir(/* turbopackIgnore: true */ root, { recursive: true, mode: 0o700 });
-  await writeFile(join(/* turbopackIgnore: true */ root, OWNER_MARKER), `${id}\n`, { mode: 0o600 });
 }

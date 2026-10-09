@@ -5,6 +5,11 @@ import { docxContentType, openLocalRegistrationFile } from "@/server/registratio
 
 const contentTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", docxContentType]);
 
+/** Downloads are GET only: without this, Next would answer HEAD by running GET and opening (and auditing) the file. */
+export function HEAD() {
+  return new Response(null, { status: 405, headers: { allow: "GET" } });
+}
+
 /**
  * Downloads one attachment; multi-file answers pick the file with `?i=` (0-based, default 0). Files of a field that was
  * later removed from the form stay downloadable until retention deletes them.

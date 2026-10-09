@@ -15,7 +15,8 @@
 | `APP_BASE_URL` | URL จริงของระบบ เช่น `https://checkin.example.go.th` ใช้สร้างลิงก์สมัคร/QR ของโครงการ ลิงก์เชิญ/ตั้งรหัสผ่านของเจ้าหน้าที่ และเป็นปลายทางของสคริปต์ maintenance | ไม่มี `/` ท้าย · ห้ามตั้งเป็นค่าว่าง `""` (ลิงก์จะไม่มีโดเมน) · ถ้าไม่ตั้ง ลิงก์ใช้ host ของ request (ปลอมได้) และสคริปต์ maintenance ยิงไป `http://localhost:3100` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | widget Cloudflare Turnstile บนหน้าสมัคร | ฝังใน JavaScript ตอน `next build` — ต้องตั้งก่อน build · เพิ่มโดเมนจริงใน widget ที่ Cloudflare |
 | `TURNSTILE_SECRET_KEY` | ตรวจ token Turnstile ฝั่ง server | production ที่ไม่มีค่านี้จะ **ปฏิเสธการสมัครออนไลน์ทุกครั้ง** และผู้จัดเผยแพร่โครงการไม่ได้ (development ปล่อยผ่าน) — เว้นแต่ admin ปิดสวิตช์ Turnstile ใน `/admin?view=settings` |
-| `UPLOAD_DIR` | โฟลเดอร์เก็บไฟล์แนบและรูปปกบนเซิร์ฟเวอร์ เช่น `/srv/checkinhub-uploads` | อยู่นอกโฟลเดอร์แอปและไม่อยู่ใต้ `public/` · ให้ user ที่รันแอปเขียนได้คนเดียว (`chmod 700`) · ต้องรวมในการสำรองข้อมูล · ไม่ตั้ง = production ไม่รับอัปโหลด |
+| `UPLOAD_DIR` | โฟลเดอร์เก็บไฟล์แนบและรูปปกบนเซิร์ฟเวอร์ เช่น `/srv/checkinhub-uploads` | อยู่นอกโฟลเดอร์แอปและไม่อยู่ใต้ `public/` · ให้ user ที่รันแอปเขียนได้คนเดียว (`chmod 700`) · ต้องรวมในการสำรองข้อมูล · ไม่ตั้ง = production ไม่รับอัปโหลด · **ห้ามใช้โฟลเดอร์เดียวกันกับระบบอื่น** (staging, DB ที่ copy มา) — การลบไฟล์ของระบบหนึ่งจะกระทบอีกระบบ |
+| `ORPHAN_FILE_SWEEP` | `"true"` = งาน retention ลบไฟล์ใน `UPLOAD_DIR` ที่ไม่มีข้อมูลใน DB อ้างถึงและอายุเกิน 1 วัน (ไฟล์ค้างจาก process ล่ม/ลบไม่สำเร็จ) | ปิดเป็นค่าเริ่มต้น · เปิดเฉพาะเมื่อ `UPLOAD_DIR` เป็นของระบบนี้ระบบเดียว — ถ้าโฟลเดอร์ถูกใช้ร่วมกับ DB อื่น ไฟล์ของอีกระบบจะถูกลบถาวร · ผลลัพธ์ของ `/api/jobs/retention` บอก `orphanFilesDeleted` หรือ `orphanSweepSkipped: "disabled"` |
 | `CRON_SECRET` | รหัสของ `/api/jobs/pending-holds` และ `/api/jobs/retention` | สุ่มยาว · ไม่ตั้ง = งานตั้งเวลาตอบ 503 |
 
 ### บริการภายนอก
