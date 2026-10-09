@@ -4,12 +4,15 @@ import { join } from "node:path";
 
 import nextEnv from "@next/env";
 import { PrismaClient } from "@prisma/client";
+import sharp from "sharp";
 
 import { uploadRoot } from "../src/server/registrations/upload-storage.ts";
 
 nextEnv.loadEnvConfig(process.cwd());
 // The same folder the app stores uploads in (UPLOAD_DIR, or .local-uploads in development).
 const uploadDir = uploadRoot();
+// A real image: covers are decoded by sharp, which refuses broken files.
+const coverPng = await sharp({ create: { width: 32, height: 18, channels: 3, background: "#3a7" } }).png().toBuffer();
 if (!uploadDir) throw new Error("Set UPLOAD_DIR: production mode has no upload folder without it");
 
 const db = new PrismaClient();
@@ -76,7 +79,7 @@ try {
   ensure(createForm, "New event wizard cover input missing");
   response = await fetch(`${base}/organizer/new`, { method: "POST", headers: { cookie, origin: base }, body: formDataFrom(createForm, {
     title: `Cover create ${token}`, description: "", location: "", eventType: "INTERNAL", deadlineDate: "2031-12-31",
-    coverImage: new File([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p7sAAAAASUVORK5CYII=", "base64")], "created-cover.png", { type: "image/png" }),
+    coverImage: new File([coverPng], "created-cover.png", { type: "image/png" }),
   }), redirect: "manual" });
   ensure(response.status === 303 && /\/organizer\/[^/]+\?step=2/.test(response.headers.get("location") ?? ""), "Create event wizard did not continue to step 2");
   createdEventId = new URL(response.headers.get("location"), base).pathname.split("/").at(-1);
@@ -103,7 +106,7 @@ try {
     eventType: "MIXED",
     deadlineDate: "2031-12-31",
     autoApprove: "on",
-    coverImage: new File([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p7sAAAAASUVORK5CYII=", "base64")], "cover.png", { type: "image/png" }),
+    coverImage: new File([coverPng], "cover.png", { type: "image/png" }),
   });
   ensure(response.status === 303, "Save event settings did not redirect");
   const settings = await db.event.findUniqueOrThrow({ where: { id: eventId } });
